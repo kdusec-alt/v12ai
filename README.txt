@@ -1,15 +1,16 @@
-TINO V12 RC3.2｜第二次查詢 Segmentation Fault 修復
+TINO V12 RC3.3｜Auto-Learning 管理面板防當機修復
 
-覆蓋 GitHub 根目錄：
+請覆蓋 GitHub 根目錄：
 - app.py
 - ui_admin.py
 
-必要設定：
-Streamlit App Settings → Python version 請使用 3.11。
-最新 Log 仍顯示 Python 3.14.6；Pandas/Numpy/PyArrow 原生層在記憶體壓力下可能直接 Segmentation fault。
+修正內容：
+1. Auto-Learning 管理面板改為輕量模式。
+2. 開啟管理面板時不再自動讀取 pending summary、recent tables、audit dashboard，也不建立 pandas/pyarrow DataFrame。
+3. Storage Status 改用小型 HTML 表格，不走 st.dataframe。
+4. 重型 Auto Audit 改成第二層手動開啟，且小批次 limit=300 / max_tickers=20。
+5. app.py 會尊重 learning_log_enabled；啟用時每次分析完成仍會自動寫入一次正式 prediction log。
+6. 預測公式與 V9 前台 UI 不變。
 
-程式修正：
-1. 第二次查詢前先釋放上一個 Forecast，避免舊/新完整物件同時存在。
-2. 切換即時股價或預測學習時釋放 Forecast。
-3. Admin 收合面板不再每次重跑建立 Trace/Truth Guard DataFrame。
-4. 診斷資料改成手動按需載入。
+使用方式：
+上傳覆蓋 app.py、ui_admin.py → Commit main → Streamlit Reboot App。

@@ -322,8 +322,13 @@ def main():
                 st.session_state.input_was_cleared = False
                 st.session_state.forecast = run_analysis(symbol, macro, live)
                 mark_runtime_stage("forecast_session_state_set", symbol=symbol)
-                # RC2.4.3: invalid/stopped price forecasts must not enter Learning memory.
-                if st.session_state.forecast and not bool(getattr(st.session_state.forecast, "stopped", False)):
+                # RC3.3: invalid/stopped price forecasts must not enter Learning memory.
+                # The sidebar checkbox controls whether a formal snapshot is written.
+                if (
+                    bool(st.session_state.get("learning_log_enabled", True))
+                    and st.session_state.forecast
+                    and not bool(getattr(st.session_state.forecast, "stopped", False))
+                ):
                     sig = prediction_signature(st.session_state.forecast)
                     if sig and st.session_state.get("last_logged_prediction_sig") != sig:
                         log_prediction(st.session_state.forecast, macro=macro, live_data=live)
