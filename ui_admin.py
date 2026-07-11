@@ -48,22 +48,33 @@ def _admin_gate(st) -> bool:
         return False
     if st.session_state.admin_authenticated:
         st.sidebar.success("Admin 已登入")
-        if st.sidebar.button("登出 Admin"):
+        if st.sidebar.button("登出 Admin", key="tino_admin_logout"):
+            # A Streamlit button already starts a fresh script run.  Returning
+            # the new state is safer than raising Streamlit's private rerun
+            # control exception through the app-level crash guard.
             st.session_state.admin_authenticated = False
-            st.rerun()
+            return False
         return True
+
     pwd = st.sidebar.text_input("Admin Password", type="password", key="tino_admin_password")
     c1, c2 = st.sidebar.columns([1, 1])
     with c1:
         login = st.button("Login", key="tino_admin_login")
     with c2:
         st.caption("後台鎖定")
-    if login:
-        if hmac.compare_digest(str(pwd or ""), configured):
-            st.session_state.admin_authenticated = True
-            st.rerun()
-        else:
-            st.sidebar.error("密碼錯誤")
+
+    if not login:
+        return False
+
+    if hmac.compare_digest(str(pwd or ""), configured):
+        # Continue rendering the Admin controls in the same run.  The next
+        # normal Streamlit interaction will hide the password widget because
+        # the authenticated branch above is then active.
+        st.session_state.admin_authenticated = True
+        st.sidebar.success("Admin 已登入")
+        return True
+
+    st.sidebar.error("密碼錯誤")
     return False
 
 

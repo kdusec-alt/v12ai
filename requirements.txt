@@ -1,4 +1,5 @@
 streamlit==1.40.2
+rich==13.9.4
 pandas
 numpy
 yfinance

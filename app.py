@@ -147,7 +147,7 @@ try:
         def build_learning_signals(symbol):
             return []
     _boot_print("project_import_done", module="memory_learning_runtime")
-except BaseException as exc:
+except Exception as exc:
     _boot_print("project_import_failed", error=f"{type(exc).__name__}: {exc}")
     _theme()
     st.error("系統模組載入失敗，停止啟動正式預測。")
@@ -347,13 +347,31 @@ def main():
 
 # Streamlit executes this file as a script.  Call main unconditionally so a
 # runner-specific __name__ value can never leave the page blank.
+def _is_streamlit_control_exception(exc: BaseException) -> bool:
+    """Return True for Streamlit rerun/stop control signals.
+
+    Streamlit implements ``st.rerun()`` and ``st.stop()`` with internal
+    exceptions.  They are normal control flow and must always be returned to
+    Streamlit instead of being rendered as application errors.  The name/module
+    check also protects future Streamlit versions where the inheritance tree may
+    change.
+    """
+    exc_type = type(exc)
+    return (
+        exc_type.__name__ in {"RerunException", "StopException"}
+        and str(getattr(exc_type, "__module__", "")).startswith("streamlit.")
+    )
+
+
 try:
     main()
-except BaseException as exc:
+except Exception as exc:
+    if _is_streamlit_control_exception(exc):
+        raise
     _boot_print("main_failed", error=f"{type(exc).__name__}: {exc}")
     try:
         _theme()
         st.error("TINO 啟動流程發生錯誤，已攔截白屏。")
         st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
-    except BaseException:
+    except Exception:
         raise
