@@ -1,22 +1,15 @@
-TINO V12 RC3.1 Stable Navigation + Learning Hotfix
+TINO V12 RC3.2｜第二次查詢 Segmentation Fault 修復
 
-請覆蓋 GitHub 根目錄同名檔案：
+覆蓋 GitHub 根目錄：
 - app.py
 - ui_admin.py
-- ui_watch_center.py
-- ui_learning_center.py
 
-修正內容：
-1. 個股分析 / 即時股價 / 預測學習改用 on_click callback，不再產生巢狀 st.rerun。
-2. Watch Center 的卡片分析切換改為 callback。
-3. Learning Center 改為單一區塊按需載入，不再一次建立所有 tabs 的 DataFrame。
-4. Admin sidebar 不再每次 rerun 自動重複 log_prediction。
-5. Auto-Learning 正式快照由 app.py 在一次 Analyze 完成後立即寫入。
-6. Admin 重型管理面板預設關閉，避免每次 rerun 讀取 JSONL / pandas / pyarrow。
-7. BaseException 改為 Exception，不攔截 Streamlit 內部控制流程。
-8. Memory bootstrap 在 Watch / Learning 頁面改為 migrate=False。
+必要設定：
+Streamlit App Settings → Python version 請使用 3.11。
+最新 Log 仍顯示 Python 3.14.6；Pandas/Numpy/PyArrow 原生層在記憶體壓力下可能直接 Segmentation fault。
 
-操作：
-1. 上傳並覆蓋 GitHub 根目錄四個檔案。
-2. Commit 到 main。
-3. Streamlit Cloud Reboot app。
+程式修正：
+1. 第二次查詢前先釋放上一個 Forecast，避免舊/新完整物件同時存在。
+2. 切換即時股價或預測學習時釋放 Forecast。
+3. Admin 收合面板不再每次重跑建立 Trace/Truth Guard DataFrame。
+4. 診斷資料改成手動按需載入。

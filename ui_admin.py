@@ -276,14 +276,35 @@ def render_admin(st, forecast):
     macro = st.sidebar.selectbox("Macro 手動偏壓", ["neutral", "bullish", "bearish"], index=0)
     auto = st.sidebar.checkbox("Auto Analyze", value=False, help="預設關閉，避免開頁就抓外部資料。")
     live = st.sidebar.checkbox("Live Data / News", value=True, help="關閉時使用離線樣本，方便先確認系統可開啟。")
+    # Collapsed expanders still execute their body in Streamlit. Heavy
+    # diagnostics must be loaded only when explicitly requested.
     if forecast:
-        with st.sidebar.expander("Prediction Trace", expanded=False):
-            if forecast.raw:
-                st.code(trace_to_text(forecast.trace.steps, forecast.trace.raw_t1 or 0, forecast.trace.final_t1 or 0))
-            rows = forecast.trace.to_rows()
-            _df(st, rows, "尚無 trace。")
-        with st.sidebar.expander("Dashboard Truth Guard", expanded=False):
-            _df(st, [x.__dict__ for x in forecast.data_truths], "尚無資料真實性紀錄。")
+        load_diagnostics = st.sidebar.checkbox(
+            "載入 Prediction Trace / Truth Guard",
+            value=False,
+            key="load_admin_diagnostics",
+            help="預設關閉；需要除錯時才載入，避免每次重跑建立 DataFrame。",
+        )
+        if load_diagnostics:
+            with st.sidebar.expander("Prediction Trace", expanded=True):
+                try:
+                    if getattr(forecast, "raw", None):
+                        st.code(trace_to_text(
+                            forecast.trace.steps,
+                            forecast.trace.raw_t1 or 0,
+                            forecast.trace.final_t1 or 0,
+                        ))
+                    _df(st, forecast.trace.to_rows(), "尚無 trace。")
+                except Exception as exc:
+                    st.warning(f"Trace 暫時無法載入：{type(exc).__name__}: {exc}")
+            with st.sidebar.expander("Dashboard Truth Guard", expanded=False):
+                try:
+                    truths = [x.__dict__ for x in (getattr(forecast, "data_truths", None) or [])]
+                    _df(st, truths, "尚無資料真實性紀錄。")
+                except Exception as exc:
+                    st.warning(f"Truth Guard 暫時無法載入：{type(exc).__name__}: {exc}")
+        else:
+            st.sidebar.caption("Trace / Truth Guard 已降載。")
     show_learning_admin = st.sidebar.checkbox(
         "開啟 Auto-Learning 管理面板",
         value=False,

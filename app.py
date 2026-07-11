@@ -208,13 +208,13 @@ def _render_forecast(forecast):
 
 
 def _set_main_view(view: str) -> None:
-    """Navigation callback executed before the next Streamlit script run.
-
-    Avoid explicit st.rerun(): button clicks already trigger a rerun, and the
-    callback updates state before main() selects which page to render.
-    """
-    st.session_state["main_view"] = str(view or "analysis")
-
+    """Switch pages and release the heavy forecast before table-heavy views."""
+    target = str(view or "analysis")
+    st.session_state["main_view"] = target
+    if target in {"watch", "learning"}:
+        st.session_state["forecast"] = None
+        st.session_state["last_error"] = ""
+        gc.collect()
 
 def _render_main_nav():
     """Stable visible navigation without nested rerun loops."""
@@ -309,6 +309,15 @@ def main():
                     st.session_state.forecast = None
                     st.session_state.last_error = ""
                     st.stop()
+                # Release previous forecast before building the next one.
+                # Otherwise old and new full object graphs overlap in memory.
+                previous_forecast = st.session_state.get("forecast")
+                st.session_state.forecast = None
+                if previous_forecast is not None:
+                    del previous_forecast
+                gc.collect()
+                mark_runtime_stage("previous_forecast_released", symbol=symbol)
+
                 st.session_state.symbol = symbol
                 st.session_state.input_was_cleared = False
                 st.session_state.forecast = run_analysis(symbol, macro, live)
