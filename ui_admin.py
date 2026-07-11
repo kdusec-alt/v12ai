@@ -48,33 +48,22 @@ def _admin_gate(st) -> bool:
         return False
     if st.session_state.admin_authenticated:
         st.sidebar.success("Admin 已登入")
-        if st.sidebar.button("登出 Admin", key="tino_admin_logout"):
-            # A Streamlit button already starts a fresh script run.  Returning
-            # the new state is safer than raising Streamlit's private rerun
-            # control exception through the app-level crash guard.
+        if st.sidebar.button("登出 Admin"):
             st.session_state.admin_authenticated = False
             return False
         return True
-
     pwd = st.sidebar.text_input("Admin Password", type="password", key="tino_admin_password")
     c1, c2 = st.sidebar.columns([1, 1])
     with c1:
         login = st.button("Login", key="tino_admin_login")
     with c2:
         st.caption("後台鎖定")
-
-    if not login:
-        return False
-
-    if hmac.compare_digest(str(pwd or ""), configured):
-        # Continue rendering the Admin controls in the same run.  The next
-        # normal Streamlit interaction will hide the password widget because
-        # the authenticated branch above is then active.
-        st.session_state.admin_authenticated = True
-        st.sidebar.success("Admin 已登入")
-        return True
-
-    st.sidebar.error("密碼錯誤")
+    if login:
+        if hmac.compare_digest(str(pwd or ""), configured):
+            st.session_state.admin_authenticated = True
+            st.session_state.pop("tino_admin_password", None)
+            return True
+        st.sidebar.error("密碼錯誤")
     return False
 
 
@@ -121,9 +110,8 @@ def _learning_panel(st, forecast):
         if forecast and not getattr(forecast, "stopped", False):
             try:
                 sig = prediction_signature(forecast)
-                # Sidebar may be opened after the forecast was already generated.
-                # Therefore the Audit panel also guarantees one snapshot exists.
-                logged_row = log_prediction(forecast)
+                # app.py writes the formal snapshot in the same Analyze click.
+                # The Admin panel is read-only here to avoid duplicate I/O on every rerun.
                 st.success(f"Learning 已啟用｜目前預測快照：{sig}")
             except Exception as exc:
                 st.warning(f"Learning snapshot 暫時無法寫入：{type(exc).__name__}: {exc}")
@@ -296,7 +284,16 @@ def render_admin(st, forecast):
             _df(st, rows, "尚無 trace。")
         with st.sidebar.expander("Dashboard Truth Guard", expanded=False):
             _df(st, [x.__dict__ for x in forecast.data_truths], "尚無資料真實性紀錄。")
-    _learning_panel(st, forecast)
+    show_learning_admin = st.sidebar.checkbox(
+        "開啟 Auto-Learning 管理面板",
+        value=False,
+        key="show_learning_admin_panel",
+        help="預設關閉以降低每次 rerun 的記憶體與 JSONL/DataFrame 負擔；正式預測仍由 app.py 一次寫入。",
+    )
+    if show_learning_admin:
+        _learning_panel(st, forecast)
+    else:
+        st.sidebar.caption("Auto-Learning 正式快照仍會在每次分析完成後自動寫入。")
     debug = st.sidebar.checkbox("Debug Mode", value=False)
     if debug:
         _mis_debug_panel(st, forecast)

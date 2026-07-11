@@ -48,7 +48,7 @@ def _load_watchlist() -> List[str]:
     removed everything.
     """
     try:
-        ensure_memory_initialized_bootsafe(default_symbols=DEFAULT_WATCH, migrate=True, path=WATCH_LEDGER_PATH)
+        ensure_memory_initialized_bootsafe(default_symbols=DEFAULT_WATCH, migrate=False, path=WATCH_LEDGER_PATH)
         ledger = load_ledger(WATCH_LEDGER_PATH, default_symbols=DEFAULT_WATCH, initialize_if_missing=True)
         return get_watch_symbols(ledger)[:60]
     except Exception:
@@ -123,7 +123,7 @@ def _apply_card_remove_request(st) -> None:
         st.session_state["watch_center_items"] = [x for x in current if _normalize_symbol(x) != target]
         _save_watchlist(st.session_state["watch_center_items"])
     _clear_query_param(st, "watch_remove")
-    st.rerun()
+
 
 
 def _recent_symbols(limit: int = 20) -> List[str]:
@@ -391,6 +391,20 @@ def _card_html(row: Dict[str, Any], pred: Optional[Dict[str, Any]]) -> str:
     """
 
 
+def _open_analysis_from_watch(st, target: str) -> None:
+    target = _normalize_symbol(target)
+    if not target:
+        return
+    st.session_state["symbol"] = target
+    st.session_state["typed_symbol"] = target
+    st.session_state["ticker_text_input"] = target
+    st.session_state["typing_changed"] = False
+    st.session_state["input_was_cleared"] = False
+    st.session_state["suppress_auto_once"] = False
+    st.session_state["watch_autorun_symbol"] = target
+    st.session_state["main_view"] = "analysis"
+
+
 def _render_cards(st, rows: List[Dict[str, Any]]) -> None:
     if not rows:
         st.markdown("<div class='watch-empty'>尚未加入觀察股票。</div>", unsafe_allow_html=True)
@@ -403,17 +417,14 @@ def _render_cards(st, rows: List[Dict[str, Any]]) -> None:
             with cols[j]:
                 pred = pred_map.get(_normalize_symbol(str(r.get("symbol") or r.get("input") or "")))
                 st.markdown(_card_html(r, pred), unsafe_allow_html=True)
-                if st.button("分析", key=f"watch_analyze_{_normalize_symbol(str(r.get('symbol') or r.get('input')))}", use_container_width=True):
-                    target = _normalize_symbol(str(r.get("symbol") or r.get("input") or ""))
-                    st.session_state["symbol"] = target
-                    st.session_state["typed_symbol"] = target
-                    st.session_state["ticker_text_input"] = target
-                    st.session_state["typing_changed"] = False
-                    st.session_state["input_was_cleared"] = False
-                    st.session_state["suppress_auto_once"] = False
-                    st.session_state["watch_autorun_symbol"] = target
-                    st.session_state["main_view"] = "analysis"
-                    st.rerun()
+                target = _normalize_symbol(str(r.get("symbol") or r.get("input") or ""))
+                st.button(
+                    "分析",
+                    key=f"watch_analyze_{target}",
+                    use_container_width=True,
+                    on_click=_open_analysis_from_watch,
+                    args=(st, target),
+                )
 
 
 def _quote_panel(st, items: List[str], auto: bool) -> None:
@@ -424,7 +435,7 @@ def _quote_panel(st, items: List[str], auto: bool) -> None:
 
 def render_watch_center(st) -> None:
     try:
-        st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(default_symbols=DEFAULT_WATCH, migrate=True, path=WATCH_LEDGER_PATH)
+        st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(default_symbols=DEFAULT_WATCH, migrate=False, path=WATCH_LEDGER_PATH)
     except Exception:
         pass
     _watch_css(st)
@@ -463,7 +474,6 @@ def render_watch_center(st) -> None:
                         st.session_state["watch_center_items"] = st.session_state["watch_center_items"][:60]
                         _save_watchlist(st.session_state["watch_center_items"])
                 st.session_state["main_view"] = "watch"
-                st.rerun()
     with c3:
         if st.button("同步最近查詢", use_container_width=True, key="watch_sync_recent"):
             # Explicit import only. This is allowed to unhide imported symbols.
@@ -477,7 +487,6 @@ def render_watch_center(st) -> None:
                 st.session_state["watch_center_items"] = st.session_state["watch_center_items"][:60]
                 _save_watchlist(st.session_state["watch_center_items"])
             st.session_state["main_view"] = "watch"
-            st.rerun()
     with c4:
         auto = st.toggle("30秒刷新", value=False, key="watch_auto_refresh")
 
@@ -492,7 +501,6 @@ def render_watch_center(st) -> None:
                     pass
             st.session_state["watch_center_items"] = _load_watchlist()
             st.session_state["main_view"] = "watch"
-            st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
     # RC24.1 Stable Observation: automatic network fragments are disabled by

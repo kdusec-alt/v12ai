@@ -207,12 +207,17 @@ def _render_forecast(forecast):
     mark_runtime_stage("render_deep_done", symbol=symbol)
 
 
-def _render_main_nav():
-    """Stable visible navigation replacing fragile Streamlit tabs.
+def _set_main_view(view: str) -> None:
+    """Navigation callback executed before the next Streamlit script run.
 
-    RC2.4: Learning Center is an Admin-only page.  Public users only see
-    個股分析 / 即時股價 so they do not misunderstand internal learning memory.
+    Avoid explicit st.rerun(): button clicks already trigger a rerun, and the
+    callback updates state before main() selects which page to render.
     """
+    st.session_state["main_view"] = str(view or "analysis")
+
+
+def _render_main_nav():
+    """Stable visible navigation without nested rerun loops."""
     is_admin = bool(st.session_state.get("admin_authenticated", False))
     if "main_view" not in st.session_state:
         st.session_state["main_view"] = "analysis"
@@ -227,18 +232,15 @@ def _render_main_nav():
         n3 = None
 
     with n1:
-        if st.button("🎯 個股分析", use_container_width=True, key="nav_analysis"):
-            st.session_state["main_view"] = "analysis"
-            st.rerun()
+        st.button("🎯 個股分析", use_container_width=True, key="nav_analysis",
+                  on_click=_set_main_view, args=("analysis",))
     with n2:
-        if st.button("📊 即時股價", use_container_width=True, key="nav_watch"):
-            st.session_state["main_view"] = "watch"
-            st.rerun()
+        st.button("📊 即時股價", use_container_width=True, key="nav_watch",
+                  on_click=_set_main_view, args=("watch",))
     if is_admin and n3 is not None:
         with n3:
-            if st.button("🧠 預測學習", use_container_width=True, key="nav_learning"):
-                st.session_state["main_view"] = "learning"
-                st.rerun()
+            st.button("🧠 預測學習", use_container_width=True, key="nav_learning",
+                      on_click=_set_main_view, args=("learning",))
     return st.session_state.get("main_view", "analysis")
 
 
@@ -347,27 +349,9 @@ def main():
 
 # Streamlit executes this file as a script.  Call main unconditionally so a
 # runner-specific __name__ value can never leave the page blank.
-def _is_streamlit_control_exception(exc: BaseException) -> bool:
-    """Return True for Streamlit rerun/stop control signals.
-
-    Streamlit implements ``st.rerun()`` and ``st.stop()`` with internal
-    exceptions.  They are normal control flow and must always be returned to
-    Streamlit instead of being rendered as application errors.  The name/module
-    check also protects future Streamlit versions where the inheritance tree may
-    change.
-    """
-    exc_type = type(exc)
-    return (
-        exc_type.__name__ in {"RerunException", "StopException"}
-        and str(getattr(exc_type, "__module__", "")).startswith("streamlit.")
-    )
-
-
 try:
     main()
 except Exception as exc:
-    if _is_streamlit_control_exception(exc):
-        raise
     _boot_print("main_failed", error=f"{type(exc).__name__}: {exc}")
     try:
         _theme()

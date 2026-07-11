@@ -18,7 +18,6 @@ from memory_store import (
     load_profiles,
 )
 from tino_persistent_store import DEFAULT_LEDGER_PATH, load_ledger, storage_status, ensure_memory_initialized_bootsafe
-from auto_audit_scheduler import auto_audit_status_rows
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 
@@ -242,7 +241,7 @@ def _profile_rows(limit: int = 80) -> List[Dict[str, Any]]:
 
 
 def _storage_rows() -> List[Dict[str, Any]]:
-    init_report = ensure_memory_initialized_bootsafe(migrate=True)
+    init_report = ensure_memory_initialized_bootsafe(migrate=False)
     ss = storage_status(DEFAULT_LEDGER_PATH)
     files = [_file_status(PREDICTION_LOG), _file_status(AUDIT_LOG), _file_status(TICKER_PROFILE), _file_status(Path(DEFAULT_LEDGER_PATH))]
     remote_status = ss.get("remote_status") or ("PASS" if ss.get("remote_configured") else "LOCAL_ONLY")
@@ -301,13 +300,14 @@ def _storage_rows() -> List[Dict[str, Any]]:
 
 
 def render_learning_center(st) -> None:
-    """Admin-only prediction learning dashboard.
+    """Admin-only, memory-safe learning dashboard.
 
-    This page is deliberately not shown to public users, because bias/profile/audit
-    state is engineering memory, not front-stage investment advice.
+    Only the selected section is computed/rendered. Streamlit tabs execute all
+    tab bodies on every rerun, which previously multiplied JSONL/Pandas/PyArrow
+    memory and could crash Community Cloud when switching pages.
     """
     try:
-        st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(migrate=True)
+        st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(migrate=False)
     except Exception:
         pass
     if not bool(st.session_state.get("admin_authenticated", False)):
@@ -315,48 +315,54 @@ def render_learning_center(st) -> None:
         return
 
     st.markdown("### 🧠 預測學習 / Learning Center")
-    st.caption("只顯示在 Admin 登入後；前台使用者不會看到 Bias、Audit、Learning Weight 或工程記憶。正式樣本規則：同一股票 + 同一交易日 + 同一預測類型，只抓最後一次正式分析。")
-    st.caption("RC24.1 Stable：Streamlit 僅讀寫本機 .tino_memory；GitHub Remote 還原/同步改由外部或手動維護程序執行，不在頁面 rerun 內啟動。")
+    st.caption("正式預測由個股分析完成後立即寫入一次；本頁只負責查閱與 Audit，不會在切頁時重複寫入。")
 
-    # JSONL is the raw log.  Ledger recent_* is the reconnect/relogin recovery
-    # index.  Merge both so Recent T1 audits do not disappear when Streamlit
-    # restarts with empty JSONL but the ledger survived/restored.
+    view = st.radio(
+        "檢視區塊",
+        ["總覽", "昨測今收", "正式樣本", "Raw Log", "Bias History", "Storage Status"],
+        horizontal=True,
+        key="learning_center_view",
+    )
+
+    # Load only bounded rows. 1200 is ample for 30-day KPIs and avoids a large
+    # simultaneous Python + pandas + Arrow footprint on Community Cloud.
     ledger_preds, ledger_audits = _ledger_recovery_rows()
-    preds = _merge_memory_rows(read_prediction_log(5000), ledger_preds, 5000)
-    audits = _merge_memory_rows(read_audit_log(5000), ledger_audits, 5000)
+    preds = _merge_memory_rows(read_prediction_log(1200), ledger_preds, 1200)
+    audits = _merge_memory_rows(read_audit_log(1200), ledger_audits, 1200)
     preds_30 = [p for p in preds if _is_recent(p, ("run_time_tw", "run_date_tw"), 30) and p.get("skipped") is not True]
     audits_30 = [a for a in audits if _is_recent(a, ("audit_time_tw", "audit_date_tw"), 30)]
     formal_30 = _latest_formal_samples(preds_30)
-    kpi = _kpi(preds_30, audits_30, formal_30)
 
-    _small_metric_cards(st, [
-        ("總分析次數", kpi["total_analysis"], "每次按個股分析都算一次，包含同股重複查詢。"),
-        ("正式預測樣本", kpi["formal_samples"], "同股同交易日同預測類型只保留最後一次。"),
-        ("完成 Auto Audit", kpi["audited_samples"], "已有 actual close 可比對的 price audit 樣本。"),
-        ("平均誤差", "--" if kpi["avg_abs_error_pct"] is None else f"{kpi['avg_abs_error_pct']:.2f}%", "近30日 price audit 平均絕對誤差。"),
-        ("平均 Bias", "--" if kpi["avg_bias_pct"] is None else f"{kpi['avg_bias_pct']:+.2f}%", "actual - predicted 的平均方向。正值代表模型偏保守。"),
-    ])
+    if view == "總覽":
+        kpi = _kpi(preds_30, audits_30, formal_30)
+        _small_metric_cards(st, [
+            ("總分析次數", kpi["total_analysis"], "近30日全部分析。"),
+            ("正式預測樣本", kpi["formal_samples"], "同股同交易日同預測類型只保留最後一次。"),
+            ("完成 Auto Audit", kpi["audited_samples"], "已有 actual close 的樣本。"),
+            ("平均誤差", "--" if kpi["avg_abs_error_pct"] is None else f"{kpi['avg_abs_error_pct']:.2f}%", "近30日平均絕對誤差。"),
+            ("平均 Bias", "--" if kpi["avg_bias_pct"] is None else f"{kpi['avg_bias_pct']:+.2f}%", "正值代表模型偏保守。"),
+        ])
+        st.info("選擇上方區塊後才載入詳細表格，避免切頁時同時建立多個大型 DataFrame。")
+        return
 
-    st.divider()
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["昨測今收", "正式樣本", "Raw Log", "Bias History", "Storage Status"])
-    with tab1:
+    if view == "昨測今收":
         st.markdown("#### 昨測今收 / Recent T1 audits")
         _df(st, _recent_t1_audits(audits_30, 40), "近30日尚無昨測今收 Audit。", height=360)
-    with tab2:
+    elif view == "正式樣本":
         st.markdown("#### 正式預測樣本（最後一次正式分析）")
-        _df(st, _formal_rows(formal_30, 120), "近30日尚無正式預測樣本。", height=420)
-    with tab3:
-        st.markdown("#### Raw prediction log（全部分析紀錄）")
-        _df(st, _raw_rows(preds_30, 150), "近30日尚無 raw prediction log。", height=460)
-    with tab4:
+        _df(st, _formal_rows(formal_30, 100), "近30日尚無正式預測樣本。", height=420)
+    elif view == "Raw Log":
+        st.markdown("#### Raw prediction log")
+        _df(st, _raw_rows(preds_30, 100), "近30日尚無 raw prediction log。", height=460)
+    elif view == "Bias History":
         st.markdown("#### Bias / Ticker profile")
-        _df(st, _profile_rows(120), "尚無 ticker profile。", height=420)
-    with tab5:
+        _df(st, _profile_rows(100), "尚無 ticker profile。", height=420)
+    elif view == "Storage Status":
         st.markdown("#### Storage Guard")
         st.caption(f"Memory path：{MEMORY_DIR}")
         _df(st, _storage_rows(), "尚無 storage 狀態。", height=360)
         st.markdown("#### Auto Audit Time Guard")
-        _df(st, auto_audit_status_rows(), "尚無 Auto Audit 排程紀錄。台股 14:00、 美股 06:00 台灣時間會在下次 app rerun 時檢查。", height=240)
+        _df(st, auto_audit_status_rows(), "尚無 Auto Audit 排程紀錄。", height=240)
         try:
             ledger = load_ledger(DEFAULT_LEDGER_PATH, initialize_if_missing=False)
             wc = ledger.get("watch_center", {}) if isinstance(ledger, dict) else {}
