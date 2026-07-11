@@ -1,0 +1,48 @@
+=== compileall ===
+OK
+=== smoke_tests ===
+OK test_resolver
+OK test_zero_stop
+OK test_six_tickers_run
+OK test_etf_guard
+OK test_trace_rebuild
+OK test_macro_grr_price_neutral
+OK test_no_forbidden_ui_strings
+OK test_no_shared_template_outputs
+OK test_proxy_isolation_truth_guard
+OK test_finmind_institutional_parser_nonzero
+OK test_finmind_institutional_all_zero_rejected
+OK test_tv_foreign_pressure_formula
+OK test_no_hardcoded_foreign_amount_80b
+OK test_file_size_guard
+OK test_clear_button_no_auto_research_guard
+ALL TESTS OK
+=== smoke_rc23_final ===
+OK test_20d_return_close_to_close
+OK test_intraday_streak_excludes_live_last
+OK test_ma_alerts_present
+OK test_institution_momentum
+RC23 FINAL TARGETED TESTS OK
+=== verify_rc24_1_stability ===
+PASS: RC24.1 boot-safe, no inline Auto Audit, bounded Market Heat reader, no boot remote I/O
+=== verify_rc24_2_post_render ===
+RC24.2 post-render verification: PASS
+=== test_direction_precision ===
+OK test_slight_vwap_conflict_does_not_flip_confirmed_trend
+OK test_large_intraday_conflict_becomes_neutral_not_false_reversal
+OK test_tw_flow_and_us_macro_are_market_specific
+OK test_risk_does_not_push_price_down
+OK test_duplicate_vwap_family_is_price_neutral
+OK test_orchestrator_abc_comes_from_direction_engine_and_trace_rebuilds
+OK test_learning_audits_direction_separately_from_price_error
+DIRECTION PRECISION TESTS OK
+=== test_quantum_entanglement ===
+OK test_tw_monthly_revenue_only_two_trading_sessions
+OK test_us_earnings_guidance_only_48_hours
+OK test_margin_streak_is_context_aware
+OK test_memory_geo_risk_uses_night_sox_nasdaq_transmission
+OK test_geo_conflict_is_downweighted_not_blindly_applied
+OK test_correlated_proxies_are_one_family_not_double_counted
+OK test_stale_proxy_is_ignored
+OK test_right_evidence_changes_left_tactical_card
+QUANTUM ENTANGLEMENT TESTS OK

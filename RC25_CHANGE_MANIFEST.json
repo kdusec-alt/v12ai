@@ -1,0 +1,159 @@
+# -*- coding: utf-8 -*-
+"""TINO V12 RC25 Market Heat reader — cache-only and Streamlit boot-safe.
+
+Architecture contract:
+- NEVER performs network I/O.
+- NEVER starts a worker/thread/process.
+- NEVER writes files from Streamlit.
+- Reads only ``market_heat_cache.json`` produced externally.
+"""
+from __future__ import annotations
+
+import json
+import os
+from datetime import date
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+_CACHE_NAME = "market_heat_cache.json"
+_MAX_CACHE_BYTES = 64 * 1024
+_SCHEMA_VERSION = 1
+
+
+def _cache_path() -> Path:
+    override = str(os.environ.get("TINO_MARKET_HEAT_CACHE", "") or "").strip()
+    if override:
+        return Path(override).expanduser()
+    return Path(__file__).resolve().with_name(_CACHE_NAME)
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        text = str(value).replace(",", "").replace("億", "").strip()
+        if not text or text.lower() in {"na", "n/a", "none", "null", "--"}:
+            return None
+        return float(text)
+    except Exception:
+        return None
+
+
+def _safe_iso_date(value: Any) -> str:
+    text = str(value or "").strip()[:10]
+    try:
+        return date.fromisoformat(text).isoformat()
+    except Exception:
+        return ""
+
+
+def _fallback(reason: str, price_date: str = "") -> Dict[str, Any]:
+    return {
+        "accepted": False,
+        "source": "MarketHeat_CACHE_ONLY",
+        "date": _safe_iso_date(price_date),
+        "reason": reason,
+        "level": "待同步",
+        "risk_score": 0,
+        "cache_only": True,
+    }
+
+
+def classify_market_heat(balance_yi: float) -> Dict[str, Any]:
+    """Classify total Taiwan margin-financing balance in 億元."""
+    value = float(balance_yi)
+    if value < 6000:
+        return {"level": "偏健康", "icon": "🟢", "risk_score": 20, "note": "可積極布局"}
+    if value < 6100:
+        return {"level": "中性", "icon": "🟡", "risk_score": 40, "note": "觀察法人同步"}
+    if value < 6300:
+        return {"level": "中性偏熱", "icon": "🟡", "risk_score": 55, "note": "觀察法人是否同步"}
+    if value < 6500:
+        return {"level": "偏熱", "icon": "🟠", "risk_score": 72, "note": "法人沒跟容易震盪"}
+    return {"level": "警戒", "icon": "🔴", "risk_score": 90, "note": "留意融資殺盤"}
+
+
+def _cache_age_days(data_date: str) -> Optional[int]:
+    try:
+        return (date.today() - date.fromisoformat(data_date)).days
+    except Exception:
+        return None
+
+
+def fetch_tw_market_heat(price_date: str = "") -> Dict[str, Any]:
+    """Read and validate local cache. No network and no file writes."""
+    path = _cache_path()
+    try:
+        if not path.exists() or not path.is_file():
+            return _fallback("市場熱度快取尚未建立", price_date)
+        size = path.stat().st_size
+        if size <= 0 or size > _MAX_CACHE_BYTES:
+            return _fallback("市場熱度快取大小異常", price_date)
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception as exc:
+        return _fallback(f"市場熱度快取讀取失敗：{type(exc).__name__}", price_date)
+
+    if not isinstance(payload, dict):
+        return _fallback("市場熱度快取格式錯誤", price_date)
+    if payload.get("accepted") is not True:
+        return _fallback(str(payload.get("reason") or "融資餘額待外部同步"), price_date)
+
+    schema = payload.get("schema_version", _SCHEMA_VERSION)
+    if schema != _SCHEMA_VERSION:
+        return _fallback("市場熱度快取版本不相容", price_date)
+
+    data_date = _safe_iso_date(payload.get("date"))
+    balance = _safe_float(payload.get("balance_yi"))
+    change = _safe_float(payload.get("change_yi"))
+    if not data_date or balance is None:
+        return _fallback("市場熱度快取欄位不足", price_date)
+    if not 100 <= balance <= 20000:
+        return _fallback("市場熱度快取數值超出合理範圍", price_date)
+
+    age_days = _cache_age_days(data_date)
+    if age_days is not None and age_days < -1:
+        return _fallback("市場熱度快取日期異常", price_date)
+
+    cls = classify_market_heat(balance)
+    stale = bool(age_days is not None and age_days > 7)
+    source = str(payload.get("source") or "TWSE+TPEx official cache")[:120]
+
+    return {
+        "accepted": True,
+        "cache_only": True,
+        "date": data_date,
+        "balance_yi": round(balance, 2),
+        "change_yi": round(change, 2) if change is not None else None,
+        "level": cls["level"],
+        "icon": cls["icon"],
+        "risk_score": cls["risk_score"],
+        "note": cls["note"],
+        "source": source,
+        "updated_at": str(payload.get("updated_at") or "")[:40],
+        "age_days": age_days,
+        "stale": stale,
+        "components": payload.get("components") if isinstance(payload.get("components"), dict) else {},
+    }
+
+
+def market_heat_radar_line(heat: Dict[str, Any]) -> str:
+    if not isinstance(heat, dict) or not heat.get("accepted"):
+        reason = str((heat or {}).get("reason") or "融資餘額待同步")
+        return f"市場熱度｜{reason}｜先看法人/VWAP/資券｜Cache Only"
+
+    balance = _safe_float(heat.get("balance_yi"))
+    change = _safe_float(heat.get("change_yi"))
+    if balance is None:
+        return "市場熱度｜融資餘額快取格式異常｜先看法人/VWAP/資券"
+
+    data_date = _safe_iso_date(heat.get("date"))
+    date_text = data_date[5:].replace("-", "/") if data_date else "待確認"
+    icon = str(heat.get("icon") or "🟡")
+    level = str(heat.get("level") or "待判定")
+    change_text = "單日待補" if change is None else f"單日 {change:+,.2f}億"
+    stale_text = "｜延遲參考" if heat.get("stale") else ""
+    return (
+        f"市場熱度｜{icon} 融資 {balance:,.2f}億｜{change_text}｜"
+        f"{level}｜資料日 {date_text}{stale_text}"
+    )

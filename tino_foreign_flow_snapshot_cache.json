@@ -1,0 +1,15 @@
+{
+  "2026-07-11:close_locked": {
+    "accepted": true,
+    "alert": "逃命市場急殺",
+    "amount_billion": 5313,
+    "confidence": 72,
+    "date": "2026-06-26",
+    "direction": "預估大盤外資賣壓",
+    "level": "逃命",
+    "reason": "匯率差公式｜USDTWD=X 32.1000->32.2000｜TAIEX -4.00%｜boost 4.25｜外資壓力快照",
+    "snapshot_hit": false,
+    "snapshot_key": "2026-07-11:close_locked",
+    "source": "V9_TV_FX_DIFF_FORMULA"
+  }
+}

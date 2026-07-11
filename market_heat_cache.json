@@ -1,0 +1,27 @@
+{
+  "schema_version": 3,
+  "accepted": true,
+  "date": "2026-07-10",
+  "twse_margin_yi": 1727.63,
+  "twse_change_yi": -4410.53,
+  "tpex_margin_yi": null,
+  "tpex_change_yi": null,
+  "listed_otc_margin_yi": null,
+  "listed_otc_change_yi": null,
+  "credit_exposure_yi": null,
+  "credit_exposure_change_yi": null,
+  "heat_base_yi": 1727.63,
+  "level": "偏健康",
+  "icon": "🟢",
+  "risk_score": 20,
+  "note": "可積極布局",
+  "source": "TWSE official primary; TPEx optional with last-good fallback",
+  "updated_at": "2026-07-11T15:11:49+08:00",
+  "previous_date": "2026-07-09",
+  "status": "上市已更新；上櫃沿用前值或待補",
+  "components": {
+    "twse_status": "official_current",
+    "tpex_status": "unavailable",
+    "weekend_filtered": true
+  }
+}

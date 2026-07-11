@@ -1,0 +1,12 @@
+streamlit==1.40.2
+pandas
+numpy
+yfinance
+FinMind==1.9.10
+fake-useragent
+requests
+joblib
+tqdm
+lxml
+html5lib
+beautifulsoup4
