@@ -1,0 +1,55 @@
+{
+  "created_at_tw": "2026-07-13T17:04:14+08:00",
+  "last_saved_tw": "2026-07-13T17:04:14+08:00",
+  "recent_audits": [],
+  "recent_predictions": [],
+  "storage_guard": {
+    "last_error": null,
+    "last_verify_at_tw": "2026-07-13T17:04:14+08:00",
+    "last_verify_ok": true,
+    "last_write_at_tw": "2026-07-13T17:04:14+08:00",
+    "last_write_ok": true,
+    "migration": {
+      "imported_audits": 0,
+      "imported_predictions": 0,
+      "imported_profiles": 0,
+      "imported_watch_symbols": 0,
+      "last_migration_at_tw": "2026-07-13T17:04:14+08:00",
+      "notes": [],
+      "status": "PASS"
+    },
+    "remote": {
+      "backend": "github",
+      "branch": "tino-memory",
+      "branch_ready": true,
+      "configured": true,
+      "error": null,
+      "last_restore_at_tw": "2026-07-13T17:03:58+08:00",
+      "last_sync_at_tw": null,
+      "last_verified_at_tw": "2026-07-13T17:04:14+08:00",
+      "memory_dir": ".tino_memory",
+      "missing_files": [
+        "prediction_log.jsonl",
+        "audit_log.jsonl",
+        "ticker_profiles.json",
+        "tino_memory_ledger.json"
+      ],
+      "reconciled": {},
+      "remote_files": {},
+      "repo": "kdusec-alt/v12ai",
+      "restored_files": [],
+      "shrink_warnings": [],
+      "status": "EMPTY_REMOTE",
+      "synced_files": []
+    },
+    "storage_mode": "github_remote_if_configured_else_local_runtime"
+  },
+  "ticker_profiles": {},
+  "version": "V12_RC24_MEMORY_RECOVERY_GUARD",
+  "watch_center": {
+    "hidden_symbols": [],
+    "source_policy": "ledger_only_no_auto_backfill",
+    "symbols": [],
+    "updated_at_tw": "2026-07-13T17:04:14+08:00"
+  }
+}
