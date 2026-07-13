@@ -24,6 +24,7 @@ except Exception:
         return "", ""
 from truth_guard import make_truth, parse_date_safe
 from quantum_market_context import fetch_market_proxy_context
+from fundamental_growth_guard import fetch_us_quarterly_metrics, build_us_fundamental_context
 try:
     from macro_event_calendar import build_macro_context
 except Exception:
@@ -177,7 +178,11 @@ def _get_us_info(symbol: str) -> Dict[str, object]:
             info = dict(yf.Ticker(symbol).info or {})
         except Exception:
             info = {}
-    return _merge_public_memory(symbol, info)
+    info = _merge_public_memory(symbol, info)
+    quarterly = fetch_us_quarterly_metrics(symbol)
+    if quarterly:
+        info['_quarterly_metrics'] = quarterly
+    return info
 
 def _fetch_finviz_short(symbol: str) -> Dict[str, object]:
     if os.environ.get('TINO_OFFLINE_TEST') == '1':
@@ -400,21 +405,7 @@ def _fallback_price(ticker: TickerInfo, reason: str) -> PriceFrame:
 
 
 def _us_fundamental_context(symbol: str, info: Dict[str, object], price_date: str) -> Dict[str, object]:
-    q = info.get('fiscalQuarterLabel') or info.get('mostRecentQuarter') or info.get('lastFiscalYearEnd') or '最新財報'
-    eps = _clean_num(info.get('trailingEps'), None)
-    rev = _clean_num(info.get('totalRevenue'), None)
-    qgrowth = _clean_num(info.get('earningsQuarterlyGrowth'), None)
-    rgrowth = _clean_num(info.get('revenueGrowth'), None)
-    pe = _clean_num(info.get('trailingPE'), None)
-    next_date = info.get('nextEarningsDate') or info.get('earningsDate') or ''
-    days = _clean_num(info.get('earningsDays'), None)
-    return {
-        'accepted': bool(eps is not None or rev is not None), 'source':'YahooFinance quoteSummary + V9 public memory', 'date': price_date,
-        'quarter': str(q or '最新財報'), 'eps': eps, 'revenue': rev,
-        'qoq': qgrowth*100 if qgrowth is not None and abs(qgrowth) < 5 else qgrowth,
-        'yoy': rgrowth*100 if rgrowth is not None and abs(rgrowth) < 5 else rgrowth,
-        'pe': pe, 'next_earnings': str(next_date or ''), 'earnings_days': int(days) if days is not None else None,
-    }
+    return build_us_fundamental_context(info, price_date)
 
 def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
     if os.environ.get("TINO_OFFLINE_TEST") == "1":

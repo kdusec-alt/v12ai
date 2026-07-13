@@ -26,6 +26,7 @@ from models import FinalForecast, NewsItem, PredictionTrace, PriceFrame, RawFore
 from price_guard import apply_market_bounds, validate_price_frame
 from truth_guard import truth_to_main_label
 from data_sources_market_heat import fetch_tw_market_heat, market_heat_radar_line
+from bubble_radar import assess_bubble_risk, bubble_radar_line
 try:
     from macro_event_calendar import macro_calendar_guard_text
 except Exception:
@@ -586,7 +587,7 @@ def _price_regime_line(price: PriceFrame, raw: RawForecast) -> str:
         bias = "偏強"
         action = "站穩續觀察"
     return f"{bias}｜{vtxt}｜{action}"
-def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: float, final_low: float, direction: DirectionResult | None = None) -> Dict[str, object]:
+def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: float, final_low: float, direction: DirectionResult | None = None, bubble: Dict[str, object] | None = None) -> Dict[str, object]:
     last, vwap, atr = float(price.last), float(price.vwap or price.last), max(float(price.atr14), 0.01)
     low1 = min(raw.raw_low_entry, final_t1 - atr * 0.08)
     low2 = min(final_low, low1 - atr * 0.28)
@@ -647,6 +648,28 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         axis = axis + "｜第二批暫停"
     if overlay_note:
         one = one.rstrip("。") + "。" + overlay_note + "。"
+
+    bubble = bubble if isinstance(bubble, dict) else {}
+    bubble_accepted = bool(bubble.get("accepted"))
+    bubble_score = float(bubble.get("score") or 0.0) if bubble_accepted else 0.0
+    bubble_level = str(bubble.get("level") or "")
+    bubble_temp = int(float(bubble.get("temperature") or bubble_score)) if bubble_accepted else 0
+    bubble_adjustment = float(bubble.get("decision_adjustment") or 0.0) if bubble_accepted else 0.0
+    bubble_note = ""
+    if bubble_accepted:
+        bubble_note = f"AI泡沫雷達 {bubble_temp}℃ {bubble_level}｜Decision {bubble_adjustment:+.1f}"
+        if bubble_score >= 75:
+            head += "｜泡沫警戒"
+            axis += "｜縮小部位｜禁止追價"
+            one = one.rstrip("。") + "。估值/預期明顯領先基本面，縮小部位且禁止追價。"
+        elif bubble_score >= 60:
+            head += "｜高溫防追"
+            axis += "｜降低追價曝險"
+            one = one.rstrip("。") + "。泡沫溫度偏高，基本面即使仍強也只做確認單。"
+        elif bubble_score >= 45:
+            axis += "｜過熱觀察"
+            one = one.rstrip("。") + "。價格與估值開始領先基本面，急拉不追。"
+    displayed_score = clamp(float(score) + bubble_adjustment, -100.0, 100.0)
     chg = last - float(price.previous_close or last)
     chgp = chg / float(price.previous_close or last) * 100 if float(price.previous_close or last) else 0.0
     price_meta = ((price.context or {}).get("price_meta") or {})
@@ -654,8 +677,8 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "標題": head, "主訊息": one, "低接第一批": round(low1, 2), "低接第二批": "暫停" if pause_second else round(low2, 2),
         "攻擊": ("事件前縮小試單" if event_caution else (f"站穩 {attack:.2f} 可攻" if bullish and not hard_defense else ("等待海外/融資止穩" if hard_defense or pause_second else f"{low1:.2f} 試單｜{low2:.2f} 再接"))),
         "轉強": f"突破 {turn:.2f} 加碼", "防守": round(stop, 2), "不追": round(no_chase, 2),
-        "一句話": one.split("：", 1)[-1], "操作主軸": axis, "決策分": round(score, 2),
-        "模型原因": overlay_note,
+        "一句話": one.split("：", 1)[-1], "操作主軸": axis, "決策分": round(displayed_score, 2),
+        "模型原因": "｜".join([x for x in (overlay_note, bubble_note) if x]),
         "資料標題": words["info"], "開盤": round(float(price.open), 2), "現價": round(last, 2),
         "最高": round(float(price.high), 2), "最低": round(float(price.low), 2),
         "漲跌": round(chg, 2), "漲跌幅": round(chgp, 2), "VWAP位置": _ssot_vwap_state(price),
@@ -668,6 +691,7 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "_tv_pressure": (price.context or {}).get("tv_pressure", {}),
         "_direction_engine": direction.to_dict() if direction is not None else {},
         "_quantum_overlay": overlay,
+        "_bubble_radar": bubble,
     }
     if bool(price_meta.get("decision_blocked")):
         card["標題"] = "AI進場決策卡｜價格待確認｜不採用延遲價"
@@ -707,6 +731,7 @@ FQC：{radar.get('FQC')}
 事件/Macro：{radar.get('事件/Macro')}
 外資期貨：{radar.get('外資期貨')}
 基本面：{radar.get('基本面')}
+泡沫雷達：{bubble_radar_line((price.context or {}).get('bubble_radar'))}
 空方成本 / 回補：{short}
 【3｜法人資券 / Short Pressure】
 {inst_text}
@@ -906,7 +931,8 @@ def _us_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None =
 def _us_fundamental_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
     f=price.context.get('fundamental',{}) or {}
     if f.get('accepted'):
-        eps=f.get('eps'); rev=f.get('revenue'); qoq=f.get('qoq'); yoy=f.get('yoy'); pe=f.get('pe')
+        eps=f.get('eps'); rev=f.get('revenue'); qoq=f.get('qoq'); yoy=f.get('revenue_yoy', f.get('yoy')); pe=f.get('pe')
+        eps_yoy=f.get('eps_yoy')
         q=f.get('quarter') or '最新財報'
         if isinstance(q, (int, float)) or str(q).isdigit():
             q = '最新財報'
@@ -919,13 +945,25 @@ def _us_fundamental_line(price: PriceFrame, news_items: List[NewsItem] | None = 
                 nxt = ''
         days=f.get('earnings_days')
         parts=["月營收：美股不適用", "財報/營收", str(q)]
-        if rev is not None: parts.append(f"營收 {_us_money(rev)}")
-        if qoq is not None: parts.append(f"QoQ {float(qoq):+.2f}%")
-        if yoy is not None: parts.append(f"YoY {float(yoy):+.2f}%")
-        if eps is not None: parts.append(f"EPS {float(eps):.2f}")
+        if rev is not None:
+            rev_label = "營收(季)" if f.get('revenue_kind') == 'quarterly' else "營收(TTM)"
+            parts.append(f"{rev_label} {_us_money(rev)}")
+        # QoQ is displayed only when it comes from an actual sequential-quarter
+        # revenue series.  Yahoo earningsQuarterlyGrowth is 獲利YoY, not QoQ.
+        if qoq is not None and f.get('qoq_verified'):
+            parts.append(f"營收QoQ {float(qoq):+.2f}%")
+        if yoy is not None and f.get('yoy_verified', True):
+            parts.append(f"營收YoY {float(yoy):+.2f}%")
+        if eps is not None:
+            eps_label = "EPS(季)" if f.get('eps_kind') == 'quarterly' else "EPS(TTM)"
+            parts.append(f"{eps_label} {float(eps):.2f}")
+        if eps_yoy is not None and f.get('eps_yoy_verified', True):
+            parts.append(f"獲利YoY {float(eps_yoy):+.2f}%")
         if pe is not None: parts.append(f"PE {float(pe):.2f}")
         if nxt: parts.append(f"下次財報 {nxt}")
         if days is not None: parts.append(f"財報倒數 {days}天")
+        if not f.get('qoq_verified'):
+            parts.append("QoQ未取得正式季度序列，不計分")
         parts.append("財報語意｜AI / 記憶體 / 供應鏈敘事｜來源 YahooFinanceRSS")
         return "｜".join([x for x in parts if x not in ('', None)])
     news=_news_summary(news_items or [])
@@ -1034,7 +1072,7 @@ def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       'Quantum 貢獻':_quantum_contribution_line(direction),
       '外資期貨':_futures_line(futures, price),
       '市場熱度':_market_heat_line_for_price(price),
-      '基本面': etf_note or _fundamental_line(fundamental, '', price, news_items),
+      '基本面': (etf_note or _fundamental_line(fundamental, '', price, news_items)) + "\n" + bubble_radar_line((price.context or {}).get('bubble_radar')),
       '空方成本 / 回補':f"{price.low:.2f}～{price.high+price.atr14:.2f}｜回補 {raw.raw_no_chase:.2f}｜{_bsi_line(bsi, proxy)}",
       '三大法人':_inst_radar_line(inst, None),
       '資券 / 融資融券': etf_note or _margin_radar_line(margin, None),
@@ -1057,7 +1095,7 @@ def _us_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       'Policy/Geo':_us_policy_geo_line(price, news_items),
       'Company News':_us_company_news_line(price, news_items),
       '外資期貨':'外資V2｜台股專用｜美股不套用',
-      '基本面':_us_fundamental_line(price, news_items),
+      '基本面':_us_fundamental_line(price, news_items) + "\n" + bubble_radar_line((price.context or {}).get('bubble_radar')),
       '空方成本 / 回補':_us_short_line(price, raw),
       '三大法人':_us_inst_dashboard(price),
       '資券 / 融資融券':_us_margin_dashboard(price),
@@ -1120,6 +1158,20 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
                 except Exception:
                     price.context["market_heat"] = {"accepted": False, "source": "MARKET_HEAT_FETCH_FAILED"}
 
+    # Cross-market bubble radar is a bounded position-risk overlay.  It reads
+    # existing facts only and never changes Direction/Quantum/Forecast inputs.
+    try:
+        bubble = assess_bubble_risk(price, news_items)
+    except Exception as exc:
+        bubble = {
+            "accepted": False, "score": 0.0, "temperature": 0,
+            "level": "資料不足", "decision_adjustment": 0.0,
+            "line": "AI泡沫雷達｜資料不足，不做泡沫結論",
+            "reason": f"{type(exc).__name__}",
+        }
+    if isinstance(price.context, dict):
+        price.context["bubble_radar"] = bubble
+
     # V12.2 adaptive dual engine: direction is estimated independently from
     # price and receives timestamped event/news evidence for decay control.
     direction = build_direction_forecast(price, signals, news_items)
@@ -1176,7 +1228,7 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
         steps.append(TraceStep('V9 Path Guard', 'TW/US market route price guard', round(final_t1 - recon, 4), 0.0, True, 'V9 前台路徑守門；避免台股權值被高Beta/美股風險打成假崩跌', 'orchestrator', price.truth.date))
 
     final_t0 = apply_market_bounds(raw.raw_t0 + (final_t1 - raw.raw_t1) * 0.20, price.previous_close, price.ticker.market, price.ticker.price_limit_pct)
-    decision = _decision_card(price, raw, score, final_t1, final_low, direction)
+    decision = _decision_card(price, raw, score, final_t1, final_low, direction, bubble)
     decision["_direction_ensemble_weight"] = ensemble_weight
     radar = _radar(price, raw, signals, confidence, news_items, direction)
     trace = PredictionTrace(price.ticker.resolved_symbol, raw.raw_t1, steps, final_t1)
