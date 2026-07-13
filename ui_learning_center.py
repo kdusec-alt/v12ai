@@ -18,6 +18,7 @@ from memory_store import (
     load_profiles,
 )
 from tino_persistent_store import DEFAULT_LEDGER_PATH, load_ledger, storage_status, ensure_memory_initialized_bootsafe
+from auto_audit_scheduler import auto_audit_status_rows
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 

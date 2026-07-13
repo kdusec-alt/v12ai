@@ -7,6 +7,7 @@ import math
 import os
 import re
 import urllib.parse
+import time as time_module
 import email.utils
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Tuple
@@ -18,9 +19,14 @@ from data_sources_tw_live_price import fetch_twse_mis_live_price, fetch_google_f
 from foreign_flow_predicto import predict_foreign_flow_v2
 from data_sources_tw_yahoo_chip import fetch_yahoo_institutional, fetch_yahoo_margin
 from quantum_market_context import fetch_market_proxy_context
+from macro_event_calendar import build_macro_context
 TW_SAMPLE = {"6770.TW": dict(open=83.20, high=85.20, low=78.10, last=78.30, previous_close=83.20, volume=86000, vwap=80.53, atr14=5.99), "6586.TWO": dict(open=123.50, high=130.50, low=114.00, last=126.00, previous_close=120.50, volume=4200, vwap=123.50, atr14=9.50), "2454.TW": dict(open=4055.0, high=4145.0, low=4025.0, last=4055.0, previous_close=4100.0, volume=6800, vwap=4075.0, atr14=145.0), "2337.TW": dict(open=158.0, high=161.5, low=154.5, last=156.0, previous_close=159.0, volume=15000, vwap=157.8, atr14=7.3), "2308.TW": dict(open=1815.0, high=1855.0, low=1785.0, last=1810.0, previous_close=1835.0, volume=12200, vwap=1816.7, atr14=65.0), "00919.TW": dict(open=23.25, high=23.35, low=23.10, last=23.18, previous_close=23.22, volume=50000, vwap=23.21, atr14=0.24), "5469.TW": dict(open=90.8, high=94.0, low=90.0, last=91.8, previous_close=87.4, volume=19000, vwap=91.93, atr14=4.2)}
 BULL = ["獲利", "成長", "EPS", "營收", "買超", "創高", "法說", "AI", "訂單", "擴產", "回補", "強勢", "漲"]
 BEAR = ["虧損", "減損", "賣超", "下修", "衰退", "跌", "處置", "警示", "庫存", "法說虧損", "利空"]
+
+_TW_GLOBAL_NEWS_CACHE: tuple[float, List[NewsItem]] | None = None
+_TW_GLOBAL_NEWS_CACHE_TTL_SEC = 15 * 60
+
 def _code(symbol: str) -> str:
     return symbol.split(".")[0]
 def _num(symbol: str) -> int:
@@ -445,6 +451,21 @@ def _attach_price_snapshot(context: Dict[str, object], *, open_price: float, hig
 def _flow_context(ticker: TickerInfo, price_date: str, closes: List[float], last: float, vwap: float, previous_close: float | None = None) -> Dict[str, object]:
     proxy = _proxy_context(ticker.resolved_symbol, price_date, closes, last, vwap)
     tv_pressure = _tv_pressure_context(ticker.resolved_symbol, price_date, closes, last, vwap, proxy, previous_close=previous_close)
+    try:
+        # The official calendar is local/lightweight and must exist even when an
+        # external price or proxy source is unavailable.  Live enrichment later
+        # adds SOX/NQ/VIX without changing the event clock.
+        macro_context = build_macro_context(str(price_date or today_taipei_date()))
+    except Exception:
+        macro_context = {
+            "accepted": False,
+            "source": "MACRO_CALENDAR_PENDING",
+            "calendar": "宏觀事件日曆待重新同步",
+            "events": [],
+            "event_uncertainty": 0.0,
+            "event_risk": 0.0,
+            "pre_event_direction": 0.0,
+        }
     return {
         "inst": {**_empty_inst(price_date), "symbol": ticker.resolved_symbol},
         "margin": {**_empty_margin(price_date), "symbol": ticker.resolved_symbol},
@@ -456,7 +477,7 @@ def _flow_context(ticker: TickerInfo, price_date: str, closes: List[float], last
             "cover_rate": proxy["cover_rate"], "risk": proxy["risk"],
             "accepted": False, "source": "WAIT_SBL", "date": price_date, "reason": "借券賣出來源未完成，主畫面以價格與資券階梯判讀",
         },
-        "macro": {"accepted": False, "source": "WAIT_MACRO", "tw_gravity": None, "sox": None, "nq": None, "qqq": None, "vix": None},
+        "macro": macro_context,
         "futures": {"accepted": False, "source": "WAIT_FUTURES", "date": price_date},
         "fundamental": {"month": "最近月", "revenue": None, "mom": None, "yoy": None, "eps": None, "source": "TW_FUNDAMENTAL_PENDING", "accepted": False},
     }
@@ -542,59 +563,26 @@ def _first_friday(year: int, month: int) -> date:
 
 
 def _macro_forward_context(price_date: str, *, event_score: float = 0.0, eps: str = "", eps_tags: str = "") -> Dict[str, object]:
-    """Small forward macro calendar guard.
+    """Shared RC4 calendar + observed cross-market context.
 
-    Never hardcode a past NFP/FOMC line on the main UI.  This is intentionally
-    lightweight: it only prevents stale macro events from polluting the radar;
-    richer live calendar can be added later without changing the UI contract.
+    CPI/PPI/NFP/FOMC are kept in one official calendar for both TW and US.
+    Before publication they change uncertainty/confidence only; they do not
+    receive a permanent bullish or bearish sign.
     """
-    now = datetime.now(ZoneInfo("Asia/Taipei"))
-    base = now.date()
-    # Known major events used by the V12 radar.  Keep only future events.
-    events = []
-    try:
-        fomc = datetime(2026, 7, 30, 2, 0, tzinfo=ZoneInfo("Asia/Taipei"))
-        if fomc > now:
-            events.append((fomc, "FOMC利率決議"))
-        # NFP normally releases on the first Friday 20:30 Taiwan time.  If this
-        # month's first Friday has passed, point to the next month instead.
-        nfp_d = _first_friday(base.year, base.month)
-        nfp = datetime(nfp_d.year, nfp_d.month, nfp_d.day, 20, 30, tzinfo=ZoneInfo("Asia/Taipei"))
-        if nfp <= now:
-            y, m = (base.year + 1, 1) if base.month == 12 else (base.year, base.month + 1)
-            nfp_d = _first_friday(y, m)
-            nfp = datetime(nfp_d.year, nfp_d.month, nfp_d.day, 20, 30, tzinfo=ZoneInfo("Asia/Taipei"))
-        events.append((nfp, "NFP"))
-    except Exception:
-        pass
-    events = sorted([x for x in events if x[0] > now], key=lambda x: x[0])
-    if events:
-        first_dt, first_name = events[0]
-        delta_h = int((first_dt - now).total_seconds() // 3600)
-        strength = "高" if delta_h <= 72 else "中"
-        event_lines = [f"下一個一級事件：{first_name} {first_dt.strftime('%m/%d %H:%M')} 台灣（倒數{delta_h}小時）"]
-        for dt, nm in events[1:2]:
-            dh = int((dt - now).total_seconds() // 3600)
-            event_lines.append(f"{nm}：{dt.strftime('%m/%d %H:%M')} 台灣（倒數{dh}小時）")
-        calendar = "｜".join(event_lines)
-    else:
-        strength = "中"
-        calendar = "未來72小時暫無已確認一級宏觀事件"
-    out = {
-        "accepted": True,
-        "source": "V12_MACRO_FORWARD_CALENDAR_GUARD",
-        "date": str(price_date or today_taipei_date()),
-        "event_score": float(event_score or 0.0),
-        "strength": strength,
-        "eps": eps or "EPS/營收事件看深度分析",
-        "eps_tags": eps_tags or "宏觀事件觀察",
-        "calendar": calendar,
-    }
-    # V12.2: attach observed overnight/global proxies to the same market-wide
-    # context. Missing values remain None and are ignored by the model.
+    out = build_macro_context(
+        str(price_date or today_taipei_date()),
+        event_score=event_score,
+        eps=eps,
+        eps_tags=eps_tags,
+    )
+    # Attach observed overnight/global proxies to the same market-wide context.
+    # Missing values stay None and are ignored by the model.
     try:
         proxies = fetch_market_proxy_context(str(price_date or ""))
-        for key in ("sox", "nq", "qqq", "vix", "vix_change", "smh", "mu", "tsm_adr", "tx_night", "as_of", "symbols"):
+        for key in (
+            "sox", "nq", "qqq", "vix", "vix_change", "smh", "mu",
+            "tsm_adr", "tx_night", "as_of", "symbols",
+        ):
             if key in proxies:
                 out[key] = proxies.get(key)
         if proxies.get("accepted"):
@@ -602,7 +590,6 @@ def _macro_forward_context(price_date: str, *, event_score: float = 0.0, eps: st
     except Exception:
         pass
     return out
-
 
 def _parse_taifex_foreign_row(df, *, require_product_name: bool = False) -> Dict[str, object] | None:
     """Strictly parse TAIFEX foreign TXF open-interest net contracts.
@@ -1605,9 +1592,19 @@ def _score_news(title: str) -> Tuple[float, str]:
     if any(k.lower() in t for k in ["處置", "警示", "下修", "虧損", "跌停"]):
         score -= 0.035
     score = max(-0.24, min(0.24, round(score, 3)))
-    tag = "bullish_event" if score > 0.06 else ("bearish_event" if score < -0.06 else "headline_neutral")
+    macro_terms = ("cpi", "ppi", "pce", "fomc", "非農", "nfp", "fed", "通膨", "利率決議")
+    geo_terms = (
+        "關稅", "tariff", "出口管制", "export control", "制裁", "sanction",
+        "台海", "軍演", "中東", "伊朗", "以色列", "紅海", "烏克蘭", "俄羅斯",
+    )
+    if any(k in t for k in geo_terms):
+        tag = "policy_geo"
+    elif any(k in t for k in macro_terms):
+        tag = "macro_event"
+    else:
+        tag = "bullish_event" if score > 0.06 else ("bearish_event" if score < -0.06 else "headline_neutral")
     hit = [k for k in BULL + BEAR if k.lower() in t][:3]
-    return score, "、".join(hit) if hit else tag
+    return score, "、".join(hit) if hit and tag not in {"policy_geo", "macro_event"} else tag
 
 
 def _parse_tw_pub_date(pub: str):
@@ -1640,10 +1637,17 @@ def _tw_news_ttl_days(title: str = "", query: str = "") -> int:
     - Old archive rows are never allowed to enter evidence/confidence.
     """
     text = f"{title} {query}".lower()
+    macro_geo_terms = [
+        "cpi", "ppi", "pce", "fomc", "非農", "nfp", "fed", "通膨", "利率決議",
+        "關稅", "tariff", "出口管制", "export control", "制裁", "sanction",
+        "台海", "軍演", "中東", "伊朗", "以色列", "紅海", "烏克蘭", "俄羅斯",
+    ]
     finance_terms = [
         "法說", "財報", "營收", "eps", "獲利", "毛利", "財測", "展望",
         "guidance", "earnings", "revenue", "conference", "q1", "q2", "q3", "q4",
     ]
+    if any(k.lower() in text for k in macro_geo_terms):
+        return 14
     if any(k.lower() in text for k in finance_terms):
         return 60
     return 30
@@ -1671,7 +1675,8 @@ def _google_news(query: str, limit: int = 12) -> List[NewsItem]:
         import requests
         # Query still allows up to 60d so financial event rows can be captured,
         # then per-title TTL below removes stale non-financial rows.
-        q = f"({query}) 2026 after:2026-01-01 when:60d"
+        current_year = max(2026, datetime.now(ZoneInfo("UTC")).year)
+        q = f"({query}) {current_year} after:{current_year}-01-01 when:60d"
         url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": q, "hl": "zh-TW", "gl": "TW", "ceid": "TW:zh-Hant"})
         text = requests.get(url, timeout=4, headers={"User-Agent": "Mozilla/5.0 TINO-RC24-TW-NewsTimeGuard"}).text
         root = ET.fromstring(text)
@@ -1700,24 +1705,70 @@ def _fallback_news(ticker: TickerInfo) -> List[NewsItem]:
     ]
 
 
+def _global_tw_macro_geo_news() -> List[NewsItem]:
+    """Fetch shared market-wide macro/geo headlines once per cache window.
+
+    Company-specific queries alone can miss CPI or geopolitical risk.  These
+    reserved headlines prevent a busy ticker from starving the shared event
+    layer while keeping network work bounded and non-blocking.
+    """
+    global _TW_GLOBAL_NEWS_CACHE
+    now_ts = time_module.time()
+    if _TW_GLOBAL_NEWS_CACHE and now_ts - _TW_GLOBAL_NEWS_CACHE[0] < _TW_GLOBAL_NEWS_CACHE_TTL_SEC:
+        return list(_TW_GLOBAL_NEWS_CACHE[1])
+
+    queries = (
+        "美國 CPI PPI PCE ISM FOMC 非農 Fed 通膨 利率",
+        "美中 關稅 出口管制 晶片 制裁 台海 軍演 中東 伊朗 以色列 紅海 烏克蘭 俄羅斯 油價",
+    )
+    out: List[NewsItem] = []
+    seen: set[str] = set()
+    for query in queries:
+        for item in _google_news(query, 4):
+            key = re.sub(r"\s+", " ", item.title).strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                out.append(item)
+        if len(out) >= 8:
+            break
+    _TW_GLOBAL_NEWS_CACHE = (now_ts, out[:8])
+    return list(out[:8])
+
+
 def fetch_tw_news(ticker: TickerInfo) -> List[NewsItem]:
     if os.environ.get("TINO_OFFLINE_TEST") == "1":
         return _fallback_news(ticker)
+
+    out: List[NewsItem] = []
+    seen: set[str] = set()
+
+    def _add(item: NewsItem) -> None:
+        key = re.sub(r"\s+", " ", item.title).strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(item)
+
+    # Reserve shared Macro/Policy/Geo evidence before company headlines.
+    for item in _global_tw_macro_geo_news()[:6]:
+        _add(item)
+
     queries = [
         f"{ticker.name} {_code(ticker.resolved_symbol)} 股票",
         f"{ticker.name} 法說 EPS 營收",
         f"{ticker.name} AI 半導體",
     ]
-    out: List[NewsItem] = []
-    seen = set()
-    for q in queries:
-        for item in _google_news(q, 8):
-            key = re.sub(r"\s+", " ", item.title).strip()
-            if key and key not in seen:
-                out.append(item)
-                seen.add(key)
-        if len(out) >= 12:
+    for query in queries:
+        for item in _google_news(query, 8):
+            _add(item)
+        if len(out) >= 16:
             break
-    # Sort meaningful evidence first while retaining only RC24 time-clean rows.
-    out = sorted(out, key=lambda n: (abs(float(n.score)), str(n.time)), reverse=True)[:12]
-    return out or _fallback_news(ticker)
+
+    reserved = [item for item in out if str(item.tag) in {"macro_event", "policy_geo"}][:5]
+    reserved_keys = {re.sub(r"\s+", " ", item.title).strip().lower() for item in reserved}
+    company = [
+        item for item in out
+        if re.sub(r"\s+", " ", item.title).strip().lower() not in reserved_keys
+    ]
+    company = sorted(company, key=lambda n: (abs(float(n.score)), str(n.time)), reverse=True)
+    final = (reserved + company)[:12]
+    return final or _fallback_news(ticker)

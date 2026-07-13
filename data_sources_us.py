@@ -18,6 +18,7 @@ import time
 from models import PriceFrame, TickerInfo, NewsItem
 from truth_guard import make_truth, parse_date_safe
 from quantum_market_context import fetch_market_proxy_context
+from macro_event_calendar import build_macro_context
 
 US_SAMPLE = {
     "ONDS": dict(open=2.42, high=2.55, low=2.31, last=2.38, previous_close=2.45, volume=3600000, vwap=2.41, atr14=0.22),
@@ -225,23 +226,23 @@ def _us_short_context(symbol: str, info: Dict[str, object], last: float, low: fl
     }
 
 def _us_macro_context(price_date: str = "") -> Dict[str, object]:
-    """Shared observed proxy block used by US and TW engines.
-
-    One market snapshot prevents SOX/NQ/QQQ values from drifting between the
-    right radar and the prediction layer during the same request.
-    """
+    """One RC4 macro SSOT for the US route: official events + observed proxies."""
+    out = build_macro_context(str(price_date or ""))
     try:
-        out = fetch_market_proxy_context(str(price_date or ""))
-        out["source"] = str(out.get("source") or "US_MARKET_PUBLIC")
-        return out
+        proxies = fetch_market_proxy_context(str(price_date or ""))
+        for key in (
+            "sox", "nq", "qqq", "vix", "vix_change", "smh", "mu",
+            "tsm_adr", "tx_night", "as_of", "symbols",
+        ):
+            if key in proxies:
+                out[key] = proxies.get(key)
+        if proxies.get("accepted"):
+            out["market_proxy_source"] = proxies.get("source")
+            out["source"] = "TINO_RC4_MACRO_CALENDAR+" + str(proxies.get("source") or "US_MARKET_PUBLIC")
     except Exception:
-        return {
-            "accepted": False, "source": "US_MARKET_PUBLIC",
-            "sox": None, "nq": None, "qqq": None, "vix": None,
-            "vix_change": None, "smh": None, "mu": None,
-            "tsm_adr": None, "tx_night": None,
-        }
-
+        # Calendar remains valid even when a market proxy endpoint is unavailable.
+        pass
+    return out
 
 def _us_market_status_now() -> str:
     """V9-style US session router using America/New_York official trading windows.
@@ -495,10 +496,10 @@ _US_QUERY_PROFILES: Dict[str, Dict[str, List[str]]] = {
 }
 
 _DAILY_HEADLINE_QUERIES = [
-    "US stock market Fed CPI NFP 2026",
-    "Trump tariff China semiconductor export control 2026",
-    "geopolitics Taiwan Strait South China Sea Middle East oil 2026",
-    "semiconductor AI chip supply chain headlines 2026",
+    "US stock market Fed CPI PPI PCE ISM NFP",
+    "Trump tariff China semiconductor export control",
+    "geopolitics Taiwan Strait South China Sea Middle East oil",
+    "semiconductor AI chip supply chain headlines",
 ]
 
 _US_POLICY_GEO_TERMS = [
@@ -674,11 +675,12 @@ def _score_us_news(title: str, bucket: str = "company") -> Tuple[float, str]:
     return round(max(-0.32, min(0.32, score)), 4), tag
 
 def _google_news_us(query: str, bucket: str, limit: int = 4) -> List[NewsItem]:
-    # Add 2026 + time operators directly in query so Google News avoids stale archives.
+    # Add the active year + time operators so Google News avoids stale archives.
+    current_year = max(2026, datetime.now(ZoneInfo("UTC")).year)
     if bucket == "daily":
-        q = f"({query}) 2026 after:2026-01-01 when:14d"
+        q = f"({query}) {current_year} after:{current_year}-01-01 when:14d"
     else:
-        q = f"({query}) 2026 after:2026-01-01 when:60d"
+        q = f"({query}) {current_year} after:{current_year}-01-01 when:60d"
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"})
     items: List[NewsItem] = []
     try:

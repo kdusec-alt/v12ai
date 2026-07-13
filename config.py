@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-VERSION = "TINO V12.2｜Quantum Entanglement Direction Engine｜V9 Frontend Contract"
+VERSION = "TINO RC4｜Quantum Contribution Gate｜V9 Frontend Contract"
 
 CONSTITUTION = """
 V12 是唯一正式版本，取代 V9，但不得低於 V9。
@@ -34,7 +34,7 @@ PRICE_CONFIDENCE_ONLY_MODULES = PRICE_NEUTRAL_MODULES | {
 
 REQUIRED_RADAR_ROWS = [
     "Fair Value", "ABC 多空情境", "BSI 借券空方",
-    "事件/Macro", "Daily Headline", "Policy/Geo", "Company News", "外資期貨", "市場熱度", "基本面",
+    "事件/Macro", "Quantum 貢獻", "Daily Headline", "Policy/Geo", "Company News", "外資期貨", "市場熱度", "基本面",
     "空方成本 / 回補", "三大法人", "資券 / 融資融券",
 ]
 

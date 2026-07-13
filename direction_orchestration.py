@@ -99,9 +99,14 @@ def quantum_tactical_overlay(direction: DirectionResult | None) -> Dict[str, obj
     geo = float(fs.get("geo_policy", 0.0) or 0.0)
     heat = float(fs.get("market_heat", 0.0) or 0.0)
     futures = float(fs.get("futures", 0.0) or 0.0)
+    uncertainty = float(getattr(direction, "uncertainty", 0.0) or 0.0)
+    event_names = list(getattr(direction, "risk_factors", []) or [])
+    event_caution = bool(uncertainty >= 0.11 and event_names)
     profile = str(direction.regime or "").split("｜")[-1]
 
     notes: List[str] = []
+    if event_caution:
+        notes.append(f"{event_names[0]}公布前不預設方向，縮小試單並等待跨市場確認")
     hard_defense = bool(
         profile in {"memory", "semiconductor"}
         and geo <= -16.0
@@ -146,6 +151,9 @@ def quantum_tactical_overlay(direction: DirectionResult | None) -> Dict[str, obj
         "hard_defense": hard_defense,
         "pause_second": pause_second,
         "catalyst": catalyst,
+        "event_caution": event_caution,
+        "event_name": event_names[0] if event_names else "",
+        "event_uncertainty": round(uncertainty, 3),
         "fundamental_event": round(fund, 2),
         "overnight": round(overnight, 2),
         "leverage": round(leverage, 2),

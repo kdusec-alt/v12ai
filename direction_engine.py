@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""TINO V12.2 Quantum Direction Precision Engine.
+"""TINO RC4 Quantum Direction Precision Engine.
 
 The price engine and the direction engine are intentionally separated:
 - Price engine estimates T0/T1/High/Low paths.
@@ -10,7 +10,7 @@ VWAP) cannot be counted repeatedly through several feature modules.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import math
 from statistics import mean
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
@@ -37,6 +37,12 @@ class DirectionResult:
     family_scores: Dict[str, float]
     family_weights: Dict[str, float]
     reasons: List[str]
+    family_contributions: Dict[str, float] = field(default_factory=dict)
+    factor_contributions: Dict[str, float] = field(default_factory=dict)
+    interaction_contribution: float = 0.0
+    uncertainty: float = 0.0
+    risk_factors: List[str] = field(default_factory=list)
+    gate_state: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -107,7 +113,13 @@ def _trend_family(price: PriceFrame) -> Tuple[float, bool]:
     return _weighted_average(parts)
 
 
-def _intraday_family(price: PriceFrame) -> Tuple[float, bool]:
+def _intraday_components(price: PriceFrame) -> Tuple[Dict[str, float], bool]:
+    """Return weighted intraday components whose values sum to the family score.
+
+    Same-day return is intentionally low-weight.  Today rising/falling is one
+    molecule, not tomorrow's answer; VWAP acceptance and close location carry
+    more information about whether the move was actually held.
+    """
     last = _num(price.last)
     atr = max(_num(price.atr14), last * 0.012, 0.01)
     vwap = _num(price.vwap, last) or last
@@ -120,13 +132,58 @@ def _intraday_family(price: PriceFrame) -> Tuple[float, bool]:
         vwap_score = 0.0
     else:
         vwap_score = math.copysign(_tanh100((abs(vwap_z) - 0.15) / 0.70), vwap_z)
-    day_score = _tanh100(((last - prev) / atr) / 1.45)
+    day_score = _tanh100(((last - prev) / atr) / 1.70)
     day_range = max(high - low, atr * 0.15, 0.01)
-    clv = _clamp(((last - low) / day_range) * 2.0 - 1.0, -1.0, 1.0) * 100.0
+    close_location = _clamp(((last - low) / day_range) * 2.0 - 1.0, -1.0, 1.0) * 100.0
 
-    score, ok = _weighted_average(((vwap_score, 0.55), (day_score, 0.27), (clv, 0.18)))
-    return _clamp(score, -100.0, 100.0), ok and last > 0 and vwap > 0
+    weights = {"VWAP": 0.60, "當日漲跌": 0.14, "收盤位置": 0.26}
+    raw = {"VWAP": vwap_score, "當日漲跌": day_score, "收盤位置": close_location}
+    components = {name: raw[name] * weight for name, weight in weights.items()}
+    return components, last > 0 and vwap > 0
 
+
+def _intraday_family(price: PriceFrame) -> Tuple[float, bool]:
+    components, ok = _intraday_components(price)
+    score = sum(components.values())
+    return _clamp(score, -100.0, 100.0), ok
+
+
+def _exhaustion_family(price: PriceFrame) -> Tuple[float, bool]:
+    """Bounded anti-inertia evidence for stretched one-day moves.
+
+    It never predicts a reversal by itself.  It only shifts an extended move
+    toward retest/neutral unless other families confirm continuation.
+    """
+    last = _num(price.last)
+    prev = _num(price.previous_close, last) or last
+    vwap = _num(price.vwap, last) or last
+    atr = max(_num(price.atr14), last * 0.012, 0.01)
+    realised = (last - prev) / atr
+    vwap_z = (last - vwap) / atr
+    snap = build_trend_snapshot(price)
+    ret5 = _num(snap.ret_5d, 0.0)
+
+    stretch = max(
+        max(abs(realised) - 1.00, 0.0),
+        max(abs(vwap_z) - 1.20, 0.0) * 0.85,
+        max(abs(ret5) - 7.0, 0.0) / 7.0,
+    )
+    if stretch <= 0.05:
+        return 0.0, False
+
+    directional = realised * 0.58 + vwap_z * 0.27 + (ret5 / 4.0) * 0.15
+    if abs(directional) < 0.20:
+        return 0.0, False
+    score = -math.copysign(_tanh100(stretch / 1.35), directional)
+
+    # A close held at the extreme reduces, but does not erase, exhaustion risk.
+    high = max(_num(price.high, last), last)
+    low = min(_num(price.low, last), last)
+    day_range = max(high - low, atr * 0.15, 0.01)
+    clv = _clamp(((last - low) / day_range) * 2.0 - 1.0, -1.0, 1.0)
+    if directional * clv > 0.35:
+        score *= 0.68
+    return _clamp(score, -62.0, 62.0), True
 
 def _price_action_family(price: PriceFrame) -> Tuple[float, bool]:
     closes = _positive(price.recent_closes)
@@ -328,6 +385,40 @@ def _probabilities(effective_score: float, quality: float, conflict: float, unce
     return up / total, neutral / total, down / total
 
 
+_FAMILY_LABELS_TW = {
+    "trend": "趨勢", "intraday": "盤中結構", "price_action": "價格結構",
+    "flow": "法人", "news": "新聞", "fundamental_event": "月營收",
+    "overnight": "跨市場", "leverage": "融資", "market_heat": "市場融資",
+    "futures": "外資期貨", "foreign_pressure": "外資匯率",
+    "geo_policy": "政策/地緣", "exhaustion": "過熱/耗竭",
+}
+_FAMILY_LABELS_US = {
+    "trend": "趨勢", "intraday": "盤中結構", "price_action": "價格結構",
+    "short": "Short Float", "news": "新聞", "fundamental_event": "財報/guidance",
+    "overnight": "跨市場", "geo_policy": "政策/地緣", "exhaustion": "過熱/耗竭",
+}
+
+
+def _split_family_contribution(
+    family_contribution: float,
+    family_score: float,
+    components: Mapping[str, float] | None,
+) -> Dict[str, float]:
+    if not components or abs(family_score) < 1e-9:
+        return {}
+    return {
+        str(label): family_contribution * float(value) / family_score
+        for label, value in components.items()
+        if math.isfinite(float(value))
+    }
+
+
+def _quantum_gate_state(p_up: float, p_neutral: float, p_down: float) -> str:
+    rows = (("A突破", p_up), ("B回測", p_neutral), ("C防守", p_down))
+    label, probability = max(rows, key=lambda item: item[1])
+    return f"{label} {probability * 100.0:.0f}%"
+
+
 def build_direction_forecast(
     price: PriceFrame,
     signals: Sequence[SignalPacket] | None = None,
@@ -350,6 +441,7 @@ def build_direction_forecast(
     trend, trend_ok = _trend_family(price)
     intraday, intraday_ok = _intraday_family(price)
     action, action_ok = _price_action_family(price)
+    exhaustion, exhaustion_ok = _exhaustion_family(price)
     news, news_ok = _news_family(signals)
 
     market = str(price.ticker.market or "").upper()
@@ -362,6 +454,7 @@ def build_direction_forecast(
             "intraday": (intraday, 0.150, intraday_ok),
             "price_action": (action, 0.100, action_ok),
             "flow": (flow, 0.200, flow_ok),
+            "exhaustion": (exhaustion, 0.055, exhaustion_ok),
             "news": (news, 0.030, news_ok),
         }
         quantum = build_quantum_evidence(
@@ -379,6 +472,7 @@ def build_direction_forecast(
             "intraday": (intraday, 0.170, intraday_ok),
             "price_action": (action, 0.120, action_ok),
             "short": (short, 0.070, short_ok),
+            "exhaustion": (exhaustion, 0.055, exhaustion_ok),
             "news": (news, 0.030, news_ok),
         }
         quantum = build_quantum_evidence(
@@ -414,16 +508,43 @@ def build_direction_forecast(
     weights = {name: weight / total_weight for name, (_, weight) in valid.items()}
     base_score = sum(scores[name] * weights[name] for name in scores)
     interaction, interaction_reasons = entanglement_adjustment(scores, market)
-    raw_score = _clamp(base_score + interaction, -100.0, 100.0)
+    unbounded_raw = base_score + interaction
+    raw_score = _clamp(unbounded_raw, -100.0, 100.0)
 
     conflict = _family_conflict(scores, weights)
     quality = _data_quality(price, len(scores))
     uncertainty = _clamp(float(quantum.uncertainty), 0.0, 0.30)
-    effective = _clamp(
-        raw_score * (1.0 - 0.45 * conflict) * quality * (1.0 - 0.35 * uncertainty),
-        -100.0,
-        100.0,
-    )
+    scale = (1.0 - 0.45 * conflict) * quality * (1.0 - 0.35 * uncertainty)
+    clip_ratio = raw_score / unbounded_raw if abs(unbounded_raw) > 1e-9 else 1.0
+    effective = _clamp(raw_score * scale, -100.0, 100.0)
+
+    family_contributions = {
+        name: scores[name] * weights[name] * scale * clip_ratio
+        for name in scores
+    }
+    interaction_contribution = interaction * scale * clip_ratio
+
+    # Split only when the child components are mathematically traceable to the
+    # parent family.  Their sum plus interaction equals the displayed total.
+    factor_contributions: Dict[str, float] = {}
+    labels = _FAMILY_LABELS_TW if market == "TW" else _FAMILY_LABELS_US
+    intraday_components, _ = _intraday_components(price)
+    component_map: Dict[str, Mapping[str, float]] = dict(quantum.family_components)
+    component_map["intraday"] = intraday_components
+    for family, contribution in family_contributions.items():
+        split = _split_family_contribution(
+            contribution,
+            scores.get(family, 0.0),
+            component_map.get(family),
+        )
+        if split:
+            for label, value in split.items():
+                factor_contributions[label] = factor_contributions.get(label, 0.0) + value
+        else:
+            label = labels.get(family, family)
+            factor_contributions[label] = factor_contributions.get(label, 0.0) + contribution
+    if abs(interaction_contribution) >= 0.005:
+        factor_contributions["糾纏確認"] = interaction_contribution
     p_up, p_neutral, p_down = _probabilities(effective, quality, conflict, uncertainty)
 
     if p_up >= 0.50 and (p_up - p_down) >= 0.15:
@@ -444,8 +565,8 @@ def build_direction_forecast(
         -0.80,
         0.80,
     )
-    top = sorted(scores.items(), key=lambda item: abs(item[1]), reverse=True)[:4]
-    reasons = [f"{name} {value:+.0f}" for name, value in top]
+    top = sorted(factor_contributions.items(), key=lambda item: abs(item[1]), reverse=True)[:5]
+    reasons = [f"{name} {value:+.1f}" for name, value in top]
     reasons.extend(quantum.reasons[:3])
     if interaction_reasons:
         reasons.append("糾纏確認：" + ",".join(interaction_reasons[:2]))
@@ -470,5 +591,11 @@ def build_direction_forecast(
         family_scores={k: round(v, 2) for k, v in scores.items()},
         family_weights={k: round(v, 4) for k, v in weights.items()},
         reasons=reasons,
+        family_contributions={k: round(v, 3) for k, v in family_contributions.items()},
+        factor_contributions={k: round(v, 3) for k, v in factor_contributions.items()},
+        interaction_contribution=round(interaction_contribution, 3),
+        uncertainty=round(uncertainty, 3),
+        risk_factors=list(quantum.risk_factors),
+        gate_state=_quantum_gate_state(p_up, p_neutral, p_down),
     )
 

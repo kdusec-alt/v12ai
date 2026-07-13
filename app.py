@@ -17,6 +17,35 @@ def _boot_print(stage: str, **meta):
         pass
 
 
+def _diagnostics_allowed() -> bool:
+    """Technical traces are restricted to authenticated Admin/debug sessions."""
+    try:
+        return bool(
+            st.session_state.get("admin_authenticated", False)
+            or str(os.environ.get("TINO_DEBUG_UI") or "").strip() == "1"
+        )
+    except Exception:
+        return False
+
+
+def _log_exception(stage: str, exc: Exception) -> str:
+    """Write the full trace to server logs and return it for Admin diagnostics."""
+    trace = f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
+    _boot_print(stage, error=f"{type(exc).__name__}: {exc}")
+    try:
+        print(trace, flush=True)
+    except Exception:
+        pass
+    return trace
+
+
+def _render_admin_trace(trace: str) -> None:
+    if not trace or not _diagnostics_allowed():
+        return
+    with st.expander("Admin 診斷", expanded=False):
+        st.code(trace)
+
+
 _boot_print("script_enter", python=os.sys.version.split()[0])
 
 # RC24.2 Post-Render Crash Guard
@@ -148,10 +177,10 @@ try:
             return []
     _boot_print("project_import_done", module="memory_learning_runtime")
 except Exception as exc:
-    _boot_print("project_import_failed", error=f"{type(exc).__name__}: {exc}")
+    _trace = _log_exception("project_import_failed", exc)
     _theme()
-    st.error("系統模組載入失敗，停止啟動正式預測。")
-    st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
+    st.error("系統模組載入失敗，已安全停止正式預測。")
+    _render_admin_trace(_trace)
     st.stop()
 
 
@@ -337,11 +366,12 @@ def main():
                 st.session_state.last_error = ""
         except Exception as exc:
             st.session_state.forecast = None
-            st.session_state.last_error = f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
+            st.session_state.last_error = _log_exception("analysis_failed", exc)
 
     if st.session_state.last_error:
-        st.error("分析流程發生錯誤，已阻擋整頁白屏。")
-        st.code(st.session_state.last_error)
+        st.error("分析流程暫時中止，已安全保留畫面。請重新整理後再試。")
+        if debug or _diagnostics_allowed():
+            _render_admin_trace(st.session_state.last_error)
 
     forecast = st.session_state.forecast
     if forecast:
@@ -366,10 +396,10 @@ def main():
 try:
     main()
 except Exception as exc:
-    _boot_print("main_failed", error=f"{type(exc).__name__}: {exc}")
+    _trace = _log_exception("main_failed", exc)
     try:
         _theme()
-        st.error("TINO 啟動流程發生錯誤，已攔截白屏。")
-        st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
+        st.error("TINO 啟動流程暫時中止，已安全攔截白屏。")
+        _render_admin_trace(_trace)
     except Exception:
         raise

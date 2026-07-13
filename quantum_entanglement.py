@@ -14,13 +14,14 @@ rules:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 import math
 import re
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from models import NewsItem, PriceFrame, SignalPacket
+from macro_event_calendar import event_risk_from_context
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,8 @@ class QuantumEvidence:
     families: Dict[str, Tuple[float, float, bool]]
     uncertainty: float
     reasons: List[str]
-
+    family_components: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    risk_factors: List[str] = field(default_factory=list)
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, float(value)))
@@ -335,14 +337,17 @@ def _group_average(values: Sequence[Tuple[float | None, float]]) -> float | None
     return sum(float(value) * weight for value, weight in valid) / sum(weight for _, weight in valid)
 
 
-def _overnight_family(price: PriceFrame, profile: str) -> Tuple[float, bool, str]:
+def _overnight_family(
+    price: PriceFrame,
+    profile: str,
+) -> Tuple[float, bool, str, Dict[str, float]]:
     macro = (price.context or {}).get("macro")
     if not isinstance(macro, Mapping) or not bool(macro.get("accepted")):
-        return 0.0, False, ""
+        return 0.0, False, "", {}
     ref = _reference_date(price)
 
-    # Correlated symbols form one proxy family each.  SOX+SMH and NQ+QQQ can
-    # improve robustness but never receive two separate weights.
+    # Correlated symbols form one proxy family each. SOX+SMH and NQ+QQQ can
+    # improve robustness but never receive two separate family weights.
     semiconductor = _group_average((
         (_proxy_value(macro, "sox", ref), 0.60),
         (_proxy_value(macro, "smh", ref), 0.40),
@@ -376,21 +381,34 @@ def _overnight_family(price: PriceFrame, profile: str) -> Tuple[float, bool, str
         else:
             weights = {"nasdaq": 0.55, "semi": 0.20, "vix": 0.25}
 
-    parts: List[Tuple[float, float]] = []
-    used: List[str] = []
+    transformed_parts: List[Tuple[str, float, float]] = []
     for name, weight in weights.items():
         value = groups.get(name)
         if value is None:
             continue
         transformed = -_tanh100(value / 8.0) if name == "vix" else _tanh100(value / 2.4)
-        parts.append((transformed, weight))
-        used.append(name)
-    if not parts:
-        return 0.0, False, ""
-    score = sum(value * weight for value, weight in parts) / sum(weight for _, weight in parts)
-    labels = {"tx": "台指夜盤", "semi": "費半", "nasdaq": "那指", "memory": "MU", "tsm": "TSM", "vix": "VIX"}
-    return _clamp(score, -100.0, 100.0), True, "跨市場：" + "/".join(labels[x] for x in used[:4])
+        transformed_parts.append((name, transformed, weight))
+    if not transformed_parts:
+        return 0.0, False, "", {}
 
+    total_weight = sum(weight for _, _, weight in transformed_parts)
+    components = {
+        name: transformed * weight / total_weight
+        for name, transformed, weight in transformed_parts
+    }
+    score = sum(components.values())
+    labels = {
+        "tx": "台指夜盤", "semi": "費半", "nasdaq": "那指",
+        "memory": "MU", "tsm": "TSM ADR", "vix": "VIX",
+    }
+    labelled_components = {labels[name]: value for name, value in components.items()}
+    used = [labels[name] for name, _, _ in transformed_parts]
+    return (
+        _clamp(score, -100.0, 100.0),
+        True,
+        "跨市場：" + "/".join(used[:4]),
+        labelled_components,
+    )
 
 def _tw_leverage_family(
     price: PriceFrame,
@@ -542,25 +560,14 @@ def _geo_policy_family(
     return score, True, uncertainty, f"政策/地緣 {age_h:.0f}小時｜{state}"
 
 
-def _macro_event_uncertainty(price: PriceFrame) -> float:
+def _macro_event_risk(price: PriceFrame) -> Tuple[float, List[str]]:
     macro = (price.context or {}).get("macro")
-    text = str(macro.get("calendar") or "") if isinstance(macro, Mapping) else ""
-    hours = [int(value) for value in re.findall(r"倒數\s*(\d+)\s*小時", text)]
-    penalty = 0.0
-    if hours:
-        nearest = min(hours)
-        penalty = 0.18 if nearest <= 12 else 0.10 if nearest <= 36 else 0.04 if nearest <= 72 else 0.0
+    earnings_days = None
     if str(price.ticker.market or "").upper() == "US":
         fundamental = (price.context or {}).get("fundamental")
         if isinstance(fundamental, Mapping):
-            days = _maybe_num(fundamental.get("earnings_days"))
-            if days is not None:
-                if 0 <= days <= 1:
-                    penalty = max(penalty, 0.18)
-                elif days <= 3:
-                    penalty = max(penalty, 0.09)
-    return penalty
-
+            earnings_days = _maybe_num(fundamental.get("earnings_days"))
+    return event_risk_from_context(macro if isinstance(macro, Mapping) else None, earnings_days=earnings_days)
 
 def build_quantum_evidence(
     price: PriceFrame,
@@ -575,7 +582,7 @@ def build_quantum_evidence(
     news_items = list(news_items or [])
     market = str(price.ticker.market or "").upper()
     profile = sector_profile(price)
-    overnight, overnight_ok, overnight_reason = _overnight_family(price, profile)
+    overnight, overnight_ok, overnight_reason, overnight_components = _overnight_family(price, profile)
 
     if market == "TW":
         fundamental, fundamental_ok, fundamental_reason = _tw_fundamental_event(price)
@@ -616,12 +623,18 @@ def build_quantum_evidence(
     if geo_reason:
         reasons.append(geo_reason)
 
-    uncertainty = _clamp(_macro_event_uncertainty(price) + geo_uncertainty, 0.0, 0.30)
+    macro_uncertainty, risk_factors = _macro_event_risk(price)
+    uncertainty = _clamp(macro_uncertainty + geo_uncertainty, 0.0, 0.30)
+    family_components: Dict[str, Dict[str, float]] = {}
+    if overnight_components:
+        family_components["overnight"] = overnight_components
     return QuantumEvidence(
         profile=profile,
         families=families,
         uncertainty=uncertainty,
         reasons=reasons,
+        family_components=family_components,
+        risk_factors=risk_factors,
     )
 
 

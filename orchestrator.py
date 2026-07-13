@@ -26,6 +26,7 @@ from models import FinalForecast, NewsItem, PredictionTrace, PriceFrame, RawFore
 from price_guard import apply_market_bounds, validate_price_frame
 from truth_guard import truth_to_main_label
 from data_sources_market_heat import fetch_tw_market_heat, market_heat_radar_line
+from macro_event_calendar import macro_calendar_guard_text
 def collect_signals(price: PriceFrame, manual_macro: str = "neutral") -> List[SignalPacket]:
     signals = common_signals(price, manual_macro)
     if price.ticker.asset_type == "etf":
@@ -83,31 +84,8 @@ def _first_friday_local(year: int, month: int) -> date:
 
 
 def _macro_calendar_guard_text() -> str:
-    """Frontend-safe macro text: never show a past fixed NFP date."""
-    try:
-        now = datetime.now(ZoneInfo("Asia/Taipei"))
-        events = []
-        fomc = datetime(2026, 7, 30, 2, 0, tzinfo=ZoneInfo("Asia/Taipei"))
-        if fomc > now:
-            events.append((fomc, "FOMC利率決議"))
-        nfp_d = _first_friday_local(now.year, now.month)
-        nfp = datetime(nfp_d.year, nfp_d.month, nfp_d.day, 20, 30, tzinfo=ZoneInfo("Asia/Taipei"))
-        if nfp <= now:
-            y, m = (now.year + 1, 1) if now.month == 12 else (now.year, now.month + 1)
-            nfp_d = _first_friday_local(y, m)
-            nfp = datetime(nfp_d.year, nfp_d.month, nfp_d.day, 20, 30, tzinfo=ZoneInfo("Asia/Taipei"))
-        events.append((nfp, "NFP"))
-        events = sorted([x for x in events if x[0] > now], key=lambda x: x[0])
-        if not events:
-            return "未來72小時暫無已確認一級宏觀事件"
-        first_dt, first_name = events[0]
-        dh = int((first_dt - now).total_seconds() // 3600)
-        parts = [f"下一個一級事件：{first_name} {first_dt.strftime('%m/%d %H:%M')} 台灣（倒數{dh}小時）"]
-        for dt, nm in events[1:2]:
-            parts.append(f"{nm}：{dt.strftime('%m/%d %H:%M')} 台灣（倒數{int((dt-now).total_seconds()//3600)}小時）")
-        return "｜".join(parts)
-    except Exception:
-        return "宏觀事件：以官方日曆確認"
+    """One frontend-safe official calendar shared by TW and US routes."""
+    return macro_calendar_guard_text()
 
 def _futures_delta_text(net, delta) -> str:
     try:
@@ -162,120 +140,92 @@ def _short_title(title: str, limit: int = 24) -> str:
 
 
 def _quantum_macro_policy_assessment(news_items: List[NewsItem] | None = None, macro: dict | None = None) -> dict:
-    """Quantum Macro/Policy/Geo Entanglement Engine.
+    """Policy/Geo engine kept separate from the macro event calendar.
 
-    這不是單純關鍵字列示，而是把外部事件轉成可被 Orchestrator 使用的風險力場：
-    - Geo：台海、南海、紅海、中東、烏俄、供應鏈。
-    - Policy：川普、關稅、制裁、出口管制、晶片禁令。
-    - Macro：升息、降息、通膨、CPI、PPI、FOMC、Fed、美元、美債殖利率。
-
-    主 UI 只輸出短句；Trace/Decision 才使用 score/risk/bias。
+    CPI/PPI/NFP/FOMC countdowns belong to Event/Macro and are uncertainty-only
+    before release.  This block handles tariffs, export controls, sanctions and
+    geopolitical transmission so one headline cannot be counted twice.
     """
     items = news_items or []
-    if not items:
-        return {
-            "line": "Policy/Geo｜待同步｜新聞源待接",
-            "score": 0.0, "risk": 0.0, "bias": 0.0, "confidence": 0.0,
-            "reason": "news source pending", "level": "待同步", "labels": [],
-        }
-
     buckets: list[dict] = []
-    # Policy / Trump：Trump 單獨只列觀察；Trump + policy/macro 才加權。
     trump_keys = ["川普", "特朗普", "trump", "donald trump", "maga"]
-    trump_policy_keys = ["關稅", "tariff", "tariffs", "china", "中國", "中美", "美中", "台灣", "taiwan", "半導體", "semiconductor", "chip", "chips", "出口", "export", "制裁", "sanction", "fed", "利率", "rate"]
-    tightening_keys = ["升息", "升準", "通膨升溫", "通膨頑固", "cpi高於", "ppi高於", "higher for longer", "hawkish", "殖利率上升", "美債殖利率升", "美元走強", "dxy上升", "inflation hotter", "hot inflation"]
-    easing_keys = ["降息", "降準", "通膨降溫", "cpi低於", "ppi低於", "dovish", "殖利率下降", "美債殖利率降", "美元走弱", "rate cut", "rate cuts", "inflation cool", "cooling inflation"]
-    fed_event_keys = ["fomc", "fed", "鮑威爾", "powell", "利率決議", "非農", "nfp", "cpi", "ppi", "pce", "通膨", "inflation"]
-    geo_keys = ["台海", "台灣海峽", "南海", "軍演", "共軍", "解放軍", "taiwan strait", "south china sea", "烏俄", "烏克蘭", "俄羅斯", "北約", "ukraine", "russia", "nato"]
-    mid_east_keys = ["中東", "以伊", "以色列", "伊朗", "紅海", "胡塞", "opec", "油價", "原油", "航運", "red sea", "iran", "crude", "oil"]
-    supply_keys = ["稀土", "鎵", "鍺", "供應鏈", "rare earth", "gallium", "germanium", "出口管制", "entity list", "實體清單", "晶片禁售", "chip ban", "export control"]
+    policy_keys = [
+        "關稅", "tariff", "tariffs", "出口管制", "export control", "制裁", "sanction",
+        "entity list", "實體清單", "晶片禁售", "chip ban", "稀土", "rare earth",
+        "鎵", "gallium", "鍺", "germanium",
+    ]
+    china_policy_keys = ["美中", "中美", "us-china", "china relations", "中國政策", "china policy"]
+    geo_keys = [
+        "台海", "台灣海峽", "南海", "軍演", "共軍", "解放軍", "taiwan strait",
+        "south china sea", "烏俄", "烏克蘭", "俄羅斯", "北約", "ukraine", "russia", "nato",
+    ]
+    middle_east_keys = [
+        "中東", "以色列", "伊朗", "紅海", "胡塞", "red sea", "iran", "israel",
+        "opec", "原油", "油價", "crude", "oil", "航運",
+    ]
 
-    def add(label: str, direction: int, weight: float, title: str):
-        # direction: +1 risk-on, -1 risk-off, 0 observation
+    def add(label: str, direction: int, weight: float, title: str) -> None:
         buckets.append({"label": label, "direction": direction, "weight": float(weight), "title": title})
 
-    for n in items[:24]:
-        text = _news_text(n)
-        title = str(getattr(n, "title", "") or "")
-        if _has_any(text, trump_keys):
-            if _has_any(text, trump_policy_keys):
-                add("川普政策/關稅", -1, 3.0, title)
-            else:
-                add("川普政策觀察", 0, 0.8, title)
-        if _has_any(text, tightening_keys):
-            add("升息/通膨壓力", -1, 2.8, title)
-        if _has_any(text, easing_keys):
-            add("降息/通膨降溫", +1, 2.5, title)
-        if _has_any(text, fed_event_keys):
-            add("Fed/CPI事件", 0, 1.0, title)
-        if _has_any(text, supply_keys):
-            add("晶片/供應鏈管制", -1, 2.4, title)
+    for item in items[:30]:
+        text = _news_text(item)
+        title = str(getattr(item, "title", "") or "")
+        if _has_any(text, trump_keys) and _has_any(text, policy_keys + china_policy_keys):
+            add("川普政策/關稅", -1, 3.0, title)
+        elif _has_any(text, trump_keys):
+            add("川普政策觀察", 0, 0.7, title)
+        if _has_any(text, policy_keys):
+            add("晶片/供應鏈管制", -1, 2.5, title)
+        if _has_any(text, china_policy_keys):
+            add("美中政策", -1, 1.8, title)
         if _has_any(text, geo_keys):
-            add("地緣政治", -1, 2.2, title)
-        if _has_any(text, mid_east_keys):
+            add("地緣政治", -1, 2.3, title)
+        if _has_any(text, middle_east_keys):
             add("能源/航運風險", -1, 2.0, title)
-
-    # Macro calendar 本身是事件風險，不等於方向，但會提高等待確認的重要性。
-    cal = str((macro or {}).get("calendar") or "").lower() if isinstance(macro, dict) else ""
-    if any(x in cal for x in ["fomc", "nfp", "cpi", "ppi", "利率", "非農"]):
-        buckets.append({"label": "一級宏觀倒數", "direction": 0, "weight": 1.0, "title": "Macro calendar"})
 
     if not buckets:
         return {
-            "line": "Policy/Geo｜觀察｜近端新聞未命中政策/地緣/通膨事件",
+            "line": "Policy/Geo｜觀察｜近端政策/地緣事件未形成方向",
             "score": 0.0, "risk": 0.5, "bias": 0.0, "confidence": 0.0,
-            "reason": "no macro policy geo keyword hit", "level": "觀察", "labels": [],
+            "reason": "no recent policy geo transmission", "level": "觀察", "labels": [],
         }
 
-    # 去重：同一類只保留最高權重，避免同一新聞重複放大。
+    # Same category is counted once at its strongest weight.
     merged: dict[str, dict] = {}
-    for b in buckets:
-        old = merged.get(b["label"])
-        if old is None or b["weight"] > old["weight"]:
-            merged[b["label"]] = b
+    for bucket in buckets:
+        old = merged.get(bucket["label"])
+        if old is None or bucket["weight"] > old["weight"]:
+            merged[bucket["label"]] = bucket
     hits = list(merged.values())
-
-    pos = sum(b["weight"] for b in hits if b["direction"] > 0)
-    neg = sum(b["weight"] for b in hits if b["direction"] < 0)
-    obs = sum(b["weight"] for b in hits if b["direction"] == 0)
+    pos = sum(row["weight"] for row in hits if row["direction"] > 0)
+    neg = sum(row["weight"] for row in hits if row["direction"] < 0)
+    obs = sum(row["weight"] for row in hits if row["direction"] == 0)
     net = pos - neg
-    pressure = neg + obs * 0.35
+    pressure = neg + obs * 0.25
 
-    if neg >= 5.0 and pos >= 2.0:
-        level, strategy = "中高", "利多利空抵銷，追高降級，站穩再攻"
-    elif net <= -4.0 or neg >= 6.0:
+    if neg >= 6.0:
         level, strategy = "高", "政策/地緣壓力偏高，追高降級，先等回測確認"
-    elif net <= -2.0:
+    elif neg >= 3.2:
         level, strategy = "中高", "風險偏空，降低部位，站穩再攻"
-    elif net >= 3.0 and neg < 2.0:
-        level, strategy = "中", "通膨/利率風險降溫，成長股加分"
-    elif pos >= 2.0 and neg >= 2.0:
-        level, strategy = "中", "宏觀訊號互相抵銷，維持條件式進場"
+    elif neg >= 1.5:
+        level, strategy = "中", "產業風險升溫，維持條件式進場"
     else:
-        level, strategy = "觀察", "事件觀察，不硬改價"
+        level, strategy = "觀察", "事件觀察，等待確認"
 
-    labels = [b["label"] for b in hits]
-    label_txt = "+".join(labels[:3])
-    title = next((b["title"] for b in hits if b.get("title") and b.get("title") != "Macro calendar"), "")
-    title_txt = f"｜{_short_title(title)}" if title else ""
-
-    # 轉成可仲裁的 SignalPacket 數值，幅度保守，避免新聞單點劫持價格。
-    signal_score = clamp(net * 6.0, -36.0, 36.0)
-    risk = clamp(pressure * 2.0, 0.0, 18.0)
-    bias = clamp(net / 12.0, -0.32, 0.32)
-    conf = clamp(abs(net) * 0.35, 0.0, 3.0)
-
+    labels = [row["label"] for row in hits]
+    label_text = "+".join(labels[:3])
+    title = next((row["title"] for row in hits if row.get("title")), "")
+    title_text = f"｜{_short_title(title)}" if title else ""
     return {
-        "line": f"Policy/Geo｜{level}｜{label_txt}｜{strategy}{title_txt}",
-        "score": signal_score,
-        "risk": risk,
-        "bias": bias,
-        "confidence": conf,
-        "reason": f"quantum_macro_hits={label_txt}; net={net:+.2f}; pos={pos:.2f}; neg={neg:.2f}",
+        "line": f"Policy/Geo｜{level}｜{label_text}｜{strategy}{title_text}",
+        "score": clamp(net * 6.0, -36.0, 36.0),
+        "risk": clamp(pressure * 2.0, 0.0, 18.0),
+        "bias": clamp(net / 12.0, -0.32, 0.32),
+        "confidence": clamp(abs(net) * 0.35, 0.0, 3.0),
+        "reason": f"policy_geo={label_text}; net={net:+.2f}; risk={pressure:.2f}",
         "level": level,
         "labels": labels,
     }
-
 
 def _geo_risk_from_news(news_items: List[NewsItem] | None = None) -> str:
     # Backward-compatible name: main UI row now uses the broader Policy/Geo engine.
@@ -684,6 +634,8 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
     overlay = _quantum_tactical_overlay(direction)
     hard_defense = bool(overlay.get("hard_defense"))
     pause_second = bool(overlay.get("pause_second"))
+    event_caution = bool(overlay.get("event_caution"))
+    event_name = str(overlay.get("event_name") or "一級宏觀事件")
     overlay_note = str(overlay.get("note") or "")
     words = _us_session_words(price) if price.ticker.market == "US" else _session_words(price)
     snap = build_trend_snapshot(price)
@@ -699,6 +651,10 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         head = "AI進場決策卡｜風險共振｜先防守｜等待海外止穩"
         one = f"{prefix}：地緣/海外盤勢對產業形成負向共振；未站回 {attack:.2f} 前不搶反彈，破 {stop:.2f} 停。"
         axis = "跨市場風險共振｜防守優先"
+    elif event_caution:
+        head = "AI進場決策卡｜事件卡｜縮小試單｜公布後確認"
+        one = f"{prefix}：{event_name}公布前不預設方向；站穩 {attack:.2f} 才試小單，回測 {low1:.2f} 止穩再分批，破 {stop:.2f} 停。"
+        axis = "一級事件前｜縮小部位｜等待確認"
     elif bullish and overheat:
         head = "AI進場決策卡｜攻擊卡｜強勢延伸｜站穩才加碼"
         one = f"{prefix}：強勢但乖離偏大，站穩 {attack:.2f} 才可攻；回測 {low1:.2f} 不破再分批，{no_chase:.2f} 上方急拉不追。"
@@ -729,7 +685,7 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
     price_meta = ((price.context or {}).get("price_meta") or {})
     card = {
         "標題": head, "主訊息": one, "低接第一批": round(low1, 2), "低接第二批": "暫停" if pause_second else round(low2, 2),
-        "攻擊": (f"站穩 {attack:.2f} 可攻" if bullish and not hard_defense else ("等待海外/融資止穩" if hard_defense or pause_second else f"{low1:.2f} 試單｜{low2:.2f} 再接")),
+        "攻擊": ("事件前縮小試單" if event_caution else (f"站穩 {attack:.2f} 可攻" if bullish and not hard_defense else ("等待海外/融資止穩" if hard_defense or pause_second else f"{low1:.2f} 試單｜{low2:.2f} 再接"))),
         "轉強": f"突破 {turn:.2f} 加碼", "防守": round(stop, 2), "不追": round(no_chase, 2),
         "一句話": one.split("：", 1)[-1], "操作主軸": axis, "決策分": round(score, 2),
         "模型原因": overlay_note,
@@ -932,7 +888,7 @@ def _us_macro_core_line(price: PriceFrame) -> str:
     nq = m.get('nq') if m.get('nq') is not None else m.get('qqq')
     vix = m.get('vix')
     parts = [
-        _macro_calendar_guard_text(),
+        str(m.get('calendar') or _macro_calendar_guard_text()),
         'CPI/PPI/PCE/ISM：依官方日曆校準',
         f"SOX {sox if sox is not None else 'NA'}%",
         f"NQ/QQQ {nq if nq is not None else 'NA'}%",
@@ -1048,7 +1004,32 @@ def _market_heat_line_for_price(price: PriceFrame) -> str:
     except Exception:
         return "市場熱度｜融資餘額待同步｜先看法人/VWAP/資券"
 
-def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem]) -> Dict[str, str]:
+def _quantum_contribution_line(direction: DirectionResult | None) -> str:
+    if direction is None:
+        return "因子碰撞觀察｜等待方向閘門"
+    factors = getattr(direction, "factor_contributions", {}) or {}
+    ranked = sorted(
+        ((str(name), float(value)) for name, value in factors.items() if abs(float(value)) >= 0.20),
+        key=lambda item: abs(item[1]),
+        reverse=True,
+    )
+    parts = [f"{name} {value:+.1f}" for name, value in ranked[:7]]
+    risk_factors = list(getattr(direction, "risk_factors", []) or [])
+    if risk_factors:
+        uncertainty = max(0.0, float(getattr(direction, "uncertainty", 0.0) or 0.0))
+        risk_points = uncertainty * 100.0
+        confidence_cut = uncertainty * 28.0
+        parts.append(
+            f"事件風險 {risk_factors[0]} +{risk_points:.1f}R"
+            f"（方向0／信心-{confidence_cut:.1f}）"
+        )
+    if not parts:
+        parts.append("有效因子互相抵銷")
+    gate = str(getattr(direction, "gate_state", "") or "B回測")
+    return "｜".join(parts) + f"｜總分 {float(direction.score):+.1f} → {gate}"
+
+
+def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem], direction: DirectionResult | None = None) -> Dict[str, str]:
     sm=_signal_map(signals); inst=price.context.get('inst',{}); margin=price.context.get('margin',{}); bsi=price.context.get('bsi',{}); macro=price.context.get('macro',{}); futures=price.context.get('futures',{}); fundamental=price.context.get('fundamental',{}); proxy={}
     etf_note = 'ETF Mode｜不套 EPS / 個股財報 / 個股 BSI；只看 price、VWAP、volume、NAV/溢折價、成分股、市場風險' if price.ticker.asset_type == 'etf' else ''
     fqc=sm.get('FQC')
@@ -1061,6 +1042,7 @@ def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       'FQC':f"技術面｜{'尚未止穩' if price.last < price.vwap else '買盤延續'}｜{_ssot_vwap_state(price)}",
       '市場風控':market_line,
       '事件/Macro':_macro_line(macro, price, raw, news_items),
+      'Quantum 貢獻':_quantum_contribution_line(direction),
       '外資期貨':_futures_line(futures, price),
       '市場熱度':_market_heat_line_for_price(price),
       '基本面': etf_note or _fundamental_line(fundamental, '', price, news_items),
@@ -1071,7 +1053,7 @@ def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       '資料源':truth_to_main_label(price.truth).replace('fallback','price memory').replace('Fallback','price memory'), 'Confidence':f"{confidence:.0f}%"
     }
     return {k:_main_clean(v) for k,v in rows.items()}
-def _us_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem]) -> Dict[str, str]:
+def _us_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem], direction: DirectionResult | None = None) -> Dict[str, str]:
     sm=_signal_map(signals); fqc=sm.get('FQC')
     abc=f"A突破 {raw.raw_abc['A']:.0f}%｜上緣 {raw.raw_t1_high:.2f}　B回測 {raw.raw_abc['B']:.0f}%｜風險低點 {raw.raw_t1_low:.2f}　C防守 {raw.raw_abc['C']:.0f}%"
     rows={
@@ -1081,6 +1063,7 @@ def _us_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       'FQC':f"{fqc.signal if fqc else 'FQC觀察'}｜強度 {abs(price.last-price.vwap)/max(price.atr14,0.01)*10:.1f}%｜上緣 {raw.raw_t1_high:.2f}｜下緣 {raw.raw_t1_low:.2f}｜{_ssot_vwap_state(price)}",
       '市場風控':_us_market_line(price, raw, sm),
       '事件/Macro':_us_macro_line(price, news_items),
+      'Quantum 貢獻':_quantum_contribution_line(direction),
       'Daily Headline':_us_daily_headline_line(price, news_items),
       'Policy/Geo':_us_policy_geo_line(price, news_items),
       'Company News':_us_company_news_line(price, news_items),
@@ -1093,10 +1076,10 @@ def _us_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       'US Persona':_us_persona_line(price), '資料源':'資料源：已驗證', 'Confidence':f"{confidence:.0f}%"
     }
     return {k:_main_clean(v) for k,v in rows.items()}
-def _radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem]) -> Dict[str, str]:
+def _radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem], direction: DirectionResult | None = None) -> Dict[str, str]:
     if _is_us(price):
-        return _us_radar(price, raw, signals, confidence, news_items)
-    return _tw_radar(price, raw, signals, confidence, news_items)
+        return _us_radar(price, raw, signals, confidence, news_items, direction)
+    return _tw_radar(price, raw, signals, confidence, news_items, direction)
 def _apply_v9_path_guard(price: PriceFrame, raw: RawForecast, final_t1: float, final_high: float | None = None, final_low: float | None = None):
     if price.ticker.market != 'TW':
         return final_t1, final_high, final_low
@@ -1206,7 +1189,7 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
     final_t0 = apply_market_bounds(raw.raw_t0 + (final_t1 - raw.raw_t1) * 0.20, price.previous_close, price.ticker.market, price.ticker.price_limit_pct)
     decision = _decision_card(price, raw, score, final_t1, final_low, direction)
     decision["_direction_ensemble_weight"] = ensemble_weight
-    radar = _radar(price, raw, signals, confidence, news_items)
+    radar = _radar(price, raw, signals, confidence, news_items, direction)
     trace = PredictionTrace(price.ticker.resolved_symbol, raw.raw_t1, steps, final_t1)
     decision["v12_core"] = _v12_core(price, signals, trace, news_items, confidence, direction)
     final_values = {"t0": final_t0, "t1": final_t1, "high": final_high, "low": final_low}
