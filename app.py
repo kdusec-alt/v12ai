@@ -156,12 +156,12 @@ def _load_required(module_name: str, *attributes: str):
         values = tuple(getattr(module, name) for name in attributes)
     except Exception as exc:
         _boot_print("project_import_failed", module=module_name, error=f"{type(exc).__name__}: {exc}")
-        raise RuntimeError(f"required module unavailable: {module_name}") from exc
+        raise ImportError(f"required module unavailable: {module_name}") from exc
     _boot_print("project_import_done", module=module_name)
     return values[0] if len(values) == 1 else values
 
 
-def _load_optional(module_name: str, attributes: tuple[str, ...], fallback):
+def _load_optional(module_name: str, attributes: tuple[str, ...], default_value):
     """Load an additive module without taking the stable analysis path offline."""
     _boot_print("optional_import_start", module=module_name)
     try:
@@ -171,26 +171,26 @@ def _load_optional(module_name: str, attributes: tuple[str, ...], fallback):
         return values[0] if len(values) == 1 else values
     except Exception as exc:
         _log_exception(f"optional_import_failed:{module_name}", exc)
-        return fallback
+        return default_value
 
 
 def _learning_center_unavailable(st_module) -> None:
     st_module.warning("預測學習模組暫時停用；個股正式分析仍可正常使用。")
 
 
-def _ensure_memory_fallback(*args, **kwargs):
+def _ensure_memory_degraded(*args, **kwargs):
     return {"status": "DEGRADED", "reason": "memory_module_unavailable"}
 
 
-def _prediction_signature_fallback(*args, **kwargs) -> str:
+def _prediction_signature_degraded(*args, **kwargs) -> str:
     return ""
 
 
-def _log_prediction_fallback(*args, **kwargs):
+def _log_prediction_degraded(*args, **kwargs):
     return None
 
 
-def _build_learning_signals_fallback(*args, **kwargs):
+def _build_learning_signals_degraded(*args, **kwargs):
     return []
 
 
@@ -210,12 +210,12 @@ try:
         "ui_learning_center", ("render_learning_center",), _learning_center_unavailable
     )
     ensure_memory_initialized_bootsafe = _load_optional(
-        "tino_persistent_store", ("ensure_memory_initialized_bootsafe",), _ensure_memory_fallback
+        "tino_persistent_store", ("ensure_memory_initialized_bootsafe",), _ensure_memory_degraded
     )
     log_prediction, prediction_signature, build_learning_signals = _load_optional(
         "learning",
         ("log_prediction", "prediction_signature", "build_learning_signals"),
-        (_log_prediction_fallback, _prediction_signature_fallback, _build_learning_signals_fallback),
+        (_log_prediction_degraded, _prediction_signature_degraded, _build_learning_signals_degraded),
     )
 except Exception as exc:
     trace = _log_exception("project_import_failed", exc)
@@ -348,7 +348,16 @@ def main():
         render_watch_center(st)
         return
     if main_view == "learning":
-        render_learning_center(st)
+        # RC4.7 Learning Core isolation: a malformed historical memory row or
+        # Admin-only widget must never take the main analysis application down.
+        try:
+            render_learning_center(st)
+        except Exception as _learning_exc:
+            _learning_trace = _log_exception("learning_center_failed_safe", _learning_exc)
+            st.error("預測學習暫時無法載入；個股分析與即時股價仍可正常使用。")
+            if bool(st.session_state.get("admin_authenticated", False)):
+                with st.expander("Admin 診斷", expanded=False):
+                    st.code(_learning_trace)
         return
 
     _boot_print("render_input_start")

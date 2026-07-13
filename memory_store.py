@@ -1,25 +1,22 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from collections import deque
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
+
 
 def _default_memory_dir() -> Path:
-    """Return a writable persistent-ish memory path.
+    """Return the first writable TINO memory directory.
 
-    Streamlit Cloud keeps /tmp only for the current runtime.  For Auto-Learning,
-    prefer an app-local hidden folder or the user's home folder, and use /tmp
-    only as the last fallback.  TINO_MEMORY_DIR can still override everything.
+    The module directory is kept as a second candidate because Streamlit Cloud
+    can relaunch with a different working directory after login/reconnect.
     """
     env = os.environ.get("TINO_MEMORY_DIR")
     if env:
         return Path(env)
-    # Keep cwd first for backward compatibility, but also include the
-    # module/app folder.  Streamlit can relaunch with a slightly different
-    # cwd after login/reconnect; the app-folder candidate prevents memory
-    # from silently moving to a new empty directory.
     app_dir = Path(__file__).resolve().parent
     candidates = [
         Path.cwd() / ".tino_memory",
@@ -27,16 +24,13 @@ def _default_memory_dir() -> Path:
         Path.home() / ".tino_stock_engine_memory",
         Path("/tmp/tino_memory"),
     ]
-    for c in candidates:
+    for candidate in candidates:
         try:
-            c.mkdir(parents=True, exist_ok=True)
-            test = c / ".write_test"
-            test.write_text("ok", encoding="utf-8")
-            try:
-                test.unlink()
-            except Exception:
-                pass
-            return c
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return candidate
         except Exception:
             continue
     return Path("/tmp/tino_memory")
@@ -49,12 +43,10 @@ TICKER_PROFILE = MEMORY_DIR / "ticker_profiles.json"
 
 
 def _post_memory_write(path: Path, row: Optional[Dict[str, Any]] = None) -> None:
-    """Optional backup/ledger mirror outside the critical Streamlit path.
+    """Optional backup/ledger mirror outside the critical render path.
 
-    Raw JSON/JSONL is written before this function is called.  RC24.2 defaults
-    the extra backup + ledger mirror to OFF during foreground analysis because
-    it duplicates file reads/writes at the end of a query.  External maintenance
-    jobs may opt in with TINO_INLINE_MEMORY_MIRROR=1.
+    RC3.3/RC4 foreground analysis remains local-only by default.  Explicit
+    maintenance jobs can opt in with TINO_INLINE_MEMORY_MIRROR=1.
     """
     if os.environ.get("TINO_INLINE_MEMORY_MIRROR", "0").strip() != "1":
         return
@@ -67,6 +59,7 @@ def _post_memory_write(path: Path, row: Optional[Dict[str, Any]] = None) -> None
             mirror_audit_to_ledger,
             mirror_profiles_to_ledger,
         )
+
         p = Path(path)
         _write_local_backup(p)
         if row and p.name == "prediction_log.jsonl":
@@ -75,10 +68,6 @@ def _post_memory_write(path: Path, row: Optional[Dict[str, Any]] = None) -> None
             mirror_audit_to_ledger(row)
         elif p.name == "ticker_profiles.json":
             mirror_profiles_to_ledger(p)
-        # RC24.1 Stable Observation: never perform GitHub GET/PUT inline with
-        # forecast/log rendering unless explicitly opted in.  Local JSONL and
-        # ledger mirror remain synchronous and atomic; remote sync belongs in an
-        # external/manual maintenance job.
         if inline_remote_sync_enabled():
             _sync_file_to_remote(p, shrink_guard=True)
     except Exception:
@@ -86,51 +75,240 @@ def _post_memory_write(path: Path, row: Optional[Dict[str, Any]] = None) -> None
 
 
 def append_jsonl(path: Path, row: Dict[str, Any]) -> None:
+    """Append one JSON object without loading the existing file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+    payload = json.dumps(row, ensure_ascii=False, default=str)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(payload + "\n")
+        handle.flush()
     _post_memory_write(path, row)
 
 
 def read_jsonl(path: Path, limit: int = 200) -> List[Dict[str, Any]]:
-    if not path.exists():
+    """Read a bounded JSONL tail without ``read_text().splitlines()``.
+
+    The previous implementation loaded the complete log into memory before
+    slicing.  Prediction DNA rows can be large, so that pattern could create a
+    native Pandas/PyArrow memory spike in Streamlit.  ``deque`` keeps only the
+    requested tail and has stable memory use.
+    """
+    try:
+        max_rows = max(0, int(limit))
+    except Exception:
+        max_rows = 200
+    if max_rows <= 0 or not Path(path).exists():
         return []
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines()[-limit:]:
+
+    lines: deque[str] = deque(maxlen=max_rows)
+    try:
+        with Path(path).open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if line.strip():
+                    lines.append(line)
+    except Exception:
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    for line in lines:
         try:
-            rows.append(json.loads(line))
+            value = json.loads(line)
+            if isinstance(value, dict) and value:
+                rows.append(value)
         except Exception:
             continue
     return rows
 
 
 def read_json(path: Path, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    if not path.exists():
+    if not Path(path).exists():
         return dict(default or {})
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else dict(default or {})
     except Exception:
         return dict(default or {})
 
 
 def write_json(path: Path, data: Dict[str, Any]) -> None:
+    """Atomically replace a compact JSON object."""
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
     _post_memory_write(path)
 
 
+def _candidate_paths(primary: Path) -> List[Path]:
+    """Return safe local recovery candidates in priority order."""
+    primary = Path(primary)
+    app_dir = Path(__file__).resolve().parent
+    cwd = Path.cwd()
+    name = primary.name
+    candidates = [
+        primary,
+        app_dir / ".tino_memory" / name,
+        cwd / ".tino_memory" / name,
+        app_dir / name,
+        cwd / name,
+        primary.parent / "_backup" / f"{name}.bak",
+        app_dir / f"{name}.bak",
+        cwd / f"{name}.bak",
+    ]
+    unique: List[Path] = []
+    seen = set()
+    for candidate in candidates:
+        try:
+            key = str(candidate.resolve())
+        except Exception:
+            key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def _row_identity(row: Dict[str, Any], kind: str) -> str:
+    preferred = ("audit_id", "prediction_id", "id") if kind == "audit" else ("id", "prediction_id")
+    for key in preferred:
+        value = row.get(key)
+        if value not in (None, ""):
+            return f"{key}:{value}"
+    ticker = str(row.get("ticker") or row.get("symbol") or "")
+    stamp = str(
+        row.get("run_time_tw")
+        or row.get("audit_time_tw")
+        or row.get("logged_at_tw")
+        or row.get("created_at")
+        or ""
+    )
+    target = str(row.get("target_trade_date") or row.get("target") or row.get("target_kind") or "")
+    if ticker and stamp:
+        return f"fallback:{kind}:{ticker}:{target}:{stamp}"
+    try:
+        return "json:" + json.dumps(row, ensure_ascii=False, sort_keys=True, default=str)
+    except Exception:
+        return f"object:{id(row)}"
+
+
+def _merge_jsonl_candidates(primary: Path, limit: int, kind: str) -> List[Dict[str, Any]]:
+    """Read the active tail and use legacy files only as empty-file recovery.
+
+    The common path touches one small JSONL file.  Historical root/backup files
+    are scanned only when the active ``.tino_memory`` file has no valid rows,
+    preventing doubled I/O on every Streamlit rerun.
+    """
+    max_rows = max(1, int(limit or 1))
+    active = read_jsonl(primary, max_rows)
+    if active and os.environ.get("TINO_MEMORY_MERGE_LEGACY", "0").strip() != "1":
+        return active[-max_rows:]
+
+    collected: List[Dict[str, Any]] = list(active)
+    seen = {_row_identity(row, kind) for row in collected}
+    seen.discard("")
+    candidates = _candidate_paths(primary)
+    for path in candidates[1:]:
+        if not path.exists() or path.is_dir():
+            continue
+        for row in read_jsonl(path, max_rows):
+            ident = _row_identity(row, kind)
+            if ident and ident in seen:
+                continue
+            if ident:
+                seen.add(ident)
+            collected.append(row)
+
+    def _stamp(row: Dict[str, Any]) -> str:
+        return str(
+            row.get("run_time_tw")
+            or row.get("audit_time_tw")
+            or row.get("logged_at_tw")
+            or row.get("created_at")
+            or row.get("run_date_tw")
+            or row.get("audit_date_tw")
+            or ""
+        )
+
+    collected.sort(key=_stamp)
+    return collected[-max_rows:]
+
+
 def read_prediction_log(limit: int = 100) -> List[Dict[str, Any]]:
-    return read_jsonl(PREDICTION_LOG, limit)
+    return _merge_jsonl_candidates(PREDICTION_LOG, limit, "prediction")
 
 
 def read_audit_log(limit: int = 100) -> List[Dict[str, Any]]:
-    return read_jsonl(AUDIT_LOG, limit)
+    return _merge_jsonl_candidates(AUDIT_LOG, limit, "audit")
 
 
 def load_profiles() -> Dict[str, Any]:
-    return read_json(TICKER_PROFILE, {})
+    """Load active profiles, falling back to legacy copies only when empty."""
+    active = read_json(TICKER_PROFILE, {})
+    if active:
+        return active
+    merged: Dict[str, Any] = {}
+    for path in reversed(_candidate_paths(TICKER_PROFILE)[1:]):
+        if not path.exists() or path.is_dir():
+            continue
+        data = read_json(path, {})
+        if isinstance(data, dict):
+            merged.update(data)
+    return merged
 
 
 def save_profiles(profiles: Dict[str, Any]) -> None:
     write_json(TICKER_PROFILE, profiles)
+
+
+def _line_count(path: Path, cap: int = 200_000) -> int:
+    if not path.exists() or path.is_dir():
+        return 0
+    count = 0
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for count, _ in enumerate(handle, start=1):
+                if count >= cap:
+                    break
+    except Exception:
+        return 0
+    return count
+
+
+def memory_diagnostics() -> Dict[str, Any]:
+    """Small scalar-only status payload for the Admin Learning Center."""
+    files = []
+    for path in (PREDICTION_LOG, AUDIT_LOG, TICKER_PROFILE):
+        try:
+            files.append({
+                "file": path.name,
+                "path": str(path),
+                "exists": path.exists(),
+                "size_bytes": path.stat().st_size if path.exists() else 0,
+                "rows": _line_count(path) if path.suffix == ".jsonl" else None,
+            })
+        except Exception as exc:
+            files.append({
+                "file": path.name,
+                "path": str(path),
+                "exists": False,
+                "size_bytes": 0,
+                "rows": None,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+    return {
+        "memory_dir": str(MEMORY_DIR),
+        "files": files,
+        "prediction_rows_visible": len(read_prediction_log(2000)),
+        "audit_rows_visible": len(read_audit_log(2000)),
+        "profile_count": len(load_profiles()),
+    }
