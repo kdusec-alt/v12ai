@@ -129,11 +129,11 @@ def _secret(name: str, default: Optional[str] = None) -> Optional[str]:
 
 @lru_cache(maxsize=1)
 def _remote_config() -> Dict[str, Any]:
-    token = _secret("TINO_GITHUB_TOKEN") or _secret("GITHUB_TOKEN")
-    repo = _secret("TINO_GITHUB_REPO") or _secret("GITHUB_REPOSITORY")
-    branch = _secret("TINO_GITHUB_BRANCH", "tino-memory") or "tino-memory"
-    memory_dir = (_secret("TINO_GITHUB_MEMORY_DIR", ".tino_memory") or ".tino_memory").strip("/")
-    configured = bool(token and repo and "/" in str(repo))
+    token = str(_secret("TINO_GITHUB_TOKEN") or _secret("GITHUB_TOKEN") or "").strip()
+    repo = str(_secret("TINO_GITHUB_REPO") or _secret("GITHUB_REPOSITORY") or "").strip().strip("/")
+    branch = str(_secret("TINO_GITHUB_BRANCH", "tino-memory") or "tino-memory").strip()
+    memory_dir = str(_secret("TINO_GITHUB_MEMORY_DIR", ".tino_memory") or ".tino_memory").strip().strip("/")
+    configured = bool(token and repo and "/" in repo and branch)
     return {
         "configured": configured,
         "backend": "github" if configured else "none",
@@ -175,53 +175,76 @@ def _gh_request(method: str, url: str, token: str, payload: Optional[Dict[str, A
 
 
 def _ensure_remote_branch() -> Tuple[bool, Optional[str]]:
-    """Ensure the isolated memory branch exists, creating it from default branch.
+    """Ensure the isolated memory branch exists without destabilising the app.
 
-    A separate branch avoids triggering Streamlit redeploys on every learning
-    write.  Successful checks are cached for the current process; failures are
-    intentionally not cached so a transient GitHub outage can recover later.
+    GitHub's ``git/ref`` endpoint can return a misleading 404 for an otherwise
+    visible branch under some fine-grained-token combinations.  Use the normal
+    branch endpoint first, then verify through the repository contents endpoint.
+    Only if both checks fail do we attempt branch creation from the default
+    branch.  Successful checks are cached for the current process.
     """
     cfg = _remote_config()
     if not cfg["configured"]:
         return False, "remote_not_configured"
-    key = (str(cfg["repo"]), str(cfg["branch"]))
+
+    repo = str(cfg["repo"]).strip().strip("/")
+    branch = str(cfg["branch"]).strip()
+    token = str(cfg["token"]).strip()
+    key = (repo, branch)
+
+    def _verify_existing_branch() -> Tuple[bool, int, Any]:
+        branch_q = quote(branch, safe="")
+        branch_url = f"https://api.github.com/repos/{repo}/branches/{branch_q}"
+        status, obj = _gh_request("GET", branch_url, token)
+        if status == 200:
+            return True, status, obj
+
+        # Fallback: asking for the repository root at a branch is sufficient to
+        # prove the ref is valid, and is compatible with fine-grained PATs that
+        # have Contents read/write permission.
+        root_url = f"https://api.github.com/repos/{repo}/contents?ref={branch_q}"
+        root_status, root_obj = _gh_request("GET", root_url, token)
+        if root_status == 200:
+            return True, root_status, root_obj
+        return False, status if status != 404 else root_status, obj if status != 404 else root_obj
+
     with _REMOTE_BRANCH_LOCK:
         if key in _REMOTE_BRANCH_READY:
             return True, None
 
-        branch_q = quote(str(cfg["branch"]), safe="")
-        ref_url = f"https://api.github.com/repos/{cfg['repo']}/git/ref/heads/{branch_q}"
-        status, obj = _gh_request("GET", ref_url, cfg["token"])
-        if status == 200:
+        exists, verify_status, verify_obj = _verify_existing_branch()
+        if exists:
             _REMOTE_BRANCH_READY.add(key)
             _LAST_REMOTE_REPORT["branch_ready"] = True
             return True, None
-        if status not in (404,):
-            return False, f"github_branch_get_{status}:{obj.get('message', obj)}"
+        if verify_status not in (404,):
+            return False, f"github_branch_get_{verify_status}:{verify_obj.get('message', verify_obj)}"
 
-        repo_url = f"https://api.github.com/repos/{cfg['repo']}"
-        repo_status, repo_obj = _gh_request("GET", repo_url, cfg["token"])
+        repo_url = f"https://api.github.com/repos/{repo}"
+        repo_status, repo_obj = _gh_request("GET", repo_url, token)
         if repo_status >= 300:
             return False, f"github_repo_get_{repo_status}:{repo_obj.get('message', repo_obj)}"
-        base_branch = str(repo_obj.get("default_branch") or "main")
+        base_branch = str(repo_obj.get("default_branch") or "main").strip()
         base_q = quote(base_branch, safe="")
-        base_url = f"https://api.github.com/repos/{cfg['repo']}/git/ref/heads/{base_q}"
-        base_status, base_obj = _gh_request("GET", base_url, cfg["token"])
+        base_url = f"https://api.github.com/repos/{repo}/git/ref/heads/{base_q}"
+        base_status, base_obj = _gh_request("GET", base_url, token)
         if base_status >= 300:
             return False, f"github_base_ref_{base_status}:{base_obj.get('message', base_obj)}"
         base_sha = str((((base_obj or {}).get("object") or {}).get("sha")) or "")
         if not base_sha:
             return False, "github_base_ref_missing_sha"
 
-        create_url = f"https://api.github.com/repos/{cfg['repo']}/git/refs"
-        create_payload = {"ref": f"refs/heads/{cfg['branch']}", "sha": base_sha}
-        create_status, create_obj = _gh_request("POST", create_url, cfg["token"], create_payload)
+        create_url = f"https://api.github.com/repos/{repo}/git/refs"
+        create_payload = {"ref": f"refs/heads/{branch}", "sha": base_sha}
+        create_status, create_obj = _gh_request("POST", create_url, token, create_payload)
         if create_status not in (201, 422):
             return False, f"github_branch_create_{create_status}:{create_obj.get('message', create_obj)}"
 
-        verify_status, verify_obj = _gh_request("GET", ref_url, cfg["token"])
-        if verify_status != 200:
-            return False, f"github_branch_verify_{verify_status}:{verify_obj.get('message', verify_obj)}"
+        # A 422 commonly means the reference already exists. Verify using the
+        # same robust path instead of treating the git/ref endpoint as truth.
+        exists, final_status, final_obj = _verify_existing_branch()
+        if not exists:
+            return False, f"github_branch_verify_{final_status}:{final_obj.get('message', final_obj)}"
         _REMOTE_BRANCH_READY.add(key)
         _LAST_REMOTE_REPORT["branch_ready"] = True
         return True, None
