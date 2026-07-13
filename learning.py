@@ -243,6 +243,7 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
         "one_liner": forecast.one_liner,
         "tags": forecast.tags,
         "radar": forecast.radar,
+        "bubble_radar": dict(card.get("_bubble_radar", {}) or {}),
         "foreign_flow_v2": dict(card.get("_foreign_flow_v2", {}) or {}),
         "tv_pressure": dict(card.get("_tv_pressure", {}) or {}),
         "truths": [getattr(x, "__dict__", {}) for x in forecast.data_truths],

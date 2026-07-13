@@ -30,13 +30,15 @@ from learning_center_core import (
     execute_due_auto_audit_once,
 )
 try:
-    from learning_bubble_alert import bubble_alert_rows
+    from learning_bubble_alert import bubble_alert_rows, bubble_monitor
 except Exception:
     def bubble_alert_rows(*_args, **_kwargs):
         return []
+    def bubble_monitor(*_args, **_kwargs):
+        return {"ranking": [], "trends": [], "new_alerts": [], "cooling": []}
 
 
-_PREDICTION_VIEWS = {"總覽", "正式樣本", "Prediction DNA", "Raw Log"}
+_PREDICTION_VIEWS = {"總覽", "Bubble Monitor", "正式樣本", "Prediction DNA", "Raw Log"}
 _AUDIT_VIEWS = {"總覽", "昨測今收"}
 
 
@@ -153,6 +155,64 @@ def _render_learning_view(st, view: str) -> None:
             st.info(f"已找到 {len(formal_all)} 筆歷史正式樣本，但不在近30日範圍。")
         else:
             st.info("各明細區塊只在點選後載入，且完全不建立 Pandas / PyArrow DataFrame。")
+        return
+
+    if view == "Bubble Monitor":
+        st.markdown("#### AI Bubble Monitor / 泡沫監控中心")
+        st.caption("只讀取已保存的正式 Prediction Log；不抓行情、不改權重、不建立 DataFrame。")
+        monitor = bubble_monitor(formal_recent or formal_all, 20)
+
+        st.markdown("##### 🚨 Bubble Heat Ranking（泡沫排行榜）")
+        _html_table(
+            st,
+            monitor.get("ranking") or [],
+            "尚無可形成正式泡沫結論的樣本。",
+            columns=[
+                "rank", "ticker", "market", "temperature", "level",
+                "trend_7d", "trend_30d", "decision", "data_quality", "reason", "run_time_tw",
+            ],
+            height=360,
+            limit=20,
+        )
+
+        st.markdown("##### 📈 Bubble Trend（7日／30日升溫）")
+        _html_table(
+            st,
+            monitor.get("trends") or [],
+            "目前每檔尚未累積至少兩個不同日期的泡沫快照；趨勢會隨每日正式分析自動形成。",
+            columns=[
+                "ticker", "market", "temperature", "trend_7d", "trend_30d",
+                "level", "decision", "data_quality", "run_time_tw",
+            ],
+            height=300,
+            limit=20,
+        )
+
+        st.markdown("##### 🔥 New Bubble Alert（首次突破60℃）")
+        _html_table(
+            st,
+            monitor.get("new_alerts") or [],
+            "目前沒有從低於60℃首次突破至高風險區的標的。",
+            columns=[
+                "event", "ticker", "market", "from_to", "temperature", "level",
+                "trend_7d", "trend_30d", "reason", "run_time_tw",
+            ],
+            height=240,
+            limit=20,
+        )
+
+        st.markdown("##### ❄ Cooling Down（從60℃以上降回40℃）")
+        _html_table(
+            st,
+            monitor.get("cooling") or [],
+            "目前沒有由高風險區降回40℃以下的標的。",
+            columns=[
+                "event", "ticker", "market", "from_to", "temperature", "level",
+                "trend_7d", "trend_30d", "reason", "run_time_tw",
+            ],
+            height=240,
+            limit=20,
+        )
         return
 
     if view == "昨測今收":
@@ -325,7 +385,7 @@ def _render_learning_center_impl(st) -> None:
 
     view = st.radio(
         "檢視區塊",
-        ["總覽", "昨測今收", "正式樣本", "Prediction DNA", "Raw Log", "Bias History", "Storage Status"],
+        ["總覽", "Bubble Monitor", "昨測今收", "正式樣本", "Prediction DNA", "Raw Log", "Bias History", "Storage Status"],
         horizontal=True,
         key="learning_center_view",
     )
