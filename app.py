@@ -52,7 +52,7 @@ _boot_print("script_enter", python=os.sys.version.split()[0])
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
 os.environ.setdefault("TINO_FUND_DEEP_CROSSCHECK", "0")
-os.environ.setdefault("TINO_INLINE_REMOTE_SYNC", "0")
+os.environ.setdefault("TINO_INLINE_REMOTE_SYNC", "1")
 os.environ.setdefault("TINO_INLINE_MEMORY_MIRROR", "0")
 
 st.set_page_config(page_title="系統化分析", layout="wide", initial_sidebar_state="collapsed")
@@ -318,8 +318,8 @@ def main():
     _boot_print("main_enter")
     mark_runtime_stage("main_enter")
     _theme()
-    # RC24.1 Stable Observation: local memory bootstrap only once per process.
-    # Never run GitHub restore/sync or migration-heavy work on every Streamlit rerun.
+    # RC4.8 Memory Persistence Guard: restore GitHub memory once per process,
+    # then keep all Streamlit reruns local.  Remote failures remain diagnostic-only.
     if "memory_init_report" not in st.session_state:
         try:
             st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(migrate=False)

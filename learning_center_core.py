@@ -577,6 +577,15 @@ def _storage_rows() -> List[Dict[str, Any]]:
         "value": status.get("path"),
         "note": status.get("last_error"),
     })
+    remote_note_parts = []
+    if status.get("remote_last_restore"):
+        remote_note_parts.append(f"restore {status.get('remote_last_restore')}")
+    if status.get("remote_last_sync"):
+        remote_note_parts.append(f"sync {status.get('remote_last_sync')}")
+    if status.get("remote_last_verified"):
+        remote_note_parts.append(f"verified {status.get('remote_last_verified')}")
+    if status.get("remote_error"):
+        remote_note_parts.append(str(status.get("remote_error")))
     rows.append({
         "item": "Long-term Remote",
         "status": status.get("remote_status") or ("PASS" if status.get("remote_configured") else "LOCAL_ONLY"),
@@ -584,8 +593,19 @@ def _storage_rows() -> List[Dict[str, Any]]:
             f"{status.get('remote_backend') or 'none'}://{status.get('remote_repo') or '-'}"
             f"#{status.get('remote_branch') or '-'}:{status.get('remote_memory_dir') or '.tino_memory'}"
         ),
-        "note": status.get("remote_error"),
+        "note": "｜".join(remote_note_parts) or None,
     })
+    remote_files = status.get("remote_files") if isinstance(status.get("remote_files"), dict) else {}
+    remote_prediction = remote_files.get("prediction_log.jsonl") if isinstance(remote_files.get("prediction_log.jsonl"), dict) else {}
+    if status.get("remote_configured"):
+        rows.append({
+            "item": "Remote Prediction Log",
+            "status": "VERIFIED" if remote_prediction.get("verified") else "PENDING",
+            "value": f"rows {remote_prediction.get('rows', '--')}｜{remote_prediction.get('bytes', 0)} bytes",
+            "note": (
+                f"sha {remote_prediction.get('sha') or '-'}｜checked {remote_prediction.get('checked_at_tw') or '-'}"
+            ),
+        })
     for file_row in diagnostics.get("files", []) or []:
         if not isinstance(file_row, dict):
             continue

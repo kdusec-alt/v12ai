@@ -46,13 +46,15 @@ TICKER_PROFILE = MEMORY_DIR / "ticker_profiles.json"
 
 
 def _post_memory_write(path: Path, row: Optional[Dict[str, Any]] = None) -> None:
-    """Optional backup/ledger mirror outside the critical render path.
+    """Persist one completed memory write without endangering analysis.
 
-    RC3.3/RC4 foreground analysis remains local-only by default.  Explicit
-    maintenance jobs can opt in with TINO_INLINE_MEMORY_MIRROR=1.
+    JSONL/JSON remains the canonical local source.  When GitHub persistence is
+    configured, only the file that just changed is reconciled and verified on
+    the remote memory branch.  The optional ledger mirror stays disabled by
+    default because duplicating full Prediction DNA rows into the ledger can
+    create unnecessary Streamlit memory pressure.
     """
-    if os.environ.get("TINO_INLINE_MEMORY_MIRROR", "0").strip() != "1":
-        return
+    mirror_enabled = os.environ.get("TINO_INLINE_MEMORY_MIRROR", "0").strip() == "1"
     try:
         from tino_persistent_store import (  # type: ignore
             _write_local_backup,
@@ -63,17 +65,24 @@ def _post_memory_write(path: Path, row: Optional[Dict[str, Any]] = None) -> None
             mirror_profiles_to_ledger,
         )
 
+        remote_enabled = inline_remote_sync_enabled()
+        if not mirror_enabled and not remote_enabled:
+            return
+
         p = Path(path)
         _write_local_backup(p)
-        if row and p.name == "prediction_log.jsonl":
-            mirror_prediction_to_ledger(row)
-        elif row and p.name == "audit_log.jsonl":
-            mirror_audit_to_ledger(row)
-        elif p.name == "ticker_profiles.json":
-            mirror_profiles_to_ledger(p)
-        if inline_remote_sync_enabled():
+        if mirror_enabled:
+            if row and p.name == "prediction_log.jsonl":
+                mirror_prediction_to_ledger(row, sync_remote=False)
+            elif row and p.name == "audit_log.jsonl":
+                mirror_audit_to_ledger(row, sync_remote=False)
+            elif p.name == "ticker_profiles.json":
+                mirror_profiles_to_ledger(p, sync_remote=False)
+        if remote_enabled:
             _sync_file_to_remote(p, shrink_guard=True)
     except Exception:
+        # Learning persistence is fail-safe: the formal local write already
+        # succeeded, so a remote outage must never invalidate the forecast.
         return
 
 

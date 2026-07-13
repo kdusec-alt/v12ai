@@ -213,7 +213,11 @@ def _render_learning_view(st, view: str) -> None:
         try:
             status = storage_status(DEFAULT_LEDGER_PATH)
             if not status.get("remote_configured"):
-                st.warning("目前為 LOCAL_ONLY：重新部署或容器重建後，本地學習紀錄可能消失。若要跨部署保留，需設定 TINO_GITHUB_TOKEN 與 TINO_GITHUB_REPO。")
+                st.warning("目前為 LOCAL_ONLY：若要跨部署保留，請在 Streamlit Secrets 設定 TINO_GITHUB_TOKEN、TINO_GITHUB_REPO、TINO_GITHUB_BRANCH 與 TINO_GITHUB_MEMORY_DIR。")
+            elif status.get("remote_status") not in {"PASS", "EMPTY_REMOTE"}:
+                st.warning(f"GitHub Memory 尚未完成驗證：{status.get('remote_error') or status.get('remote_status')}")
+            else:
+                st.success("GitHub Memory 已啟用；正式寫入會同步並讀回驗證，容器重建時會先還原。")
         except Exception:
             pass
 

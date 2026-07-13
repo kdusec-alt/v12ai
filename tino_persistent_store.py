@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
 import os
 import tempfile
 import threading
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 from functools import lru_cache
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -74,13 +76,19 @@ _LAST_REMOTE_REPORT: Dict[str, Any] = {
     "configured": False,
     "backend": "none",
     "status": "LOCAL_ONLY",
+    "branch_ready": False,
     "last_restore_at_tw": None,
     "last_sync_at_tw": None,
+    "last_verified_at_tw": None,
     "restored_files": [],
     "synced_files": [],
     "shrink_warnings": [],
+    "remote_files": {},
     "error": None,
 }
+_REMOTE_BRANCH_LOCK = threading.RLock()
+_REMOTE_BRANCH_READY: set[Tuple[str, str]] = set()
+_REMOTE_IO_LOCK = threading.RLock()
 
 
 @lru_cache(maxsize=1)
@@ -123,7 +131,7 @@ def _secret(name: str, default: Optional[str] = None) -> Optional[str]:
 def _remote_config() -> Dict[str, Any]:
     token = _secret("TINO_GITHUB_TOKEN") or _secret("GITHUB_TOKEN")
     repo = _secret("TINO_GITHUB_REPO") or _secret("GITHUB_REPOSITORY")
-    branch = _secret("TINO_GITHUB_BRANCH", "main") or "main"
+    branch = _secret("TINO_GITHUB_BRANCH", "tino-memory") or "tino-memory"
     memory_dir = (_secret("TINO_GITHUB_MEMORY_DIR", ".tino_memory") or ".tino_memory").strip("/")
     configured = bool(token and repo and "/" in str(repo))
     return {
@@ -146,40 +154,129 @@ def _gh_headers(token: str) -> Dict[str, str]:
 
 
 def _gh_request(method: str, url: str, token: str, payload: Optional[Dict[str, Any]] = None) -> Tuple[int, Any]:
+    """Small bounded GitHub request wrapper that never raises into Streamlit."""
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, method=method, headers=_gh_headers(token))
     try:
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             body = resp.read().decode("utf-8")
             return int(resp.status), json.loads(body) if body else {}
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "ignore")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "ignore")
         try:
             parsed = json.loads(body) if body else {}
         except Exception:
             parsed = {"message": body}
-        return int(e.code), parsed
+        return int(exc.code), parsed
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return 599, {"message": f"{type(exc).__name__}: {exc}"}
+    except Exception as exc:
+        return 598, {"message": f"{type(exc).__name__}: {exc}"}
 
+
+def _ensure_remote_branch() -> Tuple[bool, Optional[str]]:
+    """Ensure the isolated memory branch exists, creating it from default branch.
+
+    A separate branch avoids triggering Streamlit redeploys on every learning
+    write.  Successful checks are cached for the current process; failures are
+    intentionally not cached so a transient GitHub outage can recover later.
+    """
+    cfg = _remote_config()
+    if not cfg["configured"]:
+        return False, "remote_not_configured"
+    key = (str(cfg["repo"]), str(cfg["branch"]))
+    with _REMOTE_BRANCH_LOCK:
+        if key in _REMOTE_BRANCH_READY:
+            return True, None
+
+        branch_q = quote(str(cfg["branch"]), safe="")
+        ref_url = f"https://api.github.com/repos/{cfg['repo']}/git/ref/heads/{branch_q}"
+        status, obj = _gh_request("GET", ref_url, cfg["token"])
+        if status == 200:
+            _REMOTE_BRANCH_READY.add(key)
+            _LAST_REMOTE_REPORT["branch_ready"] = True
+            return True, None
+        if status not in (404,):
+            return False, f"github_branch_get_{status}:{obj.get('message', obj)}"
+
+        repo_url = f"https://api.github.com/repos/{cfg['repo']}"
+        repo_status, repo_obj = _gh_request("GET", repo_url, cfg["token"])
+        if repo_status >= 300:
+            return False, f"github_repo_get_{repo_status}:{repo_obj.get('message', repo_obj)}"
+        base_branch = str(repo_obj.get("default_branch") or "main")
+        base_q = quote(base_branch, safe="")
+        base_url = f"https://api.github.com/repos/{cfg['repo']}/git/ref/heads/{base_q}"
+        base_status, base_obj = _gh_request("GET", base_url, cfg["token"])
+        if base_status >= 300:
+            return False, f"github_base_ref_{base_status}:{base_obj.get('message', base_obj)}"
+        base_sha = str((((base_obj or {}).get("object") or {}).get("sha")) or "")
+        if not base_sha:
+            return False, "github_base_ref_missing_sha"
+
+        create_url = f"https://api.github.com/repos/{cfg['repo']}/git/refs"
+        create_payload = {"ref": f"refs/heads/{cfg['branch']}", "sha": base_sha}
+        create_status, create_obj = _gh_request("POST", create_url, cfg["token"], create_payload)
+        if create_status not in (201, 422):
+            return False, f"github_branch_create_{create_status}:{create_obj.get('message', create_obj)}"
+
+        verify_status, verify_obj = _gh_request("GET", ref_url, cfg["token"])
+        if verify_status != 200:
+            return False, f"github_branch_verify_{verify_status}:{verify_obj.get('message', verify_obj)}"
+        _REMOTE_BRANCH_READY.add(key)
+        _LAST_REMOTE_REPORT["branch_ready"] = True
+        return True, None
 
 def _remote_path_for(local_path: str | Path) -> str:
     cfg = _remote_config()
     return f"{cfg['memory_dir'].strip('/')}/{Path(local_path).name}"
 
 
+def _record_remote_file(name: str, blob: bytes, sha: Optional[str], verified: bool) -> None:
+    files = dict(_LAST_REMOTE_REPORT.get("remote_files") or {})
+    files[str(name)] = {
+        "bytes": len(blob or b""),
+        "rows": _count_jsonl_bytes(blob) if str(name).endswith(".jsonl") else None,
+        "sha": str(sha or "")[:12],
+        "verified": bool(verified),
+        "checked_at_tw": now_tw_iso(),
+    }
+    _LAST_REMOTE_REPORT["remote_files"] = files
+
+
 def _github_read_file(file_name: str) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str]]:
     cfg = _remote_config()
     if not cfg["configured"]:
         return False, None, None, "remote_not_configured"
+    branch_ok, branch_err = _ensure_remote_branch()
+    if not branch_ok:
+        return False, None, None, branch_err
+
     remote_path = f"{cfg['memory_dir'].strip('/')}/{Path(file_name).name}"
-    url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path}?ref={cfg['branch']}"
+    remote_path_q = quote(remote_path, safe="/")
+    url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path_q}?ref={quote(str(cfg['branch']), safe='')}"
     status, obj = _gh_request("GET", url, cfg["token"])
     if status == 404:
         return False, None, None, "remote_missing"
     if status >= 300:
         return False, None, None, f"github_get_{status}:{obj.get('message', obj)}"
     try:
-        content = base64.b64decode(str(obj.get("content") or "").encode("utf-8"))
         sha = str(obj.get("sha") or "")
+        encoded = str(obj.get("content") or "").replace("\n", "")
+        if encoded:
+            content = base64.b64decode(encoded.encode("ascii"))
+        elif sha:
+            # GitHub Contents API omits inline content for larger files.  The
+            # Git Blob endpoint still returns base64 content up to GitHub's
+            # normal repository object limit.
+            blob_url = f"https://api.github.com/repos/{cfg['repo']}/git/blobs/{sha}"
+            blob_status, blob_obj = _gh_request("GET", blob_url, cfg["token"])
+            if blob_status >= 300:
+                return False, None, sha, f"github_blob_{blob_status}:{blob_obj.get('message', blob_obj)}"
+            blob_encoded = str(blob_obj.get("content") or "").replace("\n", "")
+            content = base64.b64decode(blob_encoded.encode("ascii")) if blob_encoded else b""
+        else:
+            content = b""
+        _record_remote_file(Path(file_name).name, content, sha, verified=False)
         return True, content, sha, None
     except Exception as exc:
         return False, None, None, f"github_decode_failed:{type(exc).__name__}:{exc}"
@@ -189,12 +286,19 @@ def _github_write_file(local_path: str | Path, message: Optional[str] = None) ->
     cfg = _remote_config()
     if not cfg["configured"]:
         return False, "remote_not_configured"
+    branch_ok, branch_err = _ensure_remote_branch()
+    if not branch_ok:
+        return False, branch_err
+
     p = Path(local_path)
     if not p.exists() or p.is_dir():
         return False, "local_missing"
-    ok, _old_bytes, sha, _err = _github_read_file(p.name)
+    ok, _old_bytes, sha, read_err = _github_read_file(p.name)
+    if read_err not in (None, "remote_missing"):
+        return False, f"remote_prewrite_read_failed:{read_err}"
     remote_path = _remote_path_for(p)
-    url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path}"
+    remote_path_q = quote(remote_path, safe="/")
+    url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path_q}"
     payload: Dict[str, Any] = {
         "message": message or f"TINO memory sync: {p.name}",
         "content": base64.b64encode(p.read_bytes()).decode("ascii"),
@@ -206,7 +310,6 @@ def _github_write_file(local_path: str | Path, message: Optional[str] = None) ->
     if status not in (200, 201):
         return False, f"github_put_{status}:{obj.get('message', obj)}"
     return True, None
-
 
 def _count_jsonl_bytes(blob: bytes) -> int:
     if not blob:
@@ -223,6 +326,207 @@ def _count_jsonl_file(path: str | Path) -> int:
     except Exception:
         return 0
 
+
+
+def _atomic_write_bytes(path: str | Path, payload: bytes) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=p.name + ".", suffix=".tmp", dir=str(p.parent))
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+        os.replace(tmp_name, p)
+    finally:
+        try:
+            Path(tmp_name).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _memory_row_identity(row: Dict[str, Any]) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for key in ("audit_id", "id", "prediction_id"):
+        value = row.get(key)
+        if value not in (None, ""):
+            return f"{key}:{value}"
+    ticker = str(row.get("ticker") or row.get("symbol") or "")
+    stamp = str(
+        row.get("run_time_tw")
+        or row.get("audit_time_tw")
+        or row.get("logged_at_tw")
+        or row.get("created_at")
+        or ""
+    )
+    target = str(row.get("target_trade_date") or row.get("target_kind") or row.get("target") or "")
+    if ticker and stamp:
+        return f"fallback:{ticker}:{target}:{stamp}"
+    try:
+        return "json:" + json.dumps(row, ensure_ascii=False, sort_keys=True, default=str)
+    except Exception:
+        return ""
+
+
+def _memory_row_stamp(row: Dict[str, Any]) -> str:
+    return str(
+        row.get("run_time_tw")
+        or row.get("audit_time_tw")
+        or row.get("logged_at_tw")
+        or row.get("created_at")
+        or row.get("run_date_tw")
+        or row.get("audit_date_tw")
+        or ""
+    )
+
+
+def _decode_jsonl_bytes(blob: bytes) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for line in (blob or b"").decode("utf-8", "replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(obj, dict) and obj:
+            rows.append(obj)
+    return rows
+
+
+def _merge_jsonl_rows(remote_rows: List[Dict[str, Any]], local_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Lossless ID merge; local/newest occurrence wins for duplicate IDs."""
+    combined = [r for r in list(remote_rows or []) + list(local_rows or []) if isinstance(r, dict) and r]
+    last_index: Dict[str, int] = {}
+    identities: List[str] = []
+    for idx, row in enumerate(combined):
+        ident = _memory_row_identity(row) or f"row:{idx}"
+        identities.append(ident)
+        last_index[ident] = idx
+    merged = [row for idx, row in enumerate(combined) if last_index.get(identities[idx]) == idx]
+    merged.sort(key=_memory_row_stamp)
+    return merged
+
+
+def _encode_jsonl_rows(rows: List[Dict[str, Any]]) -> bytes:
+    if not rows:
+        return b""
+    text = "".join(json.dumps(row, ensure_ascii=False, default=str) + "\n" for row in rows)
+    return text.encode("utf-8")
+
+
+def _json_dict_from_bytes(blob: bytes) -> Dict[str, Any]:
+    try:
+        value = json.loads((blob or b"").decode("utf-8", "replace"))
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
+def _merge_recent_memory(remote_rows: Any, local_rows: Any, limit: int = 500) -> List[Dict[str, Any]]:
+    rows = _merge_jsonl_rows(
+        [r for r in (remote_rows or []) if isinstance(r, dict)],
+        [r for r in (local_rows or []) if isinstance(r, dict)],
+    )
+    rows.sort(key=_memory_row_stamp, reverse=True)
+    return rows[: max(1, int(limit or 1))]
+
+
+def _merge_profile_docs(remote: Dict[str, Any], local: Dict[str, Any]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = copy.deepcopy(remote or {})
+    for key, value in (local or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            item = copy.deepcopy(merged.get(key) or {})
+            item.update(copy.deepcopy(value))
+            merged[key] = item
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _merge_ledger_docs(remote: Dict[str, Any], local: Dict[str, Any]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = copy.deepcopy(remote or {})
+    for key, value in (local or {}).items():
+        if key not in {"watch_center", "recent_predictions", "recent_audits", "ticker_profiles", "storage_guard"}:
+            merged[key] = copy.deepcopy(value)
+
+    remote_watch = remote.get("watch_center", {}) if isinstance(remote.get("watch_center"), dict) else {}
+    local_watch = local.get("watch_center", {}) if isinstance(local.get("watch_center"), dict) else {}
+    hidden: List[str] = []
+    for symbol in list(remote_watch.get("hidden_symbols") or []) + list(local_watch.get("hidden_symbols") or []):
+        value = str(symbol or "").strip().upper()
+        if value and value not in hidden:
+            hidden.append(value)
+    symbols: List[str] = []
+    for symbol in list(local_watch.get("symbols") or []) + list(remote_watch.get("symbols") or []):
+        value = str(symbol or "").strip().upper()
+        if value and value not in hidden and value not in symbols:
+            symbols.append(value)
+    watch = copy.deepcopy(remote_watch)
+    watch.update(copy.deepcopy(local_watch))
+    watch["symbols"] = symbols
+    watch["hidden_symbols"] = hidden
+    watch["updated_at_tw"] = max(
+        str(remote_watch.get("updated_at_tw") or ""),
+        str(local_watch.get("updated_at_tw") or ""),
+    ) or None
+    merged["watch_center"] = watch
+    merged["recent_predictions"] = _merge_recent_memory(
+        remote.get("recent_predictions"), local.get("recent_predictions"), 500
+    )
+    merged["recent_audits"] = _merge_recent_memory(
+        remote.get("recent_audits"), local.get("recent_audits"), 500
+    )
+    merged["ticker_profiles"] = _merge_profile_docs(
+        remote.get("ticker_profiles", {}) if isinstance(remote.get("ticker_profiles"), dict) else {},
+        local.get("ticker_profiles", {}) if isinstance(local.get("ticker_profiles"), dict) else {},
+    )
+    storage = copy.deepcopy(remote.get("storage_guard", {}) if isinstance(remote.get("storage_guard"), dict) else {})
+    storage.update(copy.deepcopy(local.get("storage_guard", {}) if isinstance(local.get("storage_guard"), dict) else {}))
+    merged["storage_guard"] = storage
+    return merged
+
+
+def _reconcile_local_with_remote(path: str | Path, remote_blob: bytes) -> Tuple[bool, Dict[str, Any], Optional[str]]:
+    """Merge remote and local without allowing either side to erase history."""
+    p = Path(path)
+    local_blob = p.read_bytes() if p.exists() and p.is_file() else b""
+    info: Dict[str, Any] = {"remote_bytes": len(remote_blob or b""), "local_bytes_before": len(local_blob)}
+    try:
+        if p.suffix == ".jsonl":
+            remote_rows = _decode_jsonl_bytes(remote_blob)
+            local_rows = _decode_jsonl_bytes(local_blob)
+            merged_rows = _merge_jsonl_rows(remote_rows, local_rows)
+            payload = _encode_jsonl_rows(merged_rows)
+            info.update({
+                "remote_rows": len(remote_rows),
+                "local_rows_before": len(local_rows),
+                "merged_rows": len(merged_rows),
+            })
+        else:
+            remote_doc = _json_dict_from_bytes(remote_blob)
+            local_doc = _json_dict_from_bytes(local_blob)
+            if p.name == "tino_memory_ledger.json":
+                merged_doc = _merge_ledger_docs(remote_doc, local_doc)
+            elif p.name == "ticker_profiles.json":
+                merged_doc = _merge_profile_docs(remote_doc, local_doc)
+            else:
+                merged_doc = copy.deepcopy(remote_doc)
+                merged_doc.update(copy.deepcopy(local_doc))
+            payload = (json.dumps(merged_doc, ensure_ascii=False, indent=2, sort_keys=True, default=str) + "\n").encode("utf-8")
+            info.update({
+                "remote_items": len(remote_doc),
+                "local_items_before": len(local_doc),
+                "merged_items": len(merged_doc),
+            })
+        changed = payload != local_blob
+        if changed:
+            _atomic_write_bytes(p, payload)
+        info["changed"] = changed
+        info["local_bytes_after"] = len(payload)
+        return True, info, None
+    except Exception as exc:
+        return False, info, f"reconcile_failed:{type(exc).__name__}:{exc}"
 
 def _write_local_backup(path: str | Path) -> None:
     p = Path(path)
@@ -278,18 +582,22 @@ def _local_path_for_memory_file(file_name: str) -> Path:
 
 
 def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
-    """Restore local memory from GitHub remote before local init.
+    """Restore and reconcile GitHub memory before local initialization.
 
-    Shrink rule: remote wins when local is missing/empty or remote has more
-    jsonl rows.  This prevents a recycled Streamlit runtime from starting with
-    empty files and silently losing older learning history.
+    Remote and local JSONL are merged by stable row identity.  Equal row counts
+    are never treated as proof that the files are identical, which prevents a
+    recycled runtime from overwriting a different remote history.
     """
     cfg = _remote_config()
     report: Dict[str, Any] = {
         "configured": cfg["configured"],
         "backend": cfg["backend"],
         "status": "LOCAL_ONLY" if not cfg["configured"] else "PASS",
+        "branch_ready": False,
         "restored_files": [],
+        "synced_files": [],
+        "missing_files": [],
+        "reconciled": {},
         "shrink_warnings": [],
         "error": None,
         "last_restore_at_tw": now_tw_iso(),
@@ -298,74 +606,122 @@ def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
         _LAST_REMOTE_REPORT.update(report)
         return report
 
+    branch_ok, branch_err = _ensure_remote_branch()
+    report["branch_ready"] = bool(branch_ok)
+    if not branch_ok:
+        report["status"] = "WARN"
+        report["error"] = branch_err
+        _LAST_REMOTE_REPORT.update(report)
+        return report
+
     for name in _MEMORY_FILES:
         local = _local_path_for_memory_file(name)
         try:
-            exists, blob, _sha, err = _github_read_file(name)
+            exists, blob, sha, err = _github_read_file(name)
             if not exists or blob is None:
-                if err not in (None, "remote_missing"):
+                if err == "remote_missing":
+                    report["missing_files"].append(name)
+                elif err is not None:
+                    report["status"] = "WARN"
                     report["shrink_warnings"].append(f"{name}:{err}")
                 continue
-            local.parent.mkdir(parents=True, exist_ok=True)
-            should_restore = force or (not local.exists()) or (local.stat().st_size == 0)
-            if name.endswith(".jsonl") and local.exists():
-                remote_n = _count_jsonl_bytes(blob)
-                local_n = _count_jsonl_file(local)
-                if remote_n > local_n:
-                    should_restore = True
-                    report["shrink_warnings"].append(f"remote_has_more_{name}:{local_n}->{remote_n}")
-            elif local.exists() and name.endswith(".json"):
-                if len(blob) > max(2, local.stat().st_size) and local.stat().st_size <= 4:
-                    should_restore = True
-            if should_restore:
-                local.write_bytes(blob)
-                _write_local_backup(local)
+            before = local.read_bytes() if local.exists() and local.is_file() else b""
+            ok, info, reconcile_err = _reconcile_local_with_remote(local, blob)
+            report["reconciled"][name] = info
+            if not ok:
+                report["status"] = "WARN"
+                report["shrink_warnings"].append(f"{name}:{reconcile_err}")
+                continue
+            after = local.read_bytes() if local.exists() and local.is_file() else b""
+            if force or after != before:
                 report["restored_files"].append(name)
+            _write_local_backup(local)
+            if after != blob:
+                # Local may contain a prediction completed just before a prior
+                # outage.  Because reconciliation already includes the full
+                # remote history, uploading the merged file cannot shrink it.
+                sync_ok, sync_err = _sync_file_to_remote(local, shrink_guard=True)
+                if sync_ok:
+                    report["synced_files"].append(name)
+                else:
+                    report["status"] = "WARN"
+                    report["shrink_warnings"].append(f"restore_sync_{name}:{sync_err}")
+                    _record_remote_file(name, blob, sha, verified=False)
+            else:
+                _record_remote_file(name, blob, sha, verified=True)
         except Exception as exc:
             report["status"] = "WARN"
             report["error"] = f"restore_{name}:{type(exc).__name__}:{exc}"
+    if report["status"] == "PASS" and len(report.get("missing_files") or []) == len(_MEMORY_FILES):
+        report["status"] = "EMPTY_REMOTE"
     _LAST_REMOTE_REPORT.update(report)
+    _LAST_REMOTE_REPORT["last_verified_at_tw"] = now_tw_iso()
     return report
 
-
-def _sync_file_to_remote(path: str | Path, shrink_guard: bool = True) -> Tuple[bool, Optional[str]]:
+def _sync_file_to_remote_unlocked(path: str | Path, shrink_guard: bool = True) -> Tuple[bool, Optional[str]]:
+    """Reconcile, upload and read-back verify one changed memory file."""
     cfg = _remote_config()
     if not cfg["configured"]:
         return False, "remote_not_configured"
     p = Path(path)
     if not p.exists() or p.is_dir():
         return False, "local_missing"
-    if shrink_guard:
-        exists, blob, _sha, err = _github_read_file(p.name)
-        if exists and blob is not None and p.name.endswith(".jsonl"):
-            remote_n = _count_jsonl_bytes(blob)
-            local_n = _count_jsonl_file(p)
-            if local_n < remote_n:
-                msg = f"shrink_guard_blocked:{p.name}:local {local_n} < remote {remote_n}"
-                _LAST_REMOTE_REPORT.setdefault("shrink_warnings", []).append(msg)
-                return False, msg
-        elif err not in (None, "remote_missing"):
-            # If we cannot read the remote, never risk overwriting a larger remote
-            # memory file with an empty/restarted local file.  This is the key
-            # reconnect/offline protection.
-            msg = f"remote_read_blocked:{p.name}:{err}"
+
+    exists, blob, _sha, err = _github_read_file(p.name)
+    if exists and blob is not None:
+        ok, info, reconcile_err = _reconcile_local_with_remote(p, blob)
+        if not ok:
+            msg = reconcile_err or f"reconcile_failed:{p.name}"
             _LAST_REMOTE_REPORT.setdefault("shrink_warnings", []).append(msg)
             return False, msg
-    ok, err = _github_write_file(p, message=f"TINO memory sync: {p.name}")
-    if ok:
-        _LAST_REMOTE_REPORT["configured"] = True
-        _LAST_REMOTE_REPORT["backend"] = "github"
-        _LAST_REMOTE_REPORT["status"] = "PASS"
-        _LAST_REMOTE_REPORT["last_sync_at_tw"] = now_tw_iso()
-        synced = list(_LAST_REMOTE_REPORT.get("synced_files", []))
-        if p.name not in synced:
-            synced.append(p.name)
-        _LAST_REMOTE_REPORT["synced_files"] = synced[-20:]
-    else:
+        if info.get("changed"):
+            note = f"remote_merged_before_sync:{p.name}"
+            _LAST_REMOTE_REPORT.setdefault("shrink_warnings", []).append(note)
+    elif err not in (None, "remote_missing"):
+        # Never overwrite a remote file when its current state cannot be read.
+        msg = f"remote_read_blocked:{p.name}:{err}"
+        _LAST_REMOTE_REPORT.setdefault("shrink_warnings", []).append(msg)
         _LAST_REMOTE_REPORT["status"] = "WARN"
-        _LAST_REMOTE_REPORT["error"] = err
-    return ok, err
+        _LAST_REMOTE_REPORT["error"] = msg
+        return False, msg
 
+    local_blob = p.read_bytes()
+    ok, write_err = _github_write_file(p, message=f"TINO memory sync: {p.name}")
+    if not ok:
+        _LAST_REMOTE_REPORT["status"] = "WARN"
+        _LAST_REMOTE_REPORT["error"] = write_err
+        return False, write_err
+
+    verified, verify_blob, verify_sha, verify_err = _github_read_file(p.name)
+    if not verified or verify_blob is None:
+        msg = f"remote_verify_read_failed:{p.name}:{verify_err}"
+        _LAST_REMOTE_REPORT["status"] = "WARN"
+        _LAST_REMOTE_REPORT["error"] = msg
+        return False, msg
+    if hashlib.sha256(verify_blob).digest() != hashlib.sha256(local_blob).digest():
+        msg = f"remote_verify_mismatch:{p.name}"
+        _LAST_REMOTE_REPORT["status"] = "WARN"
+        _LAST_REMOTE_REPORT["error"] = msg
+        return False, msg
+
+    _record_remote_file(p.name, verify_blob, verify_sha, verified=True)
+    _LAST_REMOTE_REPORT["configured"] = True
+    _LAST_REMOTE_REPORT["backend"] = "github"
+    _LAST_REMOTE_REPORT["branch_ready"] = True
+    _LAST_REMOTE_REPORT["status"] = "PASS"
+    _LAST_REMOTE_REPORT["last_sync_at_tw"] = now_tw_iso()
+    _LAST_REMOTE_REPORT["last_verified_at_tw"] = now_tw_iso()
+    _LAST_REMOTE_REPORT["error"] = None
+    synced = list(_LAST_REMOTE_REPORT.get("synced_files", []))
+    if p.name not in synced:
+        synced.append(p.name)
+    _LAST_REMOTE_REPORT["synced_files"] = synced[-20:]
+    return True, None
+
+def _sync_file_to_remote(path: str | Path, shrink_guard: bool = True) -> Tuple[bool, Optional[str]]:
+    """Serialize one reconcile/write/verify transaction across app sessions."""
+    with _REMOTE_IO_LOCK:
+        return _sync_file_to_remote_unlocked(path, shrink_guard=shrink_guard)
 
 def sync_all_memory_files_to_remote() -> Dict[str, Any]:
     cfg = _remote_config()
@@ -373,12 +729,20 @@ def sync_all_memory_files_to_remote() -> Dict[str, Any]:
         "configured": cfg["configured"],
         "backend": cfg["backend"],
         "status": "LOCAL_ONLY" if not cfg["configured"] else "PASS",
+        "branch_ready": False,
         "synced_files": [],
         "shrink_warnings": [],
         "error": None,
         "last_sync_at_tw": now_tw_iso(),
     }
     if not cfg["configured"]:
+        _LAST_REMOTE_REPORT.update(report)
+        return report
+    branch_ok, branch_err = _ensure_remote_branch()
+    report["branch_ready"] = bool(branch_ok)
+    if not branch_ok:
+        report["status"] = "WARN"
+        report["error"] = branch_err
         _LAST_REMOTE_REPORT.update(report)
         return report
     for name in _MEMORY_FILES:
@@ -388,12 +752,12 @@ def sync_all_memory_files_to_remote() -> Dict[str, Any]:
         ok, err = _sync_file_to_remote(p, shrink_guard=True)
         if ok:
             report["synced_files"].append(name)
-        elif err and str(err).startswith("shrink_guard_blocked"):
-            report["status"] = "SHRINK_BLOCKED"
-            report["shrink_warnings"].append(str(err))
         elif err != "remote_not_configured":
             report["status"] = "WARN"
             report["error"] = err
+            report["shrink_warnings"].append(str(err))
+    report["remote_files"] = dict(_LAST_REMOTE_REPORT.get("remote_files") or {})
+    report["last_verified_at_tw"] = _LAST_REMOTE_REPORT.get("last_verified_at_tw")
     _LAST_REMOTE_REPORT.update(report)
     return report
 
@@ -526,13 +890,14 @@ def ledger_exists(path: str | Path = DEFAULT_LEDGER_PATH) -> bool:
 
 
 def inline_remote_sync_enabled() -> bool:
-    """Whether normal app writes may perform synchronous GitHub network I/O.
+    """Return True only for configured, explicitly enabled GitHub write-through.
 
-    Default is OFF.  Streamlit render/analysis paths must remain local-only;
-    external maintenance jobs can call ``sync_all_memory_files_to_remote``
-    directly or set ``TINO_INLINE_REMOTE_SYNC=1`` deliberately.
+    The app defaults this flag on for completed memory writes.  No network call
+    is attempted when the GitHub token/repository is absent, and callers still
+    catch every remote failure after the canonical local write succeeds.
     """
-    return os.environ.get("TINO_INLINE_REMOTE_SYNC", "0").strip() == "1"
+    enabled = os.environ.get("TINO_INLINE_REMOTE_SYNC", "1").strip() == "1"
+    return bool(enabled and _remote_config().get("configured"))
 
 
 def load_ledger(
@@ -765,36 +1130,53 @@ def _merge_recent_rows(existing: List[Dict[str, Any]], incoming: List[Dict[str, 
     return out
 
 
-def mirror_prediction_to_ledger(row: Dict[str, Any], path: str | Path = DEFAULT_LEDGER_PATH, limit: int = 500) -> Tuple[bool, Dict[str, Any]]:
-    """Mirror a prediction row into the ledger so UI can recover after reconnect."""
+def mirror_prediction_to_ledger(
+    row: Dict[str, Any],
+    path: str | Path = DEFAULT_LEDGER_PATH,
+    limit: int = 500,
+    *,
+    sync_remote: Optional[bool] = None,
+) -> Tuple[bool, Dict[str, Any]]:
+    """Mirror a prediction row into the compact ledger recovery index."""
     if not isinstance(row, dict) or not row.get("id"):
         return False, {}
-    ledger = load_ledger(path, initialize_if_missing=True)
+    ledger = load_ledger(path, initialize_if_missing=True, sync_remote_on_create=False)
     r = dict(row)
     r.setdefault("logged_at_tw", now_tw_iso())
     ledger["recent_predictions"] = _merge_recent_rows(list(ledger.get("recent_predictions", [])), [r], limit)
-    return save_ledger(ledger, path)
+    return save_ledger(ledger, path, sync_remote=sync_remote)
 
 
-def mirror_audit_to_ledger(row: Dict[str, Any], path: str | Path = DEFAULT_LEDGER_PATH, limit: int = 500) -> Tuple[bool, Dict[str, Any]]:
-    """Mirror an audit row into the ledger so Recent T1 audits do not disappear."""
+def mirror_audit_to_ledger(
+    row: Dict[str, Any],
+    path: str | Path = DEFAULT_LEDGER_PATH,
+    limit: int = 500,
+    *,
+    sync_remote: Optional[bool] = None,
+) -> Tuple[bool, Dict[str, Any]]:
+    """Mirror an audit row into the compact ledger recovery index."""
     if not isinstance(row, dict) or not row.get("audit_id"):
         return False, {}
-    ledger = load_ledger(path, initialize_if_missing=True)
+    ledger = load_ledger(path, initialize_if_missing=True, sync_remote_on_create=False)
     r = dict(row)
     r.setdefault("logged_at_tw", now_tw_iso())
     ledger["recent_audits"] = _merge_recent_rows(list(ledger.get("recent_audits", [])), [r], limit)
-    return save_ledger(ledger, path)
+    return save_ledger(ledger, path, sync_remote=sync_remote)
 
 
-def mirror_profiles_to_ledger(profile_path: str | Path = TICKER_PROFILE, path: str | Path = DEFAULT_LEDGER_PATH) -> Tuple[bool, Dict[str, Any]]:
-    """Mirror ticker_profiles.json into the ledger recovery index."""
+def mirror_profiles_to_ledger(
+    profile_path: str | Path = TICKER_PROFILE,
+    path: str | Path = DEFAULT_LEDGER_PATH,
+    *,
+    sync_remote: Optional[bool] = None,
+) -> Tuple[bool, Dict[str, Any]]:
+    """Mirror ticker_profiles.json into the compact ledger recovery index."""
     profiles = _read_json_dict(Path(profile_path))
     if not profiles:
         return False, {}
-    ledger = load_ledger(path, initialize_if_missing=True)
+    ledger = load_ledger(path, initialize_if_missing=True, sync_remote_on_create=False)
     ledger.setdefault("ticker_profiles", {}).update(profiles)
-    return save_ledger(ledger, path)
+    return save_ledger(ledger, path, sync_remote=sync_remote)
 
 
 def _hydrate_ledger_from_jsonl(ledger: Dict[str, Any], limit: int = 500) -> Dict[str, Any]:
@@ -1047,11 +1429,11 @@ def ensure_memory_initialized_bootsafe(
     migrate: bool = True,
     path: str | Path = DEFAULT_LEDGER_PATH,
 ) -> Dict[str, Any]:
-    """Initialize local memory once per process without any remote network I/O.
+    """One-time process bootstrap with fail-safe GitHub restore.
 
-    This is the only initializer that the Streamlit render path should call.
-    Remote restore/sync remains available through explicit admin/external jobs by
-    calling :func:`ensure_memory_initialized` with its default ``allow_remote``.
+    Remote restore is attempted only once per Python process and before local
+    migration/empty-file creation.  GitHub errors are returned as diagnostics;
+    they cannot stop Streamlit or the main analysis engine.
     """
     normalized_defaults = tuple(_unique_symbols(default_symbols or []))
     key = (str(Path(path).resolve()), normalized_defaults, bool(migrate))
@@ -1059,16 +1441,50 @@ def ensure_memory_initialized_bootsafe(
         cached = _BOOTSAFE_INIT_CACHE.get(key)
         if cached is not None:
             return copy.deepcopy(cached)
+
+        remote_report: Dict[str, Any]
+        try:
+            remote_report = remote_restore_memory_files(force=False)
+        except Exception as exc:
+            remote_report = {
+                "configured": bool(_remote_config().get("configured")),
+                "status": "WARN",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
         report = ensure_memory_initialized(
             default_symbols=normalized_defaults,
             migrate=migrate,
             path=path,
             allow_remote=False,
         )
-        report["boot_mode"] = "local_only_once_per_process"
+        report["remote_restore"] = remote_report
+        seed_report: Dict[str, Any] = {"status": "SKIPPED", "synced_files": [], "errors": []}
+        missing_remote = list(remote_report.get("missing_files") or [])
+        if remote_report.get("configured") and remote_report.get("status") in {"PASS", "EMPTY_REMOTE"} and missing_remote:
+            seed_report["status"] = "PASS"
+            for name in missing_remote:
+                local_path = _local_path_for_memory_file(name)
+                if not local_path.exists() or local_path.is_dir():
+                    continue
+                ok, err = _sync_file_to_remote(local_path, shrink_guard=True)
+                if ok:
+                    seed_report["synced_files"].append(name)
+                else:
+                    seed_report["status"] = "WARN"
+                    seed_report["errors"].append(f"{name}:{err}")
+        report["remote_seed"] = seed_report
+        report["boot_mode"] = (
+            "github_restore_once_per_process"
+            if remote_report.get("configured")
+            else "local_only_once_per_process"
+        )
+        if remote_report.get("configured") and remote_report.get("status") not in {"PASS", "EMPTY_REMOTE"}:
+            report.setdefault("notes", []).append(
+                f"remote restore degraded: {remote_report.get('error') or remote_report.get('status')}"
+            )
         _BOOTSAFE_INIT_CACHE[key] = copy.deepcopy(report)
         return copy.deepcopy(report)
-
 
 def get_watch_symbols(ledger: Dict[str, Any]) -> List[str]:
     wc = _merge_schema(ledger)["watch_center"]
@@ -1199,11 +1615,14 @@ def storage_status(path: str | Path = DEFAULT_LEDGER_PATH) -> Dict[str, Any]:
         "remote_repo": remote.get("repo"),
         "remote_branch": remote.get("branch"),
         "remote_memory_dir": remote.get("memory_dir"),
+        "remote_branch_ready": remote.get("branch_ready"),
         "remote_last_restore": remote.get("last_restore_at_tw"),
         "remote_last_sync": remote.get("last_sync_at_tw"),
+        "remote_last_verified": remote.get("last_verified_at_tw"),
         "remote_restored_files": remote.get("restored_files"),
         "remote_synced_files": remote.get("synced_files"),
         "remote_shrink_warnings": remote.get("shrink_warnings"),
+        "remote_files": remote.get("remote_files") or {},
         "remote_error": remote.get("error"),
         "prediction_log_rows": _count_jsonl_file(PREDICTION_LOG),
         "audit_log_rows": _count_jsonl_file(AUDIT_LOG),
