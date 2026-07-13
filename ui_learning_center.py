@@ -29,6 +29,11 @@ from learning_center_core import (
     auto_audit_status_rows,
     execute_due_auto_audit_once,
 )
+try:
+    from learning_bubble_alert import bubble_alert_rows
+except Exception:
+    def bubble_alert_rows(*_args, **_kwargs):
+        return []
 
 
 _PREDICTION_VIEWS = {"總覽", "正式樣本", "Prediction DNA", "Raw Log"}
@@ -114,6 +119,34 @@ def _render_learning_view(st, view: str) -> None:
             ("平均誤差", "--" if kpi["avg_abs_error_pct"] is None else f"{kpi['avg_abs_error_pct']:.2f}%", "近30日平均絕對誤差。"),
             ("平均 Bias", "--" if kpi["avg_bias_pct"] is None else f"{kpi['avg_bias_pct']:+.2f}%", "正值代表模型偏保守。"),
         ])
+        try:
+            bubble_alerts = bubble_alert_rows(formal_recent, 20)
+            if bubble_alerts:
+                critical_count = sum(1 for row in bubble_alerts if _safe_int(row.get("temperature")) >= 75)
+                high_count = len(bubble_alerts) - critical_count
+                names = "、".join(
+                    f"{row.get('ticker')} {row.get('temperature')}℃"
+                    for row in bubble_alerts[:5]
+                )
+                st.error(
+                    f"🚨 高泡沫危機提醒：共 {len(bubble_alerts)} 檔"
+                    f"（泡沫警戒 {critical_count}｜高風險 {high_count}）｜{names}"
+                )
+                _html_table(
+                    st,
+                    bubble_alerts,
+                    "近30日尚無高泡沫警示。",
+                    columns=[
+                        "警示", "ticker", "market", "temperature", "level",
+                        "decision", "data_quality", "target_date", "reason", "run_time_tw",
+                    ],
+                    height=260,
+                    limit=20,
+                )
+            elif formal_recent:
+                st.success("AI 泡沫警報：近30日最新正式樣本尚無 ≥60℃ 高風險標的。")
+        except Exception as exc:
+            st.warning(f"泡沫警報區塊暫時無法讀取；其他 Learning 功能不受影響：{type(exc).__name__}")
         if not normalized_predictions:
             st.warning("目前讀不到 Prediction Log。請到 Storage Status 確認記憶路徑與長期儲存狀態。")
         elif not formal_recent and formal_all:

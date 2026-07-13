@@ -210,6 +210,100 @@ def _decision_adjustment(score: float, growth_score: float, *, mode: str, accept
     return value
 
 
+def _extreme_growth_guard(
+    market: str,
+    fundamental: Mapping[str, Any],
+    qoq: float | None,
+    revenue_yoy: float | None,
+) -> tuple[float, bool, bool, str]:
+    """Scale only unverified extreme growth; never discard verified facts.
+
+    A very large percentage can be economically real, but it can also come
+    from a low base, a spin-off, or a mismatched accounting period.  The guard
+    therefore gives full credit only when the existing source has already
+    proved a continuous quarterly/monthly series.  No network request is made.
+    """
+    extreme_qoq = qoq is not None and qoq > 80.0
+    extreme_yoy = revenue_yoy is not None and revenue_yoy > 200.0
+    if not (extreme_qoq or extreme_yoy):
+        return 1.0, False, True, ""
+
+    market = str(market or "").upper()
+    if market == "TW":
+        verified = bool(
+            fundamental.get("growth_metrics_eligible")
+            and not fundamental.get("revenue_month_anchor_risk")
+        )
+        basis = "月營收連續序列"
+    else:
+        source = str(fundamental.get("revenue_growth_source") or "").lower()
+        qoq_ok = (not extreme_qoq) or bool(
+            fundamental.get("qoq_verified") and source == "quarterly_series"
+        )
+        yoy_ok = (not extreme_yoy) or bool(
+            fundamental.get("yoy_verified") and source == "quarterly_series"
+        )
+        verified = bool(qoq_ok and yoy_ok)
+        basis = "季度連續序列"
+
+    if verified:
+        return 1.0, True, True, f"極端成長已通過{basis}檢查"
+    return 0.5, True, False, "極端成長待口徑驗證，成長支撐減半"
+
+
+def _valuation_temperature_floor(
+    pe: float | None,
+    ps: float | None,
+    eps_value: float | None,
+    valuation_heat: float,
+) -> tuple[float, str]:
+    """Prevent strong growth from washing expensive valuation down to 0°C."""
+    floor = 0.0
+    reason = ""
+    if ps is not None and ps >= 15.0:
+        floor = 25.0
+        reason = "高PS估值設定最低溫度"
+    if pe is not None and pe >= 60.0 and ps is not None and ps >= 15.0:
+        floor = max(floor, 30.0)
+        reason = "高PE與高PS並存"
+    if eps_value is not None and eps_value < 0.0 and ps is not None and ps >= 15.0:
+        floor = max(floor, 30.0)
+        reason = "負EPS且PS偏高"
+    if valuation_heat >= 18.0:
+        floor = max(floor, 30.0)
+        reason = reason or "極高估值設定最低溫度"
+    elif valuation_heat >= 12.0:
+        floor = max(floor, 25.0)
+        reason = reason or "高估值設定最低溫度"
+    return floor, reason
+
+
+def _cap_positive_decision_for_valuation(
+    adjustment: float,
+    *,
+    valuation_available: bool,
+    valuation_heat: float,
+    pe: float | None,
+    ps: float | None,
+    eps_value: float | None,
+) -> float:
+    """Keep a risk overlay conservative without touching Direction/Forecast."""
+    value = float(adjustment)
+    if value <= 0.0:
+        return value
+    if not valuation_available:
+        value = min(value, 1.5)
+    if valuation_heat >= 12.0 or (ps is not None and ps >= 15.0):
+        value = min(value, 1.5)
+    if (ps is not None and ps >= 20.0) or (
+        pe is not None and pe >= 80.0 and ps is not None and ps >= 15.0
+    ):
+        value = min(value, 0.5)
+    if eps_value is not None and eps_value < 0.0 and ps is not None and ps >= 15.0:
+        value = min(value, 0.0)
+    return value
+
+
 def _assess_etf(
     price: PriceFrame,
     metrics: Dict[str, float | None],
@@ -251,6 +345,13 @@ def _assess_etf(
         "quality": round(quality, 4),
         "line": line,
         "reason": reason,
+        "alert": bool(accepted and score >= 60.0),
+        "alert_level": (
+            "critical" if accepted and score >= 75.0
+            else "high" if accepted and score >= 60.0
+            else "none"
+        ),
+        "bubble_conclusion_eligible": bool(accepted),
         "metrics": {**metrics, "price_heat": price_heat, "expectation_heat": expectation, "macro_heat": macro_heat},
     }
 
@@ -270,32 +371,58 @@ def assess_bubble_risk(
     market = str(getattr(price.ticker, "market", "") or "").upper()
 
     qoq = _num(fundamental.get("qoq")) if bool(fundamental.get("qoq_verified")) else None
-    revenue_yoy = _num(fundamental.get("revenue_yoy", fundamental.get("yoy"))) if bool(fundamental.get("yoy_verified")) else None
-    earnings_yoy = _num(fundamental.get("earnings_yoy_for_decision")) if bool(fundamental.get("eps_yoy_decision_eligible")) else None
+    revenue_yoy = (
+        _num(fundamental.get("revenue_yoy", fundamental.get("yoy")))
+        if bool(fundamental.get("yoy_verified")) else None
+    )
+    earnings_yoy = (
+        _num(fundamental.get("earnings_yoy_for_decision"))
+        if bool(fundamental.get("eps_yoy_decision_eligible")) else None
+    )
     gaap_eps_yoy = _num(fundamental.get("gaap_eps_yoy"))
 
     tw_growth_eligible = bool(
-        fundamental.get("growth_metrics_eligible", fundamental.get("revenue_model_usable", fundamental.get("cross_checked", False)))
+        fundamental.get(
+            "growth_metrics_eligible",
+            fundamental.get("revenue_model_usable", fundamental.get("cross_checked", False)),
+        )
     )
-    monthly_mom = _num(fundamental.get("monthly_mom", fundamental.get("mom"))) if market == "TW" and tw_growth_eligible and bool(fundamental.get("mom_verified", True)) else None
-    accum_yoy = _num(fundamental.get("accum_yoy")) if market == "TW" and tw_growth_eligible and bool(fundamental.get("accum_yoy_verified", True)) else None
+    monthly_mom = (
+        _num(fundamental.get("monthly_mom", fundamental.get("mom")))
+        if market == "TW" and tw_growth_eligible and bool(fundamental.get("mom_verified", True))
+        else None
+    )
+    accum_yoy = (
+        _num(fundamental.get("accum_yoy"))
+        if market == "TW" and tw_growth_eligible and bool(fundamental.get("accum_yoy_verified", True))
+        else None
+    )
     if market == "TW" and not tw_growth_eligible:
         revenue_yoy = None
 
     pe = _num(fundamental.get("pe"))
     forward_pe = _num(fundamental.get("forward_pe"))
     ps = _num(fundamental.get("ps"))
+    eps_value = _num(fundamental.get("adjusted_eps"))
+    if eps_value is None:
+        eps_value = _num(fundamental.get("gaap_eps"))
+    if eps_value is None:
+        eps_value = _num(fundamental.get("eps"))
 
-    growth_score = _growth_points(qoq, kind="qoq")
-    growth_score += _growth_points(revenue_yoy, kind="yoy")
-    growth_score += _growth_points(earnings_yoy, kind="earnings")
+    raw_growth_score = _growth_points(qoq, kind="qoq")
+    raw_growth_score += _growth_points(revenue_yoy, kind="yoy")
+    raw_growth_score += _growth_points(earnings_yoy, kind="earnings")
     if monthly_mom is not None:
-        growth_score += 2.0 if monthly_mom > 20 else (1.0 if monthly_mom > 10 else 0.0)
+        raw_growth_score += 2.0 if monthly_mom > 20 else (1.0 if monthly_mom > 10 else 0.0)
     if accum_yoy is not None and (revenue_yoy is None or accum_yoy > revenue_yoy + 5):
-        growth_score += 1.5 if accum_yoy > 30 else (0.75 if accum_yoy > 15 else 0.0)
+        raw_growth_score += 1.5 if accum_yoy > 30 else (0.75 if accum_yoy > 15 else 0.0)
     if bool(fundamental.get("growth_accelerating")):
-        growth_score += 2.0
-    growth_score = _clamp(growth_score, 0.0, 16.0)
+        raw_growth_score += 2.0
+
+    extreme_scale, extreme_growth, extreme_verified, extreme_reason = _extreme_growth_guard(
+        market, fundamental, qoq, revenue_yoy
+    )
+    growth_score = _clamp(raw_growth_score * extreme_scale, 0.0, 16.0)
 
     deceleration = 0.0
     decel_reasons = []
@@ -335,7 +462,7 @@ def assess_bubble_risk(
         divergence_reasons.append("極高估值未獲可比EPS加速度支撐")
 
     growth_support = _clamp(growth_score * 1.25, 0.0, 20.0)
-    score = _clamp(
+    raw_score = _clamp(
         price_heat + valuation_heat + expectation_heat + divergence + deceleration - growth_support,
         0.0,
         100.0,
@@ -352,15 +479,31 @@ def assess_bubble_risk(
 
     accepted = bool(price_count >= 1 and fundamental_count >= 2 and growth_count >= 1 and quality >= 0.50)
     mode = "company" if accepted else "price_only"
-    if not accepted:
-        # Publish a visible price-temperature for every supported symbol, but do
-        # not claim a company bubble or alter Decision without fundamental proof.
+    valuation_available = any(value is not None and value > 0.0 for value in (pe, forward_pe, ps))
+    valuation_floor, valuation_floor_reason = _valuation_temperature_floor(
+        pe, ps, eps_value, valuation_heat
+    )
+    if accepted:
+        score = max(raw_score, valuation_floor) if valuation_available else raw_score
+    else:
         score = _clamp(price_heat + expectation_heat * 0.45, 0.0, 44.0)
 
     level, icon = _temperature_label(score)
     adjustment = _decision_adjustment(score, growth_score, mode=mode, accepted=accepted)
+    adjustment = _cap_positive_decision_for_valuation(
+        adjustment,
+        valuation_available=valuation_available,
+        valuation_heat=valuation_heat,
+        pe=pe,
+        ps=ps,
+        eps_value=eps_value,
+    )
 
     reasons = divergence_reasons + decel_reasons
+    if valuation_floor_reason and valuation_floor > raw_score:
+        reasons.append(valuation_floor_reason)
+    if extreme_reason:
+        reasons.append(extreme_reason)
     if gaap_eps_yoy is not None and earnings_yoy is None:
         reasons.append("GAAP EPS波動僅揭露，不納入Decision")
     if not reasons:
@@ -371,7 +514,11 @@ def assess_bubble_risk(
         else:
             reasons.append("尚未出現明顯價格/基本面背離")
 
-    if accepted:
+    bubble_conclusion_eligible = bool(accepted and valuation_available)
+    alert = bool(bubble_conclusion_eligible and score >= 60.0)
+    alert_level = "critical" if alert and score >= 75.0 else ("high" if alert else "none")
+
+    if accepted and valuation_available:
         line = "｜".join(
             (
                 f"AI泡沫雷達｜{icon} {score:.0f}℃ {level}",
@@ -382,6 +529,21 @@ def assess_bubble_risk(
                 f"Decision {adjustment:+.1f}",
                 f"資料 {quality * 100:.0f}%",
                 reasons[0],
+            )
+        )
+    elif accepted:
+        icon = "⚪"
+        level = "估值待確認"
+        line = "｜".join(
+            (
+                f"AI泡沫雷達｜{icon} {score:.0f}℃ 成長/價格觀察",
+                f"價熱 {price_heat:.0f}",
+                "估值 NA",
+                f"預期 {expectation_heat:.0f}",
+                f"成長支撐 -{growth_support:.0f}",
+                f"Decision {adjustment:+.1f}",
+                f"資料 {quality * 100:.0f}%",
+                "估值待確認，不做完整泡沫結論",
             )
         )
     else:
@@ -409,12 +571,16 @@ def assess_bubble_risk(
         "quality": round(quality, 4),
         "line": line,
         "reason": "；".join(reasons[:3]),
+        "alert": alert,
+        "alert_level": alert_level,
+        "bubble_conclusion_eligible": bubble_conclusion_eligible,
         "metrics": {
             **metrics,
             "price_heat": round(price_heat, 3),
             "valuation_heat": round(valuation_heat, 3),
             "expectation_heat": round(expectation_heat, 3),
             "growth_score": round(growth_score, 3),
+            "raw_growth_score": round(raw_growth_score, 3),
             "growth_support": round(growth_support, 3),
             "divergence": round(divergence, 3),
             "deceleration": round(deceleration, 3),
@@ -425,6 +591,12 @@ def assess_bubble_risk(
             "pe": pe,
             "forward_pe": forward_pe,
             "ps": ps,
+            "eps_value": eps_value,
+            "valuation_available": valuation_available,
+            "valuation_floor": round(valuation_floor, 3),
+            "extreme_growth": extreme_growth,
+            "extreme_growth_verified": extreme_verified,
+            "extreme_growth_scale": extreme_scale,
             "monthly_mom": monthly_mom,
             "accum_yoy": accum_yoy,
         },
