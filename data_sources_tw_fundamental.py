@@ -66,6 +66,36 @@ def _safe_float(value, default=None):
     return default
 
 
+def _first_present(row: Dict[str, object], *keys: str):
+    """Return the first non-empty field without treating numeric zero as missing."""
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, "", "None", "nan", "--", "-"):
+            return value
+    return None
+
+
+def _shift_month(month: str, delta: int) -> str:
+    m = _normalize_month_text(month)
+    if not m:
+        return ""
+    year, mon = (int(x) for x in m.split("/"))
+    idx = year * 12 + (mon - 1) + int(delta)
+    return f"{idx // 12:04d}/{idx % 12 + 1:02d}"
+
+
+def _pct_change(current, previous) -> float | None:
+    cur = _safe_float(current)
+    prev = _safe_float(previous)
+    if cur is None or prev is None or prev <= 0:
+        return None
+    return (cur / prev - 1.0) * 100.0
+
+
+def _format_pct_number(value: float | None) -> str:
+    return _fmt_pct(value) if value is not None else ""
+
+
 def _format_billion_value(billion: float | None) -> str:
     b = _safe_float(billion)
     if b is None:
@@ -391,40 +421,142 @@ def _pick_record_for_months(records: List[Dict[str, object]], months: List[str])
 
 
 def _fetch_finmind_month_revenue(symbol: str, price_date: str) -> Dict[str, object]:
+    """Fetch TW monthly revenue and independently verify growth from the series.
+
+    FinMind's ``revenue_month`` / ``revenue_year`` fields are growth rates, not
+    period anchors.  The official announcement ``date`` is therefore mapped to
+    the previous revenue month, then verified against a continuous revenue
+    series.  A verified series is allowed into the model even when MOPS is
+    temporarily slow, while incomplete series remain reference-only.
+    """
     stock_id = symbol.split(".")[0]
     try:
         end_dt = date.fromisoformat(price_date) if re.match(r"\d{4}-\d{2}-\d{2}", price_date) else today_taipei_date()
     except Exception:
         end_dt = today_taipei_date()
-    rows = _finmind_query("TaiwanStockMonthRevenue", stock_id, (end_dt - timedelta(days=420)).isoformat(), end_dt.isoformat())
-    recs = []
+
+    # Up to 25 months is still only a few dozen rows, but is enough to verify
+    # current MoM, YoY and cumulative YoY without building a DataFrame.
+    rows = _finmind_query(
+        "TaiwanStockMonthRevenue",
+        stock_id,
+        (end_dt - timedelta(days=760)).isoformat(),
+        end_dt.isoformat(),
+    )
+    recs: List[Dict[str, object]] = []
     for row in rows:
-        revenue = None
-        for k in ("revenue", "Revenue", "month_revenue", "monthly_revenue"):
-            if row.get(k) not in (None, ""):
-                revenue = row.get(k); break
+        revenue = _first_present(row, "revenue", "Revenue", "month_revenue", "monthly_revenue")
         if revenue is None:
             continue
-        mom = row.get("revenue_month_growth") or row.get("mom") or row.get("MoM") or row.get("month_growth")
-        yoy = row.get("revenue_year_growth") or row.get("yoy") or row.get("YoY") or row.get("year_growth")
+        # FinMind commonly exposes these two growth rates as revenue_month and
+        # revenue_year.  They must never be interpreted as YYYY/MM anchors.
+        mom = _first_present(
+            row, "revenue_month_growth", "revenue_month", "mom", "MoM", "month_growth"
+        )
+        yoy = _first_present(
+            row, "revenue_year_growth", "revenue_year", "yoy", "YoY", "year_growth"
+        )
+        accum = _first_present(row, "cumulative_revenue", "accumulated_revenue", "accum_revenue")
+        accum_yoy = _first_present(row, "cumulative_revenue_year_growth", "accum_yoy")
         ym, anchor, anchor_risk = _month_from_finmind_revenue_row(row)
         if not ym:
             continue
-        rec = _record_from_twd("FinMind_MonthRevenue", ym, revenue, mom, yoy, row.get("cumulative_revenue") or row.get("accumulated_revenue") or row.get("accum_revenue"), row.get("cumulative_revenue_year_growth") or row.get("accum_yoy"))
+        rec = _record_from_twd(
+            "FinMind_MonthRevenue", ym, revenue, mom, yoy, accum, accum_yoy
+        )
         rec["announcement_date"] = str(row.get("date", ""))[:10]
         rec["month_anchor"] = anchor
         rec["month_anchor_risk"] = bool(anchor_risk)
-        if anchor != "explicit_revenue_period":
-            rec["model_eligible"] = False
+        rec["model_eligible"] = anchor == "explicit_revenue_period"
         if rec.get("accepted"):
             recs.append(rec)
+
     if not recs:
         return {"accepted": False, "source": "FinMind_MonthRevenue", "reason": "FinMind month revenue empty"}
-    target = _pick_record_for_months(recs, _target_revenue_months(price_date, 6))
+
+    # Deduplicate by revenue month, keeping the newest announcement for that
+    # month.  This is compact and avoids any Pandas/PyArrow allocation.
+    by_month: Dict[str, Dict[str, object]] = {}
+    for rec in sorted(recs, key=lambda r: (str(r.get("month", "")), str(r.get("announcement_date", "")))):
+        by_month[str(rec.get("month"))] = dict(rec)
+    months_sorted = sorted(by_month)
+
+    # Independently derive growth from raw revenue amounts.  Provider growth
+    # fields remain useful for display, but the series calculation is the
+    # model gate and protects .TW/.TWO from field-name or unit drift.
+    for month in months_sorted:
+        rec = by_month[month]
+        current = _safe_float(rec.get("revenue_billion"))
+        prev = _safe_float((by_month.get(_shift_month(month, -1)) or {}).get("revenue_billion"))
+        year_ago = _safe_float((by_month.get(_shift_month(month, -12)) or {}).get("revenue_billion"))
+        calc_mom = _pct_change(current, prev)
+        calc_yoy = _pct_change(current, year_ago)
+        provider_mom = _safe_float(rec.get("mom"))
+        provider_yoy = _safe_float(rec.get("yoy"))
+
+        if calc_mom is not None:
+            rec["mom"] = _format_pct_number(calc_mom)
+            rec["monthly_mom"] = rec["mom"]
+            rec["mom_calc"] = calc_mom
+        elif provider_mom is not None:
+            rec["mom"] = _format_pct_number(provider_mom)
+
+        if calc_yoy is not None:
+            rec["yoy"] = _format_pct_number(calc_yoy)
+            rec["revenue_yoy"] = rec["yoy"]
+            rec["yoy_calc"] = calc_yoy
+        elif provider_yoy is not None:
+            rec["yoy"] = _format_pct_number(provider_yoy)
+
+        # Provider-vs-derived agreement is diagnostic only; raw-series growth
+        # remains usable even when a provider percentage is absent.
+        rec["mom_provider_gap"] = abs(provider_mom - calc_mom) if provider_mom is not None and calc_mom is not None else None
+        rec["yoy_provider_gap"] = abs(provider_yoy - calc_yoy) if provider_yoy is not None and calc_yoy is not None else None
+
+        year, mon = (int(x) for x in month.split("/"))
+        current_keys = [f"{year:04d}/{m:02d}" for m in range(1, mon + 1)]
+        prior_keys = [f"{year - 1:04d}/{m:02d}" for m in range(1, mon + 1)]
+        current_vals = [_safe_float((by_month.get(k) or {}).get("revenue_billion")) for k in current_keys]
+        prior_vals = [_safe_float((by_month.get(k) or {}).get("revenue_billion")) for k in prior_keys]
+        if all(v is not None and v >= 0 for v in current_vals + prior_vals):
+            current_sum = float(sum(current_vals))
+            prior_sum = float(sum(prior_vals))
+            rec["accum_revenue_billion"] = current_sum
+            rec["accum_revenue"] = _format_billion_value(current_sum)
+            calc_accum_yoy = _pct_change(current_sum, prior_sum)
+            if calc_accum_yoy is not None:
+                rec["accum_yoy"] = _format_pct_number(calc_accum_yoy)
+                rec["accum_yoy_calc"] = calc_accum_yoy
+
+    target = _pick_record_for_months(list(by_month.values()), _target_revenue_months(price_date, 6))
     if not target:
         return {"accepted": False, "source": "FinMind_MonthRevenue", "reason": "FinMind no target month"}
-    history = [float(r["revenue_billion"]) for r in recs if _safe_float(r.get("revenue_billion")) not in (None, 0)]
-    target["history_billion"] = history[-8:]
+
+    target_month = str(target.get("month") or "")
+    required_13 = [_shift_month(target_month, -offset) for offset in range(13)] if target_month else []
+    raw_series_ok = bool(required_13) and all(
+        _safe_float((by_month.get(m) or {}).get("revenue_billion")) not in (None, 0)
+        for m in required_13
+    )
+    # Thirteen consecutive monthly amounts make the inferred announcement-month
+    # mapping self-consistent and provide current/previous/year-ago anchors.
+    series_verified = bool(raw_series_ok and _single_record_sane(target))
+    if series_verified:
+        target["month_anchor"] = "finmind_revenue_series_verified"
+        target["month_anchor_risk"] = False
+        target["model_eligible"] = True
+        target["series_verified"] = True
+        target["growth_sources"] = "FinMind_MonthRevenueSeries"
+    else:
+        target["series_verified"] = False
+        target["model_eligible"] = False
+
+    history = [
+        float(by_month[m]["revenue_billion"])
+        for m in months_sorted
+        if _safe_float(by_month[m].get("revenue_billion")) not in (None, 0)
+    ]
+    target["history_billion"] = history[-13:]
     target["accepted"] = True
     return target
 
@@ -573,6 +705,19 @@ def _choose_revenue_record(records: List[Dict[str, object]], price_date: str) ->
         mops = [r for r in same if r.get("source") == "MOPS_MonthRevenue"]
         if mops:
             return mops[0], "月營收官方驗證", True, "official"
+        # FinMind raw monthly-revenue series can safely bridge a temporary MOPS
+        # timeout when current/previous/year-ago amounts verify the period and
+        # growth independently.  This is universal for .TW and .TWO; there are
+        # no ticker-specific exceptions.
+        series_verified = [
+            r for r in same
+            if r.get("source") == "FinMind_MonthRevenue"
+            and bool(r.get("series_verified"))
+            and r.get("model_eligible", True) is not False
+            and _single_record_sane(r)
+        ]
+        if series_verified:
+            return series_verified[0], "月營收序列驗證", True, "series_verified"
         for i, a in enumerate(same):
             for b in same[i + 1:]:
                 if _revenue_close(a, b):
@@ -680,7 +825,7 @@ def _enrich_same_month_growth(primary: Dict[str, object], records: List[Dict[str
 def fetch_tw_fundamental_crosscheck(symbol: str, price_date: str) -> Dict[str, object]:
     if os.environ.get("TINO_OFFLINE_TEST") == "1":
         return {"accepted": False, "source": "TW_FUNDAMENTAL_OFFLINE", "reason": "offline"}
-    cache_key = ("tw_fundamental_v25_strict_anchor", str(symbol).upper(), str(price_date)[:10])
+    cache_key = ("tw_fundamental_v26_series_guard", str(symbol).upper(), str(price_date)[:10])
     cached = _cache_get(cache_key)
     if cached:
         return cached
