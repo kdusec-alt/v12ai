@@ -18,7 +18,7 @@ from memory_store import (
     load_profiles,
 )
 from tino_persistent_store import DEFAULT_LEDGER_PATH, load_ledger, storage_status, ensure_memory_initialized_bootsafe
-from auto_audit_scheduler import auto_audit_status_rows
+from auto_audit_scheduler import auto_audit_status_rows, execute_due_auto_audit_once
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 
@@ -184,6 +184,11 @@ def _recent_t1_audits(audits: List[Dict[str, Any]], limit: int = 30) -> List[Dic
             "predicted_close": a.get("predicted_close"),
             "actual_close": a.get("actual_close"),
             "error_pct": None if err is None else round(err, 3),
+            "direction_hit": a.get("direction_hit"),
+            "close_in_range": a.get("close_in_predicted_range"),
+            "predicted_low": a.get("predicted_low"),
+            "actual_low": a.get("actual_low"),
+            "downside_tail_breach_pct": a.get("downside_tail_breach_pct"),
             "result": "命中" if err is not None and abs(err) < 1.0 else "偏低" if err is not None and err > 0 else "偏高" if err is not None else "--",
             "source": a.get("source"),
         })
@@ -363,6 +368,34 @@ def render_learning_center(st) -> None:
         st.caption(f"Memory path：{MEMORY_DIR}")
         _df(st, _storage_rows(), "尚無 storage 狀態。", height=360)
         st.markdown("#### Auto Audit Time Guard")
+        st.caption("主畫面維持零背景工作；僅在此處由 Admin 小批次執行，避免 Streamlit rerun 疊加。")
+        c1, c2 = st.columns([0.34, 0.66], gap="small")
+        with c1:
+            run_audit = st.button(
+                "執行安全 Auto Audit（每市場最多5檔）",
+                key="learning_safe_auto_audit",
+                use_container_width=True,
+            )
+        if run_audit:
+            with st.spinner("正在比對正式收盤，完成前不切換頁面…"):
+                try:
+                    st.session_state["learning_safe_auto_audit_result"] = execute_due_auto_audit_once(
+                        markets=["TW", "US"], max_tickers_per_market=5
+                    )
+                except Exception as exc:
+                    st.session_state["learning_safe_auto_audit_result"] = {
+                        "status": "failed_safe", "reason": f"{type(exc).__name__}: {exc}", "markets": {}
+                    }
+        result = st.session_state.get("learning_safe_auto_audit_result")
+        if isinstance(result, dict):
+            market_rows = list((result.get("markets") or {}).values())
+            done = sum(int(r.get("audited_t1") or 0) + int(r.get("audited_today") or 0) for r in market_rows if isinstance(r, dict))
+            if result.get("status") == "done":
+                st.success(f"安全 Auto Audit 完成：新增 {done} 筆稽核。")
+            elif result.get("status") == "busy":
+                st.warning("已有一批 Auto Audit 執行中，未重複啟動。")
+            else:
+                st.warning(str(result.get("reason") or "Auto Audit 已安全停止。"))
         _df(st, auto_audit_status_rows(), "尚無 Auto Audit 排程紀錄。", height=240)
         try:
             ledger = load_ledger(DEFAULT_LEDGER_PATH, initialize_if_missing=False)

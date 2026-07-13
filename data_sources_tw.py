@@ -1595,7 +1595,9 @@ def _score_news(title: str) -> Tuple[float, str]:
     macro_terms = ("cpi", "ppi", "pce", "fomc", "非農", "nfp", "fed", "通膨", "利率決議")
     geo_terms = (
         "關稅", "tariff", "出口管制", "export control", "制裁", "sanction",
-        "台海", "軍演", "中東", "伊朗", "以色列", "紅海", "烏克蘭", "俄羅斯",
+        "台海", "台灣海峽", "軍演", "南海", "中東", "美伊", "以伊", "伊朗", "以色列",
+        "荷姆茲", "霍爾木茲", "hormuz", "紅海", "胡塞", "油價", "原油", "殖利率",
+        "烏克蘭", "俄羅斯", "稀土", "rare earth", "關鍵礦物",
     )
     if any(k in t for k in geo_terms):
         tag = "policy_geo"
@@ -1640,7 +1642,9 @@ def _tw_news_ttl_days(title: str = "", query: str = "") -> int:
     macro_geo_terms = [
         "cpi", "ppi", "pce", "fomc", "非農", "nfp", "fed", "通膨", "利率決議",
         "關稅", "tariff", "出口管制", "export control", "制裁", "sanction",
-        "台海", "軍演", "中東", "伊朗", "以色列", "紅海", "烏克蘭", "俄羅斯",
+        "台海", "台灣海峽", "軍演", "南海", "中東", "美伊", "以伊", "伊朗", "以色列",
+        "荷姆茲", "霍爾木茲", "hormuz", "紅海", "胡塞", "油價", "原油", "殖利率",
+        "烏克蘭", "俄羅斯", "稀土", "rare earth", "關鍵礦物",
     ]
     finance_terms = [
         "法說", "財報", "營收", "eps", "獲利", "毛利", "財測", "展望",
@@ -1718,13 +1722,14 @@ def _global_tw_macro_geo_news() -> List[NewsItem]:
         return list(_TW_GLOBAL_NEWS_CACHE[1])
 
     queries = (
-        "美國 CPI PPI PCE ISM FOMC 非農 Fed 通膨 利率",
-        "美中 關稅 出口管制 晶片 制裁 台海 軍演 中東 伊朗 以色列 紅海 烏克蘭 俄羅斯 油價",
+        '美國 (CPI OR PPI OR PCE OR FOMC OR 非農) 通膨 利率 美債殖利率',
+        '(荷姆茲海峽 OR 霍爾木茲海峽 OR Strait of Hormuz OR 美伊衝突 OR 以伊衝突) 油價 殖利率',
+        '(美中關稅 OR 出口管制 OR 台灣海峽 OR 軍演 OR 稀土 OR 關鍵礦物) 晶片 供應鏈',
     )
     out: List[NewsItem] = []
     seen: set[str] = set()
     for query in queries:
-        for item in _google_news(query, 4):
+        for item in _google_news(query, 3):
             key = re.sub(r"\s+", " ", item.title).strip().lower()
             if key and key not in seen:
                 seen.add(key)

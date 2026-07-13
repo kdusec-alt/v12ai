@@ -496,16 +496,18 @@ _US_QUERY_PROFILES: Dict[str, Dict[str, List[str]]] = {
 }
 
 _DAILY_HEADLINE_QUERIES = [
-    "US stock market Fed CPI PPI PCE ISM NFP",
-    "Trump tariff China semiconductor export control",
-    "geopolitics Taiwan Strait South China Sea Middle East oil",
-    "semiconductor AI chip supply chain headlines",
+    # Each route is always queried once.  Do not stop after the first busy macro
+    # feed, otherwise a major Hormuz / Taiwan Strait event can be starved.
+    "US stock market Fed CPI PPI PCE ISM NFP Treasury yields",
+    "US Iran Israel war Strait of Hormuz blockade oil Treasury yields Middle East Red Sea Houthi",
+    "Trump tariff China semiconductor export control Taiwan Strait rare earth critical minerals AI supply chain",
 ]
 
 _US_POLICY_GEO_TERMS = [
     "trump", "tariff", "tariffs", "china", "export control", "export controls", "sanction", "sanctions",
     "semiconductor restriction", "chip ban", "entity list", "taiwan strait", "south china sea",
-    "middle east", "iran", "israel", "red sea", "oil", "opec", "war", "geopolitical",
+    "middle east", "iran", "israel", "us-iran", "strait of hormuz", "hormuz", "red sea", "houthi",
+    "oil", "crude", "opec", "treasury yield", "bond yields", "war", "geopolitical", "rare earth", "critical minerals",
 ]
 _US_MACRO_TERMS = [
     "fed", "fomc", "cpi", "ppi", "pce", "nfp", "payrolls", "inflation", "rate cut",
@@ -733,11 +735,11 @@ def fetch_us_news(ticker: TickerInfo) -> List[NewsItem]:
 
     # Daily market weather applies to all US tickers. Fetch first and reserve slots
     # so a busy ticker will not starve global Macro/Policy headlines.
-    for query in _DAILY_HEADLINE_QUERIES[:4]:
+    for query in _DAILY_HEADLINE_QUERIES:
+        # Two rows per route keeps latency/bandwidth bounded while guaranteeing
+        # Macro, Geo and Policy each receive a reserved search attempt.
         for item in _google_news_us(query, "daily", limit=2):
             _add(item)
-        if len([x for x in out if "daily_headline" in x.tag]) >= 4:
-            break
 
     for query, bucket, limit in _us_news_profile_queries(ticker):
         for item in _google_news_us(query, bucket, limit=limit):

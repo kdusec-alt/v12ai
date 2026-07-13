@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from datetime import datetime, date, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 import hashlib
+import re
 
 from config import VERSION
 from models import FinalForecast, LearningSuggestion, SignalPacket
@@ -18,38 +19,39 @@ from memory_store import (
     save_profiles,
 )
 from ticker_resolver import resolve_ticker
+from learning_market_clock import target_trade_date_for_forecast, fetch_actual_daily_snapshot, actual_matches_target
 
 TW_TZ = ZoneInfo("Asia/Taipei")
+NY_TZ = ZoneInfo("America/New_York")
 ERROR_TYPES = [
     "FQC overpull", "LCR underweight", "Macro overfit", "BSI missing", "法人日期誤判",
     "T1 High Magnet", "Risk Cascade 漏判", "ETF mode error", "Ticker resolver error",
 ]
 
-
 def _now() -> str:
     return datetime.now(TW_TZ).isoformat(timespec="seconds")
-
-
 def _safe_float(v: Any, default: float = 0.0) -> float:
     try:
         return float(v)
     except Exception:
         return default
-
-
+def _first_number(value: Any, default: float | None = None) -> float | None:
+    if isinstance(value, (int, float)):
+        return _safe_float(value, 0.0)
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", str(value or "").replace(",", ""))
+    if not match:
+        return default
+    try:
+        return float(match.group(0))
+    except Exception:
+        return default
 def _canonical(raw_symbol: str) -> str:
     try:
         return resolve_ticker(raw_symbol).resolved_symbol
     except Exception:
         return str(raw_symbol or "").strip().upper()
-
-
-
-
-
 def _prediction_market(row: Dict[str, Any]) -> str:
     """Return TW/US from logged prediction row without touching ticker resolver.
-
     Auto Audit Time Guard uses this to avoid auditing US rows at the Taiwan
     close window and vice versa.  Keep this helper local and conservative so
     existing manual/admin audit behavior remains unchanged when market_filter
@@ -62,44 +64,23 @@ def _prediction_market(row: Dict[str, Any]) -> str:
     if t.endswith(".TW") or t.endswith(".TWO") or (t[:4].isdigit() and len(t) >= 4):
         return "TW"
     return "US" if t else ""
-
 def _market_matches(row: Dict[str, Any], market_filter: Optional[str] = None) -> bool:
     mf = str(market_filter or "").strip().upper()
     if not mf:
         return True
     return _prediction_market(row) == mf
-
 def _run_date_tw() -> str:
     return datetime.now(TW_TZ).date().isoformat()
-
-
-def _parse_date_tw(value: Any) -> Optional[date]:
-    try:
-        if isinstance(value, date):
-            return value
-        return date.fromisoformat(str(value)[:10])
-    except Exception:
-        return None
-
-
-def _next_trade_date_tw(base: Optional[date] = None) -> str:
-    """Return next Taiwan trading date approximation.
-
-    V12 Hotfix uses a weekend guard only. Official holiday calendar can be
-    attached later, but target_trade_date must exist now so yesterday T1
-    snapshots can be matched against today's close.
+def _audit_trade_date(market: Optional[str] = None) -> str:
+    """Calendar date of the official session being audited.
+    US close occurs on the following Taipei calendar morning, so using the
+    Taipei date would permanently skip US T1 rows.
     """
-    d = base or datetime.now(TW_TZ).date()
-    d = d + timedelta(days=1)
-    while d.weekday() >= 5:
-        d = d + timedelta(days=1)
-    return d.isoformat()
-
-
-def _target_trade_date_for_snapshot() -> str:
-    return _next_trade_date_tw(datetime.now(TW_TZ).date())
-
-
+    return (
+        datetime.now(NY_TZ).date().isoformat()
+        if str(market or "").upper() == "US"
+        else _run_date_tw()
+    )
 def _predictions_targeting(ticker: str, target_date: Optional[str] = None, limit: int = 1000) -> List[Dict[str, Any]]:
     key = _canonical(ticker)
     target = str(target_date or _run_date_tw())
@@ -108,8 +89,6 @@ def _predictions_targeting(ticker: str, target_date: Optional[str] = None, limit
         if r.get("ticker") == key and str(r.get("target_trade_date") or "") == target:
             rows.append(r)
     return rows
-
-
 def _latest_t1_candidate(ticker: str, target_date: Optional[str] = None, limit: int = 1000) -> Optional[Dict[str, Any]]:
     today = str(target_date or _run_date_tw())
     rows = [r for r in _predictions_targeting(ticker, today, limit) if r.get("next_close_est") is not None]
@@ -120,15 +99,11 @@ def _latest_t1_candidate(ticker: str, target_date: Optional[str] = None, limit: 
         return None
     rows.sort(key=lambda x: str(x.get("run_time_tw") or ""))
     return rows[-1]
-
-
 def _forecast_data_label(forecast: FinalForecast) -> str:
     try:
         return str((forecast.decision_card or {}).get("資料標題", ""))
     except Exception:
         return ""
-
-
 def _forecast_session_mode(forecast: FinalForecast) -> str:
     label = _forecast_data_label(forecast)
     if "盤中" in label:
@@ -140,25 +115,28 @@ def _forecast_session_mode(forecast: FinalForecast) -> str:
     if "盤後" in label:
         return "after_hours"
     return "unknown"
-
-
 def _latest_audit_for_prediction(prediction_id: str, target: str = "today") -> Optional[Dict[str, Any]]:
     audit_id = f"{prediction_id}:{target}"
     for row in reversed(read_audit_log(500)):
         if row.get("audit_id") == audit_id:
             return row
     return None
-
-
-def _same_day_predictions(ticker: str, limit: int = 500) -> List[Dict[str, Any]]:
+def _same_day_predictions(ticker: str, limit: int = 500, market: Optional[str] = None) -> List[Dict[str, Any]]:
     key = _canonical(ticker)
-    today = _run_date_tw()
+    audit_date = _audit_trade_date(market)
     rows = []
     for r in read_prediction_log(limit):
-        if r.get("ticker") == key and str(r.get("run_date_tw") or "") == today:
+        if r.get("ticker") != key:
+            continue
+        row_market = _prediction_market(r)
+        row_date = (
+            str(r.get("target_trade_date") or "")
+            if row_market == "US"
+            else str(r.get("run_date_tw") or "")
+        )
+        if row_date == audit_date:
             rows.append(r)
     return rows
-
 def prediction_signature(forecast: FinalForecast) -> str:
     # Include model/direction contract so a new model version cannot be silently
     # deduplicated against an older forecast that happened to share T1 prices.
@@ -168,7 +146,7 @@ def prediction_signature(forecast: FinalForecast) -> str:
         VERSION,
         _run_date_tw(),
         _forecast_session_mode(forecast),
-        _target_trade_date_for_snapshot(),
+        target_trade_date_for_forecast(forecast),
         forecast.ticker.resolved_symbol,
         str(forecast.final_t0),
         str(forecast.final_t1),
@@ -180,8 +158,6 @@ def prediction_signature(forecast: FinalForecast) -> str:
         str(forecast.reality_anchor),
     ])
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
-
-
 def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data: bool = True) -> Dict[str, Any]:
     card = forecast.decision_card or {}
     direction = card.get("_direction_engine") if isinstance(card.get("_direction_engine"), dict) else {}
@@ -195,7 +171,7 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
         "id": prediction_signature(forecast),
         "run_time_tw": _now(),
         "run_date_tw": _run_date_tw(),
-        "target_trade_date": _target_trade_date_for_snapshot(),
+        "target_trade_date": target_trade_date_for_forecast(forecast),
         "target_kind": "T1_CLOSE_NEXT_SESSION",
         "session_mode": _forecast_session_mode(forecast),
         "data_label": _forecast_data_label(forecast),
@@ -225,6 +201,14 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
         "direction_conflict": direction.get("conflict"),
         "direction_regime": direction.get("regime"),
         "direction_family_scores": dict(direction.get("family_scores") or {}),
+        "direction_factor_contributions": dict(direction.get("factor_contributions") or {}),
+        "direction_risk_contributions": dict(direction.get("risk_contributions") or {}),
+        "direction_confidence_adjustments": dict(direction.get("confidence_adjustments") or {}),
+        "entry_low_1": _first_number(card.get("低接第一批")),
+        "entry_low_2": _first_number(card.get("低接第二批")),
+        "turn_level": _first_number(card.get("轉強")),
+        "defense_stop": _first_number(card.get("防守")),
+        "no_chase_level": _first_number(card.get("不追")),
         "confidence": forecast.confidence,
         "one_liner": forecast.one_liner,
         "tags": forecast.tags,
@@ -235,13 +219,10 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
         "trace": forecast.trace.to_rows() if forecast.trace else [],
         "audited": False,
     }
-
 def log_prediction(forecast: FinalForecast, macro: str = "neutral", live_data: bool = True) -> Dict[str, Any]:
     """Write one prediction snapshot per signature.
-
     Streamlit reruns often; this guard prevents the Auto-Learning panel from
     duplicating the same forecast every time the sidebar is opened.
-
     RC2.4.3 Price Truth Guard:
     stopped/invalid forecasts are deliberately not written into prediction_log,
     because they are data-quality events rather than formal T1 samples.
@@ -281,8 +262,6 @@ def log_prediction(forecast: FinalForecast, macro: str = "neutral", live_data: b
                 return old
     append_jsonl(PREDICTION_LOG, row)
     return row
-
-
 def suggest_from_forecast(forecast: FinalForecast, actual_close: Optional[float] = None) -> List[LearningSuggestion]:
     if forecast.stopped or forecast.final_t1 is None:
         return []
@@ -295,8 +274,6 @@ def suggest_from_forecast(forecast: FinalForecast, actual_close: Optional[float]
     etype = _classify_error(forecast, actual_close, err_pct)
     direction = "+" if err_pct > 0 else "-"
     return [LearningSuggestion(forecast.ticker.resolved_symbol, etype, f"連續同類錯誤後建議 {direction}1～3% 個股偏壓", 1.0, f"誤差 {err_pct:+.2f}%｜單次只記錄", True)]
-
-
 def _classify_error(forecast: FinalForecast, actual_close: float, err_pct: float) -> str:
     radar_text = "\n".join(str(v) for v in (forecast.radar or {}).values())
     if "VWAP 下方" in radar_text and err_pct > 0:
@@ -308,14 +285,17 @@ def _classify_error(forecast: FinalForecast, actual_close: float, err_pct: float
     if "事件" in radar_text and abs(err_pct) >= 2.5:
         return "Macro overfit"
     return "under_prediction" if err_pct > 0 else "over_prediction"
-
-
-def audit_prediction_row(row: Dict[str, Any], actual_close: float, source: str = "manual", target: str = "today") -> Dict[str, Any]:
-    """Persist price error and independent direction accuracy.
-
-    V12.1 keeps two scorecards:
-    1) close-price error (MAE / error_pct)
-    2) UP / NEUTRAL / DOWN hit and probability Brier score
+def audit_prediction_row(
+    row: Dict[str, Any],
+    actual_close: float,
+    source: str = "manual",
+    target: str = "today",
+    actual_snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Persist close, direction and predicted-range accuracy.
+    RC4.2 keeps price-point accuracy separate from direction accuracy.  This is
+    important for cases such as 2327: direction can be correct while the close
+    magnitude or intraday tail is underestimated.
     """
     target = "next" if str(target).lower().startswith("next") else "today"
     prediction_id = str(row.get("id") or "")
@@ -323,7 +303,7 @@ def audit_prediction_row(row: Dict[str, Any], actual_close: float, source: str =
     for old in read_audit_log(500):
         if old.get("audit_id") == audit_id:
             return old
-
+    snap = dict(actual_snapshot or {})
     pred_key = "next_close_est" if target == "next" else "today_close_est"
     pred = _safe_float(row.get(pred_key))
     actual = _safe_float(actual_close)
@@ -331,12 +311,10 @@ def audit_prediction_row(row: Dict[str, Any], actual_close: float, source: str =
     err_pct = ((actual - pred) / pred * 100.0) if pred else 0.0
     ticker = str(row.get("ticker") or "UNKNOWN")
     error_type = "within_tolerance" if abs(err_pct) < 1.0 else ("under_prediction" if err_pct > 0 else "over_prediction")
-
     anchor = _safe_float(row.get("anchor_close") or row.get("spot_last"), 0.0)
     neutral_band = max(_safe_float(row.get("direction_neutral_band_pct"), 0.30), 0.05)
     actual_return_pct = ((actual - anchor) / anchor * 100.0) if anchor > 0 and actual > 0 else 0.0
     actual_direction = "UP" if actual_return_pct > neutral_band else "DOWN" if actual_return_pct < -neutral_band else "NEUTRAL"
-
     if target == "next":
         predicted_direction = str(row.get("predicted_direction") or "")
     else:
@@ -346,7 +324,6 @@ def audit_prediction_row(row: Dict[str, Any], actual_close: float, source: str =
         predicted_return = ((_safe_float(row.get(pred_key)) - anchor) / anchor * 100.0) if anchor > 0 else 0.0
         predicted_direction = "UP" if predicted_return > neutral_band else "DOWN" if predicted_return < -neutral_band else "NEUTRAL"
     direction_hit = bool(anchor > 0 and predicted_direction == actual_direction)
-
     brier = None
     assigned_probability = None
     if target == "next":
@@ -359,7 +336,28 @@ def audit_prediction_row(row: Dict[str, Any], actual_close: float, source: str =
             y_down = 1.0 if actual_direction == "DOWN" else 0.0
             brier = ((p_up - y_up) ** 2 + (p_neutral - y_neutral) ** 2 + (p_down - y_down) ** 2) / 3.0
             assigned_probability = {"UP": p_up, "NEUTRAL": p_neutral, "DOWN": p_down}[actual_direction]
-
+    predicted_low = _safe_float(row.get("next_low_est"), 0.0) if target == "next" else 0.0
+    predicted_high = _safe_float(row.get("next_high_est"), 0.0) if target == "next" else 0.0
+    actual_open = _safe_float(snap.get("actual_open"), 0.0)
+    actual_high = _safe_float(snap.get("actual_high"), 0.0)
+    actual_low = _safe_float(snap.get("actual_low"), 0.0)
+    range_available = bool(target == "next" and predicted_low > 0 and predicted_high > predicted_low)
+    close_in_range = bool(range_available and predicted_low <= actual <= predicted_high)
+    actual_range_in_band = bool(
+        range_available and actual_low > 0 and actual_high > 0
+        and actual_low >= predicted_low and actual_high <= predicted_high
+    )
+    downside_tail_breach_pct = (
+        ((actual_low - predicted_low) / predicted_low) * 100.0
+        if range_available and actual_low > 0 and actual_low < predicted_low else 0.0
+    )
+    upside_tail_break_pct = (
+        ((actual_high - predicted_high) / predicted_high) * 100.0
+        if range_available and actual_high > predicted_high else 0.0
+    )
+    defense_stop = _safe_float(row.get("defense_stop"), 0.0)
+    defense_touched = bool(defense_stop > 0 and actual_low > 0 and actual_low <= defense_stop)
+    actual_valid = bool(snap.get("actual_valid", True))
     audit = {
         "audit_id": audit_id,
         "audit_time_tw": _now(),
@@ -369,7 +367,11 @@ def audit_prediction_row(row: Dict[str, Any], actual_close: float, source: str =
         "market": row.get("market"),
         "model_version": row.get("model_version"),
         "target": target,
-        "target_trade_date": row.get("target_trade_date") if target == "next" else row.get("run_date_tw"),
+        "target_trade_date": (
+            row.get("target_trade_date")
+            if target == "next" or _prediction_market(row) == "US"
+            else row.get("run_date_tw")
+        ),
         "prediction_run_date_tw": row.get("run_date_tw"),
         "predicted_close": round(pred, 4),
         "actual_close": round(actual, 4),
@@ -385,30 +387,44 @@ def audit_prediction_row(row: Dict[str, Any], actual_close: float, source: str =
         "direction_hit": direction_hit,
         "direction_brier": round(brier, 6) if brier is not None else None,
         "actual_direction_probability": round(assigned_probability, 6) if assigned_probability is not None else None,
+        "predicted_low": round(predicted_low, 4) if predicted_low else None,
+        "predicted_high": round(predicted_high, 4) if predicted_high else None,
+        "actual_open": round(actual_open, 4) if actual_open else None,
+        "actual_high": round(actual_high, 4) if actual_high else None,
+        "actual_low": round(actual_low, 4) if actual_low else None,
+        "close_in_predicted_range": close_in_range if range_available else None,
+        "actual_range_inside_predicted_band": actual_range_in_band if range_available and actual_low > 0 and actual_high > 0 else None,
+        "downside_tail_breach_pct": round(downside_tail_breach_pct, 4),
+        "upside_tail_break_pct": round(upside_tail_break_pct, 4),
+        "defense_stop": round(defense_stop, 4) if defense_stop else None,
+        "defense_stop_touched": defense_touched if defense_stop and actual_low else None,
         "direction_score": row.get("direction_score"),
         "direction_confidence": row.get("direction_confidence"),
         "direction_quality": row.get("direction_quality"),
         "direction_conflict": row.get("direction_conflict"),
         "direction_regime": row.get("direction_regime"),
+        "direction_factor_contributions": dict(row.get("direction_factor_contributions") or {}),
+        "direction_risk_contributions": dict(row.get("direction_risk_contributions") or {}),
         "price_sample_quality": row.get("price_sample_quality"),
+        "actual_price_date": snap.get("price_date"),
+        "actual_market_status": snap.get("market_status"),
+        "actual_price_source": snap.get("source"),
         "prediction_run_time_tw": row.get("run_time_tw"),
         "prediction_session_mode": row.get("session_mode"),
         "source": source,
-        "safe_to_apply": bool(abs(err_pct) >= 1.0 and row.get("price_sample_quality") == "verified"),
+        "safe_to_apply": bool(abs(err_pct) >= 1.0 and row.get("price_sample_quality") == "verified" and actual_valid),
         "applied": False,
     }
     append_jsonl(AUDIT_LOG, audit)
     _update_profile_from_audit(audit)
     return audit
-
 def audit_today_prediction_for_forecast(forecast: FinalForecast, actual_close: float, source: str = "auto_close_compare") -> Dict[str, Any]:
     """Find today's intraday prediction snapshot, compare it with actual close, and persist audit.
-
     This is the real Auto-Learning bridge for the frontend:
     prediction snapshot -> actual close -> error -> stock profile.
     """
     key = forecast.ticker.resolved_symbol
-    rows = _same_day_predictions(key, 800)
+    rows = _same_day_predictions(key, 800, forecast.ticker.market)
     intraday_rows = [r for r in rows if r.get("session_mode") == "intraday" and r.get("today_close_est") is not None]
     candidate = intraday_rows[-1] if intraday_rows else None
     if not candidate:
@@ -421,16 +437,13 @@ def audit_today_prediction_for_forecast(forecast: FinalForecast, actual_close: f
     audit = audit_prediction_row(candidate, actual_close, source=source, target="today")
     audit["status"] = "audited"
     return audit
-
-
 def audit_t1_prediction_for_forecast(forecast: FinalForecast, actual_close: float, source: str = "auto_t1_close_compare") -> Dict[str, Any]:
     """Compare the previous session T1 snapshot with today's official close.
-
     This is the V12 T1 Memory Bridge: yesterday forecast -> today close -> audit.
     It does not mutate model code; it only writes audit memory/profile.
     """
     key = forecast.ticker.resolved_symbol
-    today = _run_date_tw()
+    today = _audit_trade_date(forecast.ticker.market)
     candidate = _latest_t1_candidate(key, today, 1200)
     if not candidate:
         return {
@@ -443,8 +456,6 @@ def audit_t1_prediction_for_forecast(forecast: FinalForecast, actual_close: floa
     audit = audit_prediction_row(candidate, actual_close, source=source, target="next")
     audit["status"] = "audited"
     return audit
-
-
 def _format_close_audit_display(audit: Dict[str, Any], label: str) -> Dict[str, Any]:
     pred = _safe_float(audit.get("predicted_close"))
     actual = _safe_float(audit.get("actual_close"))
@@ -458,8 +469,6 @@ def _format_close_audit_display(audit: Dict[str, Any], label: str) -> Dict[str, 
         direction = "低估收盤，模型偏保守" if err > 0 else "高估收盤，模型偏樂觀" if err < 0 else "命中收盤"
         audit["display"] = f"今日預測VS實際：預估 {pred:.2f}｜實際 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜{direction}"
     return audit
-
-
 def t1_prediction_vs_actual(forecast: FinalForecast, actual_close: Optional[float] = None, write: bool = False) -> Dict[str, Any]:
     """UI-ready 昨測今收. Default is preview/read-only; write only from two-click audit."""
     key = forecast.ticker.resolved_symbol
@@ -471,7 +480,7 @@ def t1_prediction_vs_actual(forecast: FinalForecast, actual_close: Optional[floa
             return _format_close_audit_display(audit, "昨測今收")
         audit["display"] = "昨測今收：尚無昨日 T1 預測快照"
         return audit
-    candidate = _latest_t1_candidate(key, _run_date_tw(), 1200)
+    candidate = _latest_t1_candidate(key, _audit_trade_date(forecast.ticker.market), 1200)
     if not candidate:
         return {"status": "no_t1_prediction", "ticker": key, "display": "昨測今收：尚無昨日 T1 預測快照"}
     old = _latest_audit_for_prediction(str(candidate.get("id") or ""), "next")
@@ -482,8 +491,6 @@ def t1_prediction_vs_actual(forecast: FinalForecast, actual_close: Optional[floa
     err = actual - pred if pred else 0.0
     err_pct = ((actual - pred) / pred * 100.0) if pred else 0.0
     return {"status": "preview", "ticker": key, "display": f"昨測今收預覽：{candidate.get('run_date_tw')} 預估 {pred:.2f}｜目前/收盤 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜尚未寫入"}
-
-
 def today_prediction_vs_actual(forecast: FinalForecast, actual_close: Optional[float] = None, write: bool = False) -> Dict[str, Any]:
     """UI-ready 今日預測VS實際. Default is preview/read-only; write only from two-click audit."""
     key = forecast.ticker.resolved_symbol
@@ -505,7 +512,6 @@ def today_prediction_vs_actual(forecast: FinalForecast, actual_close: Optional[f
     err = actual - pred if pred else 0.0
     err_pct = ((actual - pred) / pred * 100.0) if pred else 0.0
     return {"status": "preview", "ticker": key, "display": f"今日預測VS實際預覽：預估 {pred:.2f}｜目前/收盤 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜尚未寫入"}
-
 def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
     profiles = load_profiles()
     ticker = str(audit.get("ticker") or "UNKNOWN")
@@ -517,7 +523,6 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
     error_type = str(audit.get("error_type") or "unknown")
     counts = p.get("error_type_counts", {}) if isinstance(p.get("error_type_counts"), dict) else {}
     counts[error_type] = int(counts.get(error_type, 0)) + 1
-
     direction_count = int(p.get("direction_audit_count", 0))
     hit_rate = _safe_float(p.get("direction_hit_rate", 0.0), 0.0)
     avg_brier = _safe_float(p.get("avg_direction_brier", 0.0), 0.0)
@@ -528,7 +533,15 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
         if audit.get("direction_brier") is not None:
             brier = _safe_float(audit.get("direction_brier"), 0.0)
             avg_brier = ((avg_brier * (direction_count - 1)) + brier) / direction_count
-
+    range_count = int(p.get("range_audit_count", 0))
+    range_hit_rate = _safe_float(p.get("close_range_hit_rate", 0.0), 0.0)
+    avg_tail_breach = _safe_float(p.get("avg_downside_tail_breach_pct", 0.0), 0.0)
+    if audit.get("target") == "next" and audit.get("close_in_predicted_range") is not None:
+        range_count += 1
+        range_hit = 1.0 if audit.get("close_in_predicted_range") else 0.0
+        range_hit_rate = ((range_hit_rate * (range_count - 1)) + range_hit) / range_count
+        tail = abs(min(_safe_float(audit.get("downside_tail_breach_pct"), 0.0), 0.0))
+        avg_tail_breach = ((avg_tail_breach * (range_count - 1)) + tail) / range_count
     # V12.1 safety gate: no permanent stock bias from two observations.
     # Only verified samples, at least 20 audited closes, and a repeated error
     # pattern may create a small suggestion.  Tino approval is still required.
@@ -540,7 +553,6 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
             suggested_bias = min(0.02, suggested_bias + 0.0025)
         elif error_type == "over_prediction":
             suggested_bias = max(-0.02, suggested_bias - 0.0025)
-
     p.update({
         "ticker": ticker,
         "audit_count": audits,
@@ -554,6 +566,12 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
         "last_predicted_direction": audit.get("predicted_direction"),
         "last_actual_direction": audit.get("actual_direction"),
         "last_direction_hit": audit.get("direction_hit"),
+        "range_audit_count": range_count,
+        "close_range_hit_rate": round(range_hit_rate, 4) if range_count else None,
+        "avg_downside_tail_breach_pct": round(avg_tail_breach, 4) if range_count else None,
+        "last_close_in_predicted_range": audit.get("close_in_predicted_range"),
+        "last_downside_tail_breach_pct": audit.get("downside_tail_breach_pct"),
+        "last_defense_stop_touched": audit.get("defense_stop_touched"),
         "suggested_bias": round(suggested_bias, 4),
         "approved_bias": _safe_float(p.get("approved_bias", 0.0)),
         "learning_gate": "verified>=20_and_repeated>=5",
@@ -561,7 +579,6 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
     })
     profiles[ticker] = p
     save_profiles(profiles)
-
 def approve_profile_bias(ticker: str, max_abs_bias: float = 0.02) -> Dict[str, Any]:
     profiles = load_profiles()
     key = _canonical(ticker)
@@ -573,8 +590,6 @@ def approve_profile_bias(ticker: str, max_abs_bias: float = 0.02) -> Dict[str, A
     profiles[key] = p
     save_profiles(profiles)
     return p
-
-
 def reset_profile_bias(ticker: str) -> Dict[str, Any]:
     profiles = load_profiles()
     key = _canonical(ticker)
@@ -585,12 +600,8 @@ def reset_profile_bias(ticker: str) -> Dict[str, Any]:
     profiles[key] = p
     save_profiles(profiles)
     return p
-
-
 def get_profile(ticker: str) -> Dict[str, Any]:
     return load_profiles().get(_canonical(ticker), {})
-
-
 def build_learning_signals(raw_symbol: str) -> List[SignalPacket]:
     key = _canonical(raw_symbol)
     profile = get_profile(key)
@@ -610,8 +621,6 @@ def build_learning_signals(raw_symbol: str) -> List[SignalPacket]:
         str(profile.get("approved_at_tw") or profile.get("updated_at_tw") or ""),
         True,
     )]
-
-
 def audit_latest_prediction_for_ticker(ticker: str, actual_close: float, target: str = "today") -> Optional[Dict[str, Any]]:
     key = _canonical(ticker)
     rows = [r for r in read_prediction_log(1000) if r.get("ticker") == key]
@@ -627,7 +636,6 @@ def audit_latest_prediction_for_ticker(ticker: str, actual_close: float, target:
             return audit_prediction_row(intraday[-1], actual_close, source="manual_admin", target="today")
     return audit_prediction_row(rows[-1], actual_close, source="manual_admin", target=target)
 
-
 # === TINO V12 Hotfix: Query Ledger Auto Audit ===
 def _audit_exists(prediction_id: str, target: str) -> bool:
     audit_id = f"{prediction_id}:{target}"
@@ -635,15 +643,12 @@ def _audit_exists(prediction_id: str, target: str) -> bool:
         if old.get("audit_id") == audit_id:
             return True
     return False
-
-
-def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] = None) -> Dict[str, Any]:
+def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] = None, trade_date: Optional[str] = None) -> Dict[str, Any]:
     """Summarize snapshots created by normal Analyze that can be audited later.
-
     Every Analyze already writes a prediction snapshot through app.py/log_prediction.
     This helper lets Admin show that queried tickers are queued for one-click audit.
     """
-    today = _run_date_tw()
+    today = str(trade_date or _audit_trade_date(market_filter))
     preds = read_prediction_log(limit)
     t1_pending = []
     today_pending = []
@@ -654,12 +659,23 @@ def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] =
         ticker = str(r.get("ticker") or "")
         if not pid or not ticker or not _market_matches(r, market_filter):
             continue
-        if str(r.get("target_trade_date") or "") <= today and r.get("next_close_est") is not None and not _audit_exists(pid, "next"):
+        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None and not _audit_exists(pid, "next"):
             k = (ticker, str(r.get("target_trade_date") or ""), pid)
             if k not in seen_t1:
                 t1_pending.append(r); seen_t1.add(k)
-        if str(r.get("run_date_tw") or "") == today and r.get("today_close_est") is not None and not _audit_exists(pid, "today"):
-            k = (ticker, str(r.get("run_date_tw") or ""), pid)
+        row_market = _prediction_market(r)
+        today_target = (
+            str(r.get("target_trade_date") or "")
+            if row_market == "US"
+            else str(r.get("run_date_tw") or "")
+        )
+        if (
+            today_target == today
+            and str(r.get("session_mode") or "") == "intraday"
+            and r.get("today_close_est") is not None
+            and not _audit_exists(pid, "today")
+        ):
+            k = (ticker, today_target, pid)
             if k not in seen_today:
                 today_pending.append(r); seen_today.add(k)
     return {
@@ -670,33 +686,16 @@ def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] =
         "market_filter": str(market_filter or "ALL").upper(),
         "latest_prediction": preds[-1] if preds else {},
     }
-
-
-def _actual_close_for_ticker(ticker: str) -> Dict[str, Any]:
-    """Fetch current/official close for audit. Imported lazily to avoid startup cycles."""
-    from data_sources import fetch_price
-    pf = fetch_price(ticker)
-    actual = _safe_float(getattr(pf, "last", 0.0), 0.0)
-    return {
-        "actual_close": actual,
-        "price_date": getattr(pf, "price_date", ""),
-        "market_status": getattr(pf, "market_status", ""),
-        "source": getattr(getattr(pf, "truth", None), "source", "fetch_price"),
-    }
-
-
-def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 80, apply_safe_learning: bool = True, actual_foreign_billion: Optional[float] = None, market_filter: Optional[str] = None) -> Dict[str, Any]:
+def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, apply_safe_learning: bool = True, actual_foreign_billion: Optional[float] = None, market_filter: Optional[str] = None, trade_date: Optional[str] = None) -> Dict[str, Any]:
     """Audit all tickers that Tino has queried/logged.
-
     Intended workflow:
     1) Tino presses Analyze for any ticker. app.py automatically logs the snapshot.
     2) After close, Tino presses this one button. It fetches each logged ticker's
        current/official close, writes T1/today audits, updates profiles, and can
        calibrate Foreign Flow V2 once using the supplied official market foreign flow.
-
     Duplicate audits are blocked by audit_id, so reruns are safe.
     """
-    today = _run_date_tw()
+    today = str(trade_date or _audit_trade_date(market_filter))
     preds = read_prediction_log(limit)
     # keep the latest row per ticker/target/session bucket to avoid over-fetching
     t1_rows: Dict[str, Dict[str, Any]] = {}
@@ -706,14 +705,24 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 80, app
         ticker = str(r.get("ticker") or "")
         if not pid or not ticker or not _market_matches(r, market_filter):
             continue
-        if str(r.get("target_trade_date") or "") <= today and r.get("next_close_est") is not None and not _audit_exists(pid, "next"):
+        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None and not _audit_exists(pid, "next"):
             # newest prediction for the same ticker/target date wins
             key = f"{ticker}|{r.get('target_trade_date')}"
             t1_rows[key] = r
-        if str(r.get("run_date_tw") or "") == today and r.get("today_close_est") is not None and not _audit_exists(pid, "today"):
-            key = f"{ticker}|{r.get('run_date_tw')}"
+        row_market = _prediction_market(r)
+        today_target = (
+            str(r.get("target_trade_date") or "")
+            if row_market == "US"
+            else str(r.get("run_date_tw") or "")
+        )
+        if (
+            today_target == today
+            and str(r.get("session_mode") or "") == "intraday"
+            and r.get("today_close_est") is not None
+            and not _audit_exists(pid, "today")
+        ):
+            key = f"{ticker}|{today_target}"
             today_rows[key] = r
-
     all_rows = list(t1_rows.values()) + list(today_rows.values())
     tickers = []
     for r in all_rows:
@@ -721,30 +730,56 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 80, app
         if t and t not in tickers:
             tickers.append(t)
     tickers = tickers[:max_tickers]
-
     actuals: Dict[str, Dict[str, Any]] = {}
     errors: List[Dict[str, Any]] = []
     for t in tickers:
         try:
-            actuals[t] = _actual_close_for_ticker(t)
+            actuals[t] = fetch_actual_daily_snapshot(t)
         except Exception as exc:
             errors.append({"ticker": t, "error": f"{type(exc).__name__}: {exc}"})
-
     audited_t1: List[Dict[str, Any]] = []
     audited_today: List[Dict[str, Any]] = []
     audited_foreign: List[Dict[str, Any]] = []
-
     for r in t1_rows.values():
         t = str(r.get("ticker") or "")
-        actual = _safe_float((actuals.get(t) or {}).get("actual_close"), 0.0)
-        if actual > 0:
-            audited_t1.append(audit_prediction_row(r, actual, source="auto_audit_all_queried_t1", target="next"))
+        snap = dict(actuals.get(t) or {})
+        target_date = str(r.get("target_trade_date") or "")
+        if not actual_matches_target(snap, target_date):
+            errors.append({
+                "ticker": t,
+                "target": "next",
+                "error": "official_close_not_ready_or_target_date_mismatch",
+                "target_date": target_date,
+                "actual_price_date": snap.get("price_date"),
+                "market_status": snap.get("market_status"),
+            })
+            continue
+        actual = _safe_float(snap.get("actual_close"), 0.0)
+        audited_t1.append(audit_prediction_row(
+            r, actual, source="auto_audit_all_queried_t1", target="next", actual_snapshot=snap
+        ))
     for r in today_rows.values():
         t = str(r.get("ticker") or "")
-        actual = _safe_float((actuals.get(t) or {}).get("actual_close"), 0.0)
-        if actual > 0:
-            audited_today.append(audit_prediction_row(r, actual, source="auto_audit_all_queried_today", target="today"))
-
+        snap = dict(actuals.get(t) or {})
+        target_date = (
+            str(r.get("target_trade_date") or "")
+            if _prediction_market(r) == "US"
+            else str(r.get("run_date_tw") or "")
+        )
+        if not actual_matches_target(snap, target_date):
+            errors.append({
+                "ticker": t,
+                "target": "today",
+                "error": "official_close_not_ready_or_target_date_mismatch",
+                "target_date": target_date,
+                "actual_price_date": snap.get("price_date"),
+                "market_status": snap.get("market_status"),
+            })
+            continue
+        actual = _safe_float(snap.get("actual_close"), 0.0)
+        audited_today.append(audit_prediction_row(
+            r, actual, source="auto_audit_all_queried_today", target="today", actual_snapshot=snap
+        ))
     if actual_foreign_billion is not None:
         # Market foreign flow is market-wide; audit once per run-date snapshot to prevent duplicate signal overweight.
         used_dates = set()
@@ -756,7 +791,6 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 80, app
                 audited_foreign.append(audit_foreign_flow_for_row(r, actual_foreign_billion, source="auto_audit_all_queried_foreign_flow"))
                 used_dates.add(rd)
                 break
-
     approved = {}
     if apply_safe_learning:
         profiles = load_profiles()
@@ -770,7 +804,6 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 80, app
                 approved[FOREIGN_FLOW_PROFILE_KEY] = approve_foreign_flow_learning()
             except Exception:
                 pass
-
     return {
         "status": "done",
         "market_filter": str(market_filter or "ALL").upper(),
@@ -783,8 +816,6 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 80, app
         "dashboard": prediction_audit_dashboard(limit),
         "approved_count": len(approved),
     }
-
-
 def recent_learning_tables(limit: int = 80) -> Dict[str, List[Dict[str, Any]]]:
     return {
         "predictions": read_prediction_log(limit),
@@ -792,16 +823,11 @@ def recent_learning_tables(limit: int = 80) -> Dict[str, List[Dict[str, Any]]]:
         "profiles": list(load_profiles().values()),
     }
 
-
 # === TINO V12 Hotfix: Prediction Audit Dashboard + Foreign Flow Auto-Learning ===
 FOREIGN_FLOW_PROFILE_KEY = "__FOREIGN_FLOW_V2__"
-
-
 def _sign(v: Any) -> int:
     x = _safe_float(v, 0.0)
     return 1 if x > 0 else -1 if x < 0 else 0
-
-
 def _amount_tier(abs_billion: float) -> str:
     v = abs(_safe_float(abs_billion, 0.0))
     if v >= 600:
@@ -813,16 +839,12 @@ def _amount_tier(abs_billion: float) -> str:
     if v >= 30:
         return "30~100億"
     return "30億內"
-
-
 def _tier_index(tier: str) -> int:
     order = ["30億內", "30~100億", "100~300億", "300~600億", "600億以上"]
     try:
         return order.index(str(tier))
     except Exception:
         return 0
-
-
 def _forecast_flow_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
     ff = row.get("foreign_flow_v2") if isinstance(row.get("foreign_flow_v2"), dict) else {}
     if ff and ff.get("accepted"):
@@ -846,11 +868,8 @@ def _forecast_flow_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
     import re
     m = re.search(r"(\d+(?:\.\d+)?)億", line)
     return {"accepted": bool(m), "direction": direction, "direction_label": direction, "amount_billion": float(m.group(1)) if m else None, "display": line}
-
-
 def audit_foreign_flow_for_row(row: Dict[str, Any], actual_foreign_billion: float, source: str = "manual_admin_foreign_flow") -> Dict[str, Any]:
     """Compare predicted foreign-flow direction/tier against official close data.
-
     The official value is used only for calibration/audit. It is not copied as
     the next prediction answer.
     """
@@ -895,8 +914,6 @@ def audit_foreign_flow_for_row(row: Dict[str, Any], actual_foreign_billion: floa
     append_jsonl(AUDIT_LOG, audit)
     _update_foreign_flow_profile(audit)
     return audit
-
-
 def _update_foreign_flow_profile(audit: Dict[str, Any]) -> None:
     profiles = load_profiles()
     p = profiles.get(FOREIGN_FLOW_PROFILE_KEY, {"ticker": FOREIGN_FLOW_PROFILE_KEY})
@@ -935,8 +952,6 @@ def _update_foreign_flow_profile(audit: Dict[str, Any]) -> None:
     })
     profiles[FOREIGN_FLOW_PROFILE_KEY] = p
     save_profiles(profiles)
-
-
 def approve_foreign_flow_learning() -> Dict[str, Any]:
     profiles = load_profiles()
     p = profiles.get(FOREIGN_FLOW_PROFILE_KEY, {"ticker": FOREIGN_FLOW_PROFILE_KEY})
@@ -947,8 +962,6 @@ def approve_foreign_flow_learning() -> Dict[str, Any]:
     profiles[FOREIGN_FLOW_PROFILE_KEY] = p
     save_profiles(profiles)
     return p
-
-
 def two_click_close_audit(forecast: FinalForecast, actual_close: float, actual_foreign_billion: Optional[float] = None, apply_safe_learning: bool = True) -> Dict[str, Any]:
     """One admin action: write snapshot, audit T1/today, audit foreign flow, optionally approve safe weights."""
     row = log_prediction(forecast)
@@ -962,8 +975,6 @@ def two_click_close_audit(forecast: FinalForecast, actual_close: float, actual_f
         if actual_foreign_billion is not None:
             result["approved_foreign_flow"] = approve_foreign_flow_learning()
     return result
-
-
 def prediction_audit_dashboard(limit: int = 300) -> Dict[str, Any]:
     audits = read_audit_log(limit)
     price_audits = [a for a in audits if a.get("target") in ("today", "next")]

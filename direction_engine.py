@@ -42,6 +42,8 @@ class DirectionResult:
     interaction_contribution: float = 0.0
     uncertainty: float = 0.0
     risk_factors: List[str] = field(default_factory=list)
+    risk_contributions: Dict[str, float] = field(default_factory=dict)
+    confidence_adjustments: Dict[str, float] = field(default_factory=dict)
     gate_state: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -545,6 +547,29 @@ def build_direction_forecast(
             factor_contributions[label] = factor_contributions.get(label, 0.0) + contribution
     if abs(interaction_contribution) >= 0.005:
         factor_contributions["糾纏確認"] = interaction_contribution
+
+    # Contribution Truth Guard: every visible direction component must reconcile
+    # to the exact effective direction score.  Any tiny numeric/clip remainder is
+    # carried as a neutral "其他因子" bucket instead of being hidden.
+    contribution_total = sum(float(value) for value in factor_contributions.values())
+    contribution_residual = effective - contribution_total
+    if abs(contribution_residual) >= 0.0005:
+        factor_contributions["其他因子"] = factor_contributions.get("其他因子", 0.0) + contribution_residual
+
+    risk_contributions = {
+        str(name): round(max(0.0, float(value)), 3)
+        for name, value in (getattr(quantum, "risk_contributions", {}) or {}).items()
+        if float(value) > 0.01
+    }
+    risk_total = sum(risk_contributions.values())
+    # Confidence is reduced by the engine's bounded uncertainty, not by the raw
+    # severity scale. Allocate the exact confidence cut proportionally so the
+    # panel reconciles with the confidence formula.
+    confidence_cut_total = -uncertainty * 28.0
+    confidence_adjustments = {
+        str(name): round(confidence_cut_total * float(value) / risk_total, 3)
+        for name, value in risk_contributions.items()
+    } if risk_total > 0 else {}
     p_up, p_neutral, p_down = _probabilities(effective, quality, conflict, uncertainty)
 
     if p_up >= 0.50 and (p_up - p_down) >= 0.15:
@@ -596,6 +621,8 @@ def build_direction_forecast(
         interaction_contribution=round(interaction_contribution, 3),
         uncertainty=round(uncertainty, 3),
         risk_factors=list(quantum.risk_factors),
+        risk_contributions=risk_contributions,
+        confidence_adjustments=confidence_adjustments,
         gate_state=_quantum_gate_state(p_up, p_neutral, p_down),
     )
 

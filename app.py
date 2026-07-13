@@ -284,11 +284,13 @@ def main():
             st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(migrate=False)
         except Exception as _mem_exc:
             st.session_state["memory_init_report"] = {"status": "FAIL", "error": f"{type(_mem_exc).__name__}: {_mem_exc}"}
-    # RC24.1 Stability Hotfix:
-    # Auto Audit must not run from Streamlit boot/rerun.  It is fully disabled
-    # here to prevent post-reload process crashes.  Re-enable only from a
-    # controlled Admin/worker entry after observation is stable.
-    st.session_state["auto_audit_time_guard"] = {"status": "disabled_bootsafe", "reason": "Auto Audit disabled in main app render path"}
+    # RC4.2 Stability Contract:
+    # Main quote/render reruns never execute Auto Audit.  Controlled small-batch
+    # execution lives only in the Admin Learning Center.
+    st.session_state["auto_audit_time_guard"] = {
+        "status": "guarded_admin_only",
+        "reason": "Main render is read-only; Learning Center runs bounded Auto Audit",
+    }
     if "forecast" not in st.session_state:
         st.session_state.forecast = None
     if "last_error" not in st.session_state:

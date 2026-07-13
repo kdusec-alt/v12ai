@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from models import NewsItem, PriceFrame, SignalPacket
 from macro_event_calendar import event_risk_from_context
+from event_intelligence import assess_policy_geo
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class QuantumEvidence:
     reasons: List[str]
     family_components: Dict[str, Dict[str, float]] = field(default_factory=dict)
     risk_factors: List[str] = field(default_factory=list)
+    risk_contributions: Dict[str, float] = field(default_factory=dict)
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, float(value)))
@@ -519,46 +521,27 @@ def _geo_policy_family(
     profile: str,
     overnight: float,
     overnight_ok: bool,
-) -> Tuple[float, bool, float, str]:
-    signal = next(
-        (row for row in signals or [] if row.accepted and row.module == "Quantum Macro"),
-        None,
+) -> Tuple[float, bool, float, float, str, List[str]]:
+    """Map recent headlines through the Event Intelligence transmission layer.
+
+    The returned tuple keeps direction, uncertainty and risk separate.  A
+    headline can therefore reduce position/confidence without pretending to
+    know tomorrow's sign before cross-market confirmation.
+    """
+    result = assess_policy_geo(
+        news_items,
+        market=str(price.ticker.market or ""),
+        profile=profile,
+        overnight_score=overnight,
+        overnight_ok=overnight_ok,
     )
-    if signal is None or abs(_num(signal.score)) < 4.0:
-        return 0.0, False, 0.0, ""
-
-    ref = _reference_date(price)
-    geo_keys = (
-        "地緣", "台海", "軍演", "戰爭", "烏克蘭", "俄羅斯", "伊朗", "以色列",
-        "紅海", "tariff", "關稅", "sanction", "制裁", "export control", "出口管制",
-        "chip ban", "taiwan strait", "war", "iran", "israel", "russia", "ukraine",
-    )
-    ages: List[float] = []
-    for item in news_items or []:
-        text = f"{_news_title(item)} {_news_tag(item)}".lower()
-        if not any(key.lower() in text for key in geo_keys):
-            continue
-        age = _news_age_hours(item, ref)
-        if age is not None and age <= 72:
-            ages.append(age)
-    if not ages:
-        return 0.0, False, 0.0, ""
-
-    age_h = min(ages)
-    decay = 1.0 if age_h <= 24 else 0.55 if age_h <= 48 else 0.20
-    base = _clamp(_num(signal.score), -48.0, 48.0)
-    sensitivity = 1.20 if profile == "memory" else 1.12 if profile == "semiconductor" else 0.75
-    if profile == "defense" and base < 0:
-        base = abs(base) * 0.55
-
-    confirmed = overnight_ok and base * overnight > 0
-    conflicted = overnight_ok and base * overnight < 0
-    multiplier = 1.15 if confirmed else 0.25 if conflicted else 0.55
-    score = _clamp(base * decay * sensitivity * multiplier, -60.0, 60.0)
-    uncertainty = 0.0 if confirmed else 0.10 if conflicted else 0.06
-    state = "夜盤/海外確認" if confirmed else "海外反向，降權" if conflicted else "等待夜盤確認"
-    return score, True, uncertainty, f"政策/地緣 {age_h:.0f}小時｜{state}"
-
+    score = _clamp(_num(result.get("score"), 0.0), -60.0, 60.0)
+    risk_points = _clamp(_num(result.get("risk"), 0.0), 0.0, 18.0)
+    uncertainty = _clamp(_num(result.get("uncertainty"), 0.0), 0.0, 0.12)
+    labels = [str(x) for x in (result.get("labels") or []) if str(x).strip()]
+    reason = str(result.get("reason") or "")
+    ok = bool(labels or abs(score) >= 0.5 or risk_points >= 1.0)
+    return score, ok, uncertainty, risk_points, reason, labels
 
 def _macro_event_risk(price: PriceFrame) -> Tuple[float, List[str]]:
     macro = (price.context or {}).get("macro")
@@ -616,15 +599,22 @@ def build_quantum_evidence(
         }
         reasons = [value for value in (fundamental_reason, overnight_reason) if value]
 
-    geo, geo_ok, geo_uncertainty, geo_reason = _geo_policy_family(
+    geo, geo_ok, geo_uncertainty, geo_risk_points, geo_reason, geo_labels = _geo_policy_family(
         price, signals, news_items, profile, overnight, overnight_ok
     )
     families["geo_policy"] = (geo, 0.060, geo_ok)
     if geo_reason:
         reasons.append(geo_reason)
 
-    macro_uncertainty, risk_factors = _macro_event_risk(price)
+    macro_uncertainty, macro_risk_factors = _macro_event_risk(price)
     uncertainty = _clamp(macro_uncertainty + geo_uncertainty, 0.0, 0.30)
+    risk_contributions: Dict[str, float] = {}
+    if macro_risk_factors and macro_uncertainty > 0:
+        risk_contributions[str(macro_risk_factors[0])] = round(macro_uncertainty * 100.0, 3)
+    if geo_risk_points > 0:
+        geo_label = geo_labels[0] if geo_labels else "Policy/Geo"
+        risk_contributions[f"地緣 {geo_label}"] = round(geo_risk_points, 3)
+    risk_factors = list(risk_contributions.keys())
     family_components: Dict[str, Dict[str, float]] = {}
     if overnight_components:
         family_components["overnight"] = overnight_components
@@ -635,6 +625,7 @@ def build_quantum_evidence(
         reasons=reasons,
         family_components=family_components,
         risk_factors=risk_factors,
+        risk_contributions=risk_contributions,
     )
 
 

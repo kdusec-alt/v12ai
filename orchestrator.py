@@ -27,6 +27,7 @@ from price_guard import apply_market_bounds, validate_price_frame
 from truth_guard import truth_to_main_label
 from data_sources_market_heat import fetch_tw_market_heat, market_heat_radar_line
 from macro_event_calendar import macro_calendar_guard_text
+from event_intelligence import assess_policy_geo
 def collect_signals(price: PriceFrame, manual_macro: str = "neutral") -> List[SignalPacket]:
     signals = common_signals(price, manual_macro)
     if price.ticker.asset_type == "etf":
@@ -139,92 +140,36 @@ def _short_title(title: str, limit: int = 24) -> str:
     return title[:limit] + "…" if len(title) > limit else title
 
 
-def _quantum_macro_policy_assessment(news_items: List[NewsItem] | None = None, macro: dict | None = None) -> dict:
-    """Policy/Geo engine kept separate from the macro event calendar.
+def _quantum_macro_policy_assessment(
+    news_items: List[NewsItem] | None = None,
+    macro: dict | None = None,
+    market: str = "",
+) -> dict:
+    """Shared policy/geopolitical assessment.
 
-    CPI/PPI/NFP/FOMC countdowns belong to Event/Macro and are uncertainty-only
-    before release.  This block handles tariffs, export controls, sanctions and
-    geopolitical transmission so one headline cannot be counted twice.
+    RC4.2 delegates literal detection and economic-transmission mapping to the
+    lightweight Event Intelligence layer.  Macro calendar events remain in the
+    separate Event/Macro route and are not double-counted here.
     """
-    items = news_items or []
-    buckets: list[dict] = []
-    trump_keys = ["川普", "特朗普", "trump", "donald trump", "maga"]
-    policy_keys = [
-        "關稅", "tariff", "tariffs", "出口管制", "export control", "制裁", "sanction",
-        "entity list", "實體清單", "晶片禁售", "chip ban", "稀土", "rare earth",
-        "鎵", "gallium", "鍺", "germanium",
-    ]
-    china_policy_keys = ["美中", "中美", "us-china", "china relations", "中國政策", "china policy"]
-    geo_keys = [
-        "台海", "台灣海峽", "南海", "軍演", "共軍", "解放軍", "taiwan strait",
-        "south china sea", "烏俄", "烏克蘭", "俄羅斯", "北約", "ukraine", "russia", "nato",
-    ]
-    middle_east_keys = [
-        "中東", "以色列", "伊朗", "紅海", "胡塞", "red sea", "iran", "israel",
-        "opec", "原油", "油價", "crude", "oil", "航運",
-    ]
-
-    def add(label: str, direction: int, weight: float, title: str) -> None:
-        buckets.append({"label": label, "direction": direction, "weight": float(weight), "title": title})
-
-    for item in items[:30]:
-        text = _news_text(item)
-        title = str(getattr(item, "title", "") or "")
-        if _has_any(text, trump_keys) and _has_any(text, policy_keys + china_policy_keys):
-            add("川普政策/關稅", -1, 3.0, title)
-        elif _has_any(text, trump_keys):
-            add("川普政策觀察", 0, 0.7, title)
-        if _has_any(text, policy_keys):
-            add("晶片/供應鏈管制", -1, 2.5, title)
-        if _has_any(text, china_policy_keys):
-            add("美中政策", -1, 1.8, title)
-        if _has_any(text, geo_keys):
-            add("地緣政治", -1, 2.3, title)
-        if _has_any(text, middle_east_keys):
-            add("能源/航運風險", -1, 2.0, title)
-
-    if not buckets:
-        return {
-            "line": "Policy/Geo｜觀察｜近端政策/地緣事件未形成方向",
-            "score": 0.0, "risk": 0.5, "bias": 0.0, "confidence": 0.0,
-            "reason": "no recent policy geo transmission", "level": "觀察", "labels": [],
-        }
-
-    # Same category is counted once at its strongest weight.
-    merged: dict[str, dict] = {}
-    for bucket in buckets:
-        old = merged.get(bucket["label"])
-        if old is None or bucket["weight"] > old["weight"]:
-            merged[bucket["label"]] = bucket
-    hits = list(merged.values())
-    pos = sum(row["weight"] for row in hits if row["direction"] > 0)
-    neg = sum(row["weight"] for row in hits if row["direction"] < 0)
-    obs = sum(row["weight"] for row in hits if row["direction"] == 0)
-    net = pos - neg
-    pressure = neg + obs * 0.25
-
-    if neg >= 6.0:
-        level, strategy = "高", "政策/地緣壓力偏高，追高降級，先等回測確認"
-    elif neg >= 3.2:
-        level, strategy = "中高", "風險偏空，降低部位，站穩再攻"
-    elif neg >= 1.5:
-        level, strategy = "中", "產業風險升溫，維持條件式進場"
-    else:
-        level, strategy = "觀察", "事件觀察，等待確認"
-
-    labels = [row["label"] for row in hits]
-    label_text = "+".join(labels[:3])
-    title = next((row["title"] for row in hits if row.get("title")), "")
-    title_text = f"｜{_short_title(title)}" if title else ""
+    result = assess_policy_geo(
+        news_items or [],
+        market=str(market or ""),
+        profile="general",
+    )
+    # Preserve the legacy dictionary contract consumed by SignalPacket/radar.
     return {
-        "line": f"Policy/Geo｜{level}｜{label_text}｜{strategy}{title_text}",
-        "score": clamp(net * 6.0, -36.0, 36.0),
-        "risk": clamp(pressure * 2.0, 0.0, 18.0),
-        "bias": clamp(net / 12.0, -0.32, 0.32),
-        "confidence": clamp(abs(net) * 0.35, 0.0, 3.0),
-        "reason": f"policy_geo={label_text}; net={net:+.2f}; risk={pressure:.2f}",
-        "level": level,
-        "labels": labels,
+        "line": result.get("line") or "Policy/Geo｜觀察｜近端政策/地緣事件未形成方向",
+        "score": float(result.get("score") or 0.0),
+        "risk": float(result.get("risk") or 0.0),
+        "bias": float(result.get("bias") or 0.0),
+        "confidence": float(result.get("confidence") or 0.0),
+        "uncertainty": float(result.get("uncertainty") or 0.0),
+        "reason": str(result.get("reason") or "policy_geo_observation"),
+        "level": str(result.get("level") or "觀察"),
+        "labels": list(result.get("labels") or []),
+        "channels": list(result.get("channels") or []),
+        "sectors": list(result.get("sectors") or []),
+        "matched_count": int(result.get("matched_count") or 0),
     }
 
 def _geo_risk_from_news(news_items: List[NewsItem] | None = None) -> str:
@@ -235,7 +180,7 @@ def _geo_risk_from_news(news_items: List[NewsItem] | None = None) -> str:
 def _macro_line(macro: dict, price: PriceFrame | None = None, raw: RawForecast | None = None, news_items: List[NewsItem] | None = None) -> str:
     # Macro row must only contain macro-calendar information.  EPS / revenue /
     # stock-level event metadata belongs to 基本面, not here.
-    geo = _quantum_macro_policy_assessment(news_items, macro).get("line", "Policy/Geo｜觀察")
+    geo = _quantum_macro_policy_assessment(news_items, macro, getattr(getattr(price, "ticker", None), "market", "")).get("line", "Policy/Geo｜觀察")
     if isinstance(macro, dict) and bool(macro.get('accepted')):
         cal = str(macro.get('calendar') or _macro_calendar_guard_text())
         strength = str(macro.get('strength') or '中')
@@ -910,7 +855,7 @@ def _us_daily_headline_line(price: PriceFrame, news_items: List[NewsItem] | None
 
 
 def _us_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
-    assess = _quantum_macro_policy_assessment(news_items, price.context.get('macro', {}) if price else {})
+    assess = _quantum_macro_policy_assessment(news_items, price.context.get('macro', {}) if price else {}, getattr(getattr(price, 'ticker', None), 'market', ''))
     line = str(assess.get('line') or 'Policy/Geo｜觀察')
     line = line.replace('事件觀察，不硬改價', '事件觀察，等待確認')
     persona = _us_persona_line(price) if price else ''
@@ -1006,27 +951,48 @@ def _market_heat_line_for_price(price: PriceFrame) -> str:
 
 def _quantum_contribution_line(direction: DirectionResult | None) -> str:
     if direction is None:
-        return "因子碰撞觀察｜等待方向閘門"
+        return "方向因子碰撞觀察｜等待方向閘門"
+
     factors = getattr(direction, "factor_contributions", {}) or {}
     ranked = sorted(
-        ((str(name), float(value)) for name, value in factors.items() if abs(float(value)) >= 0.20),
+        ((str(name), float(value)) for name, value in factors.items() if abs(float(value)) >= 0.05),
         key=lambda item: abs(item[1]),
         reverse=True,
     )
-    parts = [f"{name} {value:+.1f}" for name, value in ranked[:7]]
-    risk_factors = list(getattr(direction, "risk_factors", []) or [])
-    if risk_factors:
-        uncertainty = max(0.0, float(getattr(direction, "uncertainty", 0.0) or 0.0))
-        risk_points = uncertainty * 100.0
-        confidence_cut = uncertainty * 28.0
-        parts.append(
-            f"事件風險 {risk_factors[0]} +{risk_points:.1f}R"
-            f"（方向0／信心-{confidence_cut:.1f}）"
-        )
+
+    # Keep the row compact while preserving the exact arithmetic contract.
+    shown = ranked[:6]
+    shown_names = {name for name, _ in shown}
+    hidden_sum = sum(value for name, value in ranked if name not in shown_names)
+    parts = [f"{name} {value:+.1f}" for name, value in shown]
+    if abs(hidden_sum) >= 0.05:
+        parts.append(f"其他 {hidden_sum:+.1f}")
     if not parts:
-        parts.append("有效因子互相抵銷")
+        parts.append("有效方向因子互相抵銷")
+
+    direction_total = sum(float(value) for value in factors.values())
+    # The engine enforces this invariant; use the factor total for display so
+    # no hidden score can appear between the components and the final gate.
+    score = float(getattr(direction, "score", direction_total) or 0.0)
+    if abs(direction_total - score) > 0.08:
+        # Safe visible correction for legacy objects restored from session state.
+        parts.append(f"其他 {score - direction_total:+.1f}")
+
+    risk_map = getattr(direction, "risk_contributions", {}) or {}
+    confidence_map = getattr(direction, "confidence_adjustments", {}) or {}
+    risk_rows = sorted(
+        ((str(name), float(value)) for name, value in risk_map.items() if float(value) > 0.05),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    for name, value in risk_rows[:2]:
+        parts.append(f"風險 {name} +{value:.1f}R")
+    confidence_cut = sum(float(value) for value in confidence_map.values())
+    if confidence_cut < -0.05:
+        parts.append(f"信心 {confidence_cut:.1f}")
+
     gate = str(getattr(direction, "gate_state", "") or "B回測")
-    return "｜".join(parts) + f"｜總分 {float(direction.score):+.1f} → {gate}"
+    return "｜".join(parts) + f"｜方向總分 {score:+.1f} → {gate}"
 
 
 def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem], direction: DirectionResult | None = None) -> Dict[str, str]:
@@ -1101,7 +1067,7 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
     ns = _news_summary(news_items)
     if news_items:
         signals.append(SignalPacket("News", f"新聞採納 {ns['accepted']}/{ns['count']}｜情緒 {ns['score']:+.2f}", ns["score"] * 10, 0.0, 2.0, ns["bias"], f"採納 {ns['accepted']}｜忽略 {ns['ignored']}｜{ns['top']}", "GoogleNewsTW", price.price_date, True))
-    qmacro = _quantum_macro_policy_assessment(news_items, (price.context or {}).get("macro", {}) if isinstance((price.context or {}), dict) else {})
+    qmacro = _quantum_macro_policy_assessment(news_items, (price.context or {}).get("macro", {}) if isinstance((price.context or {}), dict) else {}, price.ticker.market)
     if qmacro.get("level") not in ("待同步", "觀察") or qmacro.get("score") or qmacro.get("risk"):
         signals.append(SignalPacket(
             "Quantum Macro",

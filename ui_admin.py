@@ -201,18 +201,20 @@ def _learning_panel(st, forecast):
         auto_apply_learning = st.sidebar.checkbox("套用安全校正", value=True, key="auto_all_apply_learning")
         if st.sidebar.button("🚀 Auto Audit 小批次開獎", key="tino_auto_audit_safe_batch"):
             try:
-                from learning import auto_audit_queried_predictions
-                result = auto_audit_queried_predictions(
-                    limit=300,
-                    max_tickers=20,
+                from auto_audit_scheduler import execute_due_auto_audit_once
+                result = execute_due_auto_audit_once(
+                    markets=["TW", "US"],
+                    max_tickers_per_market=5,
                     apply_safe_learning=auto_apply_learning,
                     actual_foreign_billion=market_foreign if use_market_foreign else None,
                 )
-                st.sidebar.success(
-                    f"完成｜T1 {result.get('audited_t1_count',0)}｜Today {result.get('audited_today_count',0)}｜外資 {result.get('audited_foreign_count',0)}"
-                )
-                if result.get("errors"):
-                    _html_table(st, result.get("errors"), "", limit=5)
+                market_rows = list((result.get("markets") or {}).values())
+                t1_count = sum(int(row.get("audited_t1") or 0) for row in market_rows if isinstance(row, dict))
+                today_count = sum(int(row.get("audited_today") or 0) for row in market_rows if isinstance(row, dict))
+                st.sidebar.success(f"完成｜T1 {t1_count}｜Today {today_count}｜安全批次每市場最多5檔")
+                errors = [row for row in market_rows if isinstance(row, dict) and row.get("status") == "failed_safe"]
+                if errors:
+                    _html_table(st, errors, "", limit=5)
             except Exception as exc:
                 st.sidebar.error(f"Auto Audit 失敗：{type(exc).__name__}: {exc}")
 
