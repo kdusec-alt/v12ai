@@ -16,7 +16,12 @@ import time
 
 
 from models import PriceFrame, TickerInfo, NewsItem
-from analyst_event_intelligence import classify_analyst_headline
+try:
+    from analyst_event_intelligence import classify_analyst_headline
+except Exception:
+    # Optional RC4.6 enrichment must never block the stable price/news pipeline.
+    def classify_analyst_headline(value):
+        return "", ""
 from truth_guard import make_truth, parse_date_safe
 from quantum_market_context import fetch_market_proxy_context
 from macro_event_calendar import build_macro_context

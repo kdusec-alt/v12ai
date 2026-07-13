@@ -23,7 +23,61 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple
 from models import NewsItem, PriceFrame, SignalPacket
 from macro_event_calendar import event_risk_from_context
 from event_intelligence import assess_policy_geo
-from analyst_event_intelligence import assess_analyst_event
+try:
+    from analyst_event_intelligence import assess_analyst_event
+except Exception:
+    # Analyst-event intelligence is an additive enrichment.  A missing or
+    # incompatible optional module must degrade to zero contribution, never
+    # stop the stable V9/V12 analysis path.
+    def assess_analyst_event(price, news_items, *, trend_score=0.0, intraday_score=0.0, now=None):
+        return {
+            "score": 0.0, "risk": 0.0, "uncertainty": 0.0, "ok": False,
+            "label": "", "reason": "analyst_module_unavailable",
+            "houses": [], "action": "", "components": {}, "top_title": "",
+        }
+
+try:
+    from quantum_interactions import dynamic_family_multiplier, entanglement_adjustment
+except Exception:
+    def dynamic_family_multiplier(
+        family: str, *, market_status: str, profile: str,
+        fundamental_event_available: bool, geo_available: bool,
+    ) -> float:
+        status = str(market_status or "")
+        multiplier = 1.0
+        if status in {"pre_market", "after_hours", "closed_reference", "after_close"}:
+            if family == "overnight": multiplier *= 1.35
+            if family == "intraday": multiplier *= 0.70
+        elif status in {"intraday", "close_confirm"}:
+            if family == "intraday": multiplier *= 1.20
+            if family == "overnight": multiplier *= 0.82
+        if profile in {"memory", "semiconductor"} and family == "overnight": multiplier *= 1.18
+        if fundamental_event_available:
+            if family == "fundamental_event": multiplier *= 1.28
+            if family == "news": multiplier *= 0.55
+        if geo_available and family == "news": multiplier *= 0.65
+        return multiplier
+
+    def entanglement_adjustment(scores, market):
+        pairs = (
+            (("fundamental_event", "overnight", 7.0), ("flow", "trend", 5.0),
+             ("leverage", "intraday", 4.0), ("geo_policy", "overnight", 4.5),
+             ("foreign_pressure", "flow", 2.5))
+            if str(market).upper() == "TW" else
+            (("fundamental_event", "overnight", 7.5), ("short", "trend", 3.0),
+             ("geo_policy", "overnight", 4.5))
+        )
+        total = 0.0
+        reasons = []
+        for left, right, cap in pairs:
+            a = _num(scores.get(left), 0.0)
+            b = _num(scores.get(right), 0.0)
+            if abs(a) < 10.0 or abs(b) < 10.0 or a * b <= 0:
+                continue
+            strength = min(abs(a), abs(b)) / 100.0
+            total += math.copysign(cap * strength, a)
+            reasons.append(f"{left}×{right}")
+        return _clamp(total, -12.0, 12.0), reasons
 
 
 @dataclass(frozen=True)

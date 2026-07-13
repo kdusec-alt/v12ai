@@ -17,7 +17,12 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from models import NewsItem, PriceFrame, SignalPacket
 from quantum_entanglement import build_quantum_evidence
-from quantum_interactions import dynamic_family_multiplier, entanglement_adjustment
+try:
+    from quantum_interactions import dynamic_family_multiplier, entanglement_adjustment
+except Exception:
+    # Keep formal prediction online even if an optional RC4.6 helper was not
+    # uploaded yet.  Compatibility exports live in quantum_entanglement.
+    from quantum_entanglement import dynamic_family_multiplier, entanglement_adjustment
 from trend_engine import build_trend_snapshot
 from learning_calibration import bounded_learning_calibration
 
