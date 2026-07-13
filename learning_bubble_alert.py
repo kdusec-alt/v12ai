@@ -169,6 +169,131 @@ def _latest_row(ticker: str, item: Dict[str, Any], d7: float | None, d30: float 
     }
 
 
+def _metric(bubble: Mapping[str, Any], key: str) -> float | None:
+    metrics = bubble.get("metrics")
+    if not isinstance(metrics, Mapping):
+        return None
+    return _safe_float(metrics.get(key))
+
+
+def _sparkline(values: Sequence[float]) -> str:
+    blocks = "▁▂▃▄▅▆▇█"
+    vals = [float(v) for v in values if _safe_float(v) is not None]
+    if not vals:
+        return ""
+    low, high = min(vals), max(vals)
+    if high <= low:
+        return blocks[3] * len(vals)
+    return "".join(
+        blocks[min(len(blocks) - 1, max(0, int(round((v - low) / (high - low) * (len(blocks) - 1)))))]
+        for v in vals
+    )
+
+
+def _dna_profile(ticker: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    row = item["row"]
+    bubble = item["bubble"]
+    temp = int(round(float(bubble["temperature"])))
+    price = _metric(bubble, "price_heat")
+    valuation = _metric(bubble, "valuation_heat")
+    expectation = _metric(bubble, "expectation_heat")
+    divergence = _metric(bubble, "divergence")
+    deceleration = _metric(bubble, "deceleration")
+    growth_support = _metric(bubble, "growth_support")
+    pe = _metric(bubble, "pe")
+    ps = _metric(bubble, "ps")
+    rev_yoy = _metric(bubble, "revenue_yoy")
+    qoq = _metric(bubble, "qoq")
+
+    candidates = []
+    if valuation is not None:
+        candidates.append(("估值膨脹", valuation))
+    if price is not None:
+        candidates.append(("價格過熱", price))
+    if divergence is not None:
+        candidates.append(("股價領先基本面", divergence))
+    if expectation is not None:
+        candidates.append(("題材/預期過熱", expectation))
+    if deceleration is not None:
+        candidates.append(("成長減速", deceleration))
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    top = [name for name, score in candidates if score > 0][:3]
+
+    if (ps is not None and ps >= 15) or (pe is not None and pe >= 60):
+        bubble_type = "高估值型"
+    elif (divergence or 0) >= 8:
+        bubble_type = "股價領先型"
+    elif (expectation or 0) >= 6:
+        bubble_type = "題材預期型"
+    elif (deceleration or 0) >= 5:
+        bubble_type = "成長減速型"
+    elif temp >= 40:
+        bubble_type = "價格熱度型"
+    else:
+        bubble_type = "尚未形成"
+
+    support = 0 if growth_support is None else round(growth_support, 1)
+    factor_text = "、".join(top) if top else str(bubble.get("reason") or "未出現主要泡沫因子")
+    return {
+        "ticker": ticker,
+        "market": row.get("market"),
+        "temperature": temp,
+        "bubble_type": bubble_type,
+        "top_factors": factor_text,
+        "price_heat": None if price is None else round(price, 1),
+        "valuation_heat": None if valuation is None else round(valuation, 1),
+        "expectation_heat": None if expectation is None else round(expectation, 1),
+        "divergence": None if divergence is None else round(divergence, 1),
+        "growth_cooling": f"-{support:.1f}",
+        "pe": None if pe is None else round(pe, 2),
+        "ps": None if ps is None else round(ps, 2),
+        "revenue_yoy": None if rev_yoy is None else round(rev_yoy, 2),
+        "qoq": None if qoq is None else round(qoq, 2),
+        "decision": bubble.get("decision_adjustment"),
+        "run_time_tw": item["time"].strftime("%Y-%m-%d %H:%M"),
+    }
+
+
+def _watch_candidate(current: Dict[str, Any], d7: float | None, d30: float | None) -> Dict[str, Any] | None:
+    temp = float(current.get("temperature") or 0)
+    projected = temp
+    basis = []
+    if d7 is not None and d7 > 0:
+        projected = max(projected, temp + d7)
+        basis.append(f"7日+{d7:.0f}℃")
+    if d30 is not None and d30 > 0:
+        projected = max(projected, temp + min(d30, 30))
+        basis.append(f"30日+{d30:.0f}℃")
+    qualifies = temp < 60 and ((40 <= temp) or (projected >= 60) or ((d7 or 0) >= 8))
+    if not qualifies:
+        return None
+    out = dict(current)
+    out["distance_to_60"] = max(0, int(round(60 - temp)))
+    out["projected_temperature"] = int(round(projected))
+    out["watch_reason"] = "、".join(basis) if basis else "已進入40℃以上觀察區"
+    return out
+
+
+def _timeline_row(ticker: str, items: Sequence[Dict[str, Any]]) -> Dict[str, Any] | None:
+    if len(items) < 2:
+        return None
+    temps = [float(item["bubble"]["temperature"]) for item in items[-12:]]
+    latest = items[-1]
+    first = items[-min(len(items), 12)]
+    return {
+        "ticker": ticker,
+        "market": latest["row"].get("market"),
+        "start_date": first["time"].strftime("%Y-%m-%d"),
+        "end_date": latest["time"].strftime("%Y-%m-%d"),
+        "start_temperature": int(round(temps[0])),
+        "latest_temperature": int(round(temps[-1])),
+        "change": f"{temps[-1] - temps[0]:+.0f}℃",
+        "min_max": f"{min(temps):.0f}℃ / {max(temps):.0f}℃",
+        "timeline": _sparkline(temps),
+        "snapshots": len(temps),
+    }
+
+
 def bubble_monitor(rows: Sequence[Dict[str, Any]], rank_limit: int = 20) -> Dict[str, list[Dict[str, Any]]]:
     """Build ranking, trends, threshold-crossing alerts and cooling events."""
     histories = _history(rows)
@@ -176,6 +301,9 @@ def bubble_monitor(rows: Sequence[Dict[str, Any]], rank_limit: int = 20) -> Dict
     trend_rows: list[Dict[str, Any]] = []
     new_alerts: list[Dict[str, Any]] = []
     cooling: list[Dict[str, Any]] = []
+    dna_rows: list[Dict[str, Any]] = []
+    watch_rows: list[Dict[str, Any]] = []
+    timeline_rows: list[Dict[str, Any]] = []
 
     for ticker, items in histories.items():
         if not items:
@@ -185,6 +313,13 @@ def bubble_monitor(rows: Sequence[Dict[str, Any]], rank_limit: int = 20) -> Dict
         d30 = _delta(items, 30)
         current = _latest_row(ticker, latest, d7, d30)
         ranking.append(current)
+        dna_rows.append(_dna_profile(ticker, latest))
+        watch = _watch_candidate(current, d7, d30)
+        if watch is not None:
+            watch_rows.append(watch)
+        timeline = _timeline_row(ticker, items)
+        if timeline is not None:
+            timeline_rows.append(timeline)
 
         if d7 is not None or d30 is not None:
             trend_rows.append(dict(current))
@@ -218,12 +353,18 @@ def bubble_monitor(rows: Sequence[Dict[str, Any]], rank_limit: int = 20) -> Dict
     )
     new_alerts.sort(key=lambda row: row.get("temperature") or 0, reverse=True)
     cooling.sort(key=lambda row: row.get("run_time_tw") or "", reverse=True)
+    dna_rows.sort(key=lambda row: row.get("temperature") or 0, reverse=True)
+    watch_rows.sort(key=lambda row: (row.get("projected_temperature") or 0, row.get("temperature") or 0), reverse=True)
+    timeline_rows.sort(key=lambda row: abs(_safe_float(str(row.get("change") or "").replace("℃", "")) or 0), reverse=True)
 
     return {
         "ranking": ranking[: max(1, int(rank_limit))],
         "trends": trend_rows[: max(1, int(rank_limit))],
         "new_alerts": new_alerts[:20],
         "cooling": cooling[:20],
+        "bubble_dna": dna_rows[: max(1, int(rank_limit))],
+        "watch_list": watch_rows[:20],
+        "timelines": timeline_rows[:20],
     }
 
 

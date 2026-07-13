@@ -35,7 +35,7 @@ except Exception:
     def bubble_alert_rows(*_args, **_kwargs):
         return []
     def bubble_monitor(*_args, **_kwargs):
-        return {"ranking": [], "trends": [], "new_alerts": [], "cooling": []}
+        return {"ranking": [], "trends": [], "new_alerts": [], "cooling": [], "bubble_dna": [], "watch_list": [], "timelines": []}
 
 
 _PREDICTION_VIEWS = {"總覽", "Bubble Monitor", "正式樣本", "Prediction DNA", "Raw Log"}
@@ -211,6 +211,49 @@ def _render_learning_view(st, view: str) -> None:
                 "trend_7d", "trend_30d", "reason", "run_time_tw",
             ],
             height=240,
+            limit=20,
+        )
+
+        st.markdown("##### 🧬 Bubble DNA（泡沫形成原因）")
+        st.caption("將最新正式泡沫快照拆成價格、估值、預期、背離與成長降溫；只顯示既有資料，不新增行情讀取。")
+        _html_table(
+            st,
+            monitor.get("bubble_dna") or [],
+            "目前尚無可解析的 Bubble DNA。",
+            columns=[
+                "ticker", "market", "temperature", "bubble_type", "top_factors",
+                "price_heat", "valuation_heat", "expectation_heat", "divergence",
+                "growth_cooling", "pe", "ps", "revenue_yoy", "qoq", "decision", "run_time_tw",
+            ],
+            height=360,
+            limit=20,
+        )
+
+        st.markdown("##### 👀 Bubble Watch List（即將突破60℃）")
+        st.caption("僅列出40～59℃、7日快速升溫，或依既有趨勢推估可能接近60℃的標的；不是價格預測。")
+        _html_table(
+            st,
+            monitor.get("watch_list") or [],
+            "目前沒有接近60℃或快速升溫的標的。",
+            columns=[
+                "ticker", "market", "temperature", "distance_to_60", "projected_temperature",
+                "trend_7d", "trend_30d", "level", "watch_reason", "decision", "run_time_tw",
+            ],
+            height=280,
+            limit=20,
+        )
+
+        st.markdown("##### 🕒 Bubble Timeline（最近12個每日快照）")
+        st.caption("同股同日只保留最後一次正式分析；至少累積兩個不同日期才形成時間線。")
+        _html_table(
+            st,
+            monitor.get("timelines") or [],
+            "目前每檔尚未累積至少兩個不同日期的正式泡沫快照。",
+            columns=[
+                "ticker", "market", "start_date", "end_date", "start_temperature",
+                "latest_temperature", "change", "min_max", "timeline", "snapshots",
+            ],
+            height=300,
             limit=20,
         )
         return
