@@ -19,8 +19,30 @@ from data_sources_tw_live_price import fetch_twse_mis_live_price, fetch_google_f
 from foreign_flow_predicto import predict_foreign_flow_v2
 from data_sources_tw_yahoo_chip import fetch_yahoo_institutional, fetch_yahoo_margin
 from quantum_market_context import fetch_market_proxy_context
-from macro_event_calendar import build_macro_context
-from tw_market_microstructure import ticker_with_quote_identity, attach_market_microstructure
+try:
+    from macro_event_calendar import build_macro_context
+except Exception:
+    def build_macro_context(price_date: str = "", **kwargs):
+        return {
+            "accepted": False,
+            "source": "MACRO_CALENDAR_UNAVAILABLE",
+            "date": str(price_date or ""),
+            "calendar": "宏觀事件待同步",
+            "events": [],
+            "nearest_event": {},
+            "event_uncertainty": 0.0,
+            "event_risk": 0.0,
+            "confidence_penalty": 0.0,
+            "position_scale": 1.0,
+            "pre_event_direction": 0.0,
+        }
+try:
+    from tw_market_microstructure import ticker_with_quote_identity, attach_market_microstructure
+except Exception:
+    def ticker_with_quote_identity(ticker, quote):
+        return ticker
+    def attach_market_microstructure(context, ticker, **kwargs):
+        return context
 from ticker_resolver import EMERGING_CODE_OVERRIDES
 try:
     from analyst_event_intelligence import classify_analyst_headline

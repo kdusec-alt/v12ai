@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-import pandas as pd
 
 from memory_store import (
     MEMORY_DIR,
@@ -18,7 +17,13 @@ from memory_store import (
     load_profiles,
 )
 from tino_persistent_store import DEFAULT_LEDGER_PATH, load_ledger, storage_status, ensure_memory_initialized_bootsafe
-from auto_audit_scheduler import auto_audit_status_rows, execute_due_auto_audit_once
+try:
+    from auto_audit_scheduler import auto_audit_status_rows, execute_due_auto_audit_once
+except Exception:
+    def auto_audit_status_rows():
+        return []
+    def execute_due_auto_audit_once(*args, **kwargs):
+        return {"status": "disabled", "reason": "auto_audit_module_unavailable"}
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 
@@ -147,6 +152,9 @@ def _df(st, rows: List[Dict[str, Any]], empty_text: str, height: Optional[int] =
     if not rows:
         st.caption(empty_text)
         return
+    # Pandas/PyArrow is loaded only when the Admin explicitly opens a table.
+    # App startup and normal stock analysis therefore stay on the RC3.3 light path.
+    import pandas as pd
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, height=height)
 
 
@@ -231,16 +239,51 @@ def _raw_rows(rows: List[Dict[str, Any]], limit: int = 100) -> List[Dict[str, An
     return out
 
 
+def _dna_rows(rows: List[Dict[str, Any]], limit: int = 80) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    ordered = sorted(rows, key=lambda x: str(x.get("run_time_tw") or ""), reverse=True)
+    for row in ordered[:limit]:
+        dna = row.get("prediction_dna") if isinstance(row.get("prediction_dna"), dict) else {}
+        calibration = dna.get("learning_calibration") if isinstance(dna.get("learning_calibration"), dict) else {}
+        out.append({
+            "ticker": row.get("ticker"),
+            "target_date": row.get("target_trade_date"),
+            "direction": dna.get("direction") or row.get("predicted_direction"),
+            "direction_score": dna.get("direction_score") or row.get("direction_score"),
+            "dominant_force": dna.get("dominant_force"),
+            "dominant_contribution": dna.get("dominant_contribution"),
+            "dominant_share": dna.get("dominant_share"),
+            "risk_total": dna.get("risk_total"),
+            "quality": dna.get("data_quality") or row.get("direction_quality"),
+            "conflict": dna.get("conflict") or row.get("direction_conflict"),
+            "learning_delta": calibration.get("delta"),
+            "learning_gate": calibration.get("gate"),
+            "schema": dna.get("schema") or row.get("learning_schema"),
+        })
+    return out
+
+
 def _profile_rows(limit: int = 80) -> List[Dict[str, Any]]:
     profiles = list(load_profiles().values())
     out = []
     for p in profiles[:limit]:
+        family_learning = p.get("family_learning") if isinstance(p.get("family_learning"), dict) else {}
+        active = []
+        for name, row in family_learning.items():
+            if not isinstance(row, dict) or int(row.get("count") or 0) < 8:
+                continue
+            active.append(f"{name}:{float(row.get('active_multiplier') or 1.0):.3f}")
         out.append({
             "ticker": p.get("ticker"),
             "approved_bias": p.get("approved_bias"),
             "suggested_bias": p.get("suggested_bias"),
             "avg_abs_error_pct": p.get("avg_abs_error_pct"),
             "audit_count": p.get("audit_count") or p.get("foreign_audit_count"),
+            "direction_audits": p.get("direction_audit_count"),
+            "direction_hit_rate": p.get("direction_hit_rate"),
+            "learning_maturity": p.get("learning_maturity"),
+            "active_family_count": p.get("active_family_count"),
+            "active_family_multipliers": "｜".join(active[:6]),
             "updated_at_tw": p.get("updated_at_tw") or p.get("approved_at_tw"),
         })
     return out
@@ -325,19 +368,26 @@ def render_learning_center(st) -> None:
 
     view = st.radio(
         "檢視區塊",
-        ["總覽", "昨測今收", "正式樣本", "Raw Log", "Bias History", "Storage Status"],
+        ["總覽", "昨測今收", "正式樣本", "Prediction DNA", "Raw Log", "Bias History", "Storage Status"],
         horizontal=True,
         key="learning_center_view",
     )
 
-    # Load only bounded rows. 1200 is ample for 30-day KPIs and avoids a large
-    # simultaneous Python + pandas + Arrow footprint on Community Cloud.
-    ledger_preds, ledger_audits = _ledger_recovery_rows()
-    preds = _merge_memory_rows(read_prediction_log(1200), ledger_preds, 1200)
-    audits = _merge_memory_rows(read_audit_log(1200), ledger_audits, 1200)
+    # Load only the bounded data needed by the selected view.  Storage/Bias pages
+    # never read large JSONL files, preserving the RC3.3 rerun/crash guard.
+    preds: List[Dict[str, Any]] = []
+    audits: List[Dict[str, Any]] = []
+    ledger_preds: List[Dict[str, Any]] = []
+    ledger_audits: List[Dict[str, Any]] = []
+    if view in {"總覽", "正式樣本", "Prediction DNA", "Raw Log"}:
+        ledger_preds, _ = _ledger_recovery_rows()
+        preds = _merge_memory_rows(read_prediction_log(1200), ledger_preds, 1200)
+    if view in {"總覽", "昨測今收"}:
+        _, ledger_audits = _ledger_recovery_rows()
+        audits = _merge_memory_rows(read_audit_log(1200), ledger_audits, 1200)
     preds_30 = [p for p in preds if _is_recent(p, ("run_time_tw", "run_date_tw"), 30) and p.get("skipped") is not True]
     audits_30 = [a for a in audits if _is_recent(a, ("audit_time_tw", "audit_date_tw"), 30)]
-    formal_30 = _latest_formal_samples(preds_30)
+    formal_30 = _latest_formal_samples(preds_30) if preds_30 else []
 
     if view == "總覽":
         kpi = _kpi(preds_30, audits_30, formal_30)
@@ -357,6 +407,10 @@ def render_learning_center(st) -> None:
     elif view == "正式樣本":
         st.markdown("#### 正式預測樣本（最後一次正式分析）")
         _df(st, _formal_rows(formal_30, 100), "近30日尚無正式預測樣本。", height=420)
+    elif view == "Prediction DNA":
+        st.markdown("#### Prediction DNA / 因子主導力")
+        st.caption("只顯示精簡 DNA 摘要；完整因子快照保留在 prediction_log.jsonl。")
+        _df(st, _dna_rows(formal_30, 100), "近30日尚無 Prediction DNA。", height=440)
     elif view == "Raw Log":
         st.markdown("#### Raw prediction log")
         _df(st, _raw_rows(preds_30, 100), "近30日尚無 raw prediction log。", height=460)

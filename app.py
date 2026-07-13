@@ -5,6 +5,7 @@ import os
 import traceback
 import time
 import gc
+import importlib
 import streamlit as st
 
 
@@ -147,40 +148,80 @@ def _theme():
     </style>
     """, unsafe_allow_html=True)
 
-try:
-    _boot_print("project_import_start", module="data_sources")
-    from data_sources import fetch_news, fetch_price
-    _boot_print("project_import_done", module="data_sources")
-
-    _boot_print("project_import_start", module="orchestrator")
-    from orchestrator import orchestrate
-    _boot_print("project_import_done", module="orchestrator")
-
-    _boot_print("project_import_start", module="ui")
-    from ui_admin import render_admin
-    from ui_v9_battle_panel import render_battle_panel
-    from ui_v9_deep_report import render_deep_report
-    from ui_v9_input import render_input
-    from ui_v9_radar import render_radar
-    from ui_watch_center import render_watch_center
-    from ui_learning_center import render_learning_center
-    _boot_print("project_import_done", module="ui")
-
-    _boot_print("project_import_start", module="memory_learning_runtime")
-    from tino_persistent_store import ensure_memory_initialized_bootsafe
-    from learning import log_prediction, prediction_signature
-    from runtime_guard import mark_runtime_stage
+def _load_required(module_name: str, *attributes: str):
+    """Load one required module with an exact server-log breadcrumb."""
+    _boot_print("project_import_start", module=module_name)
     try:
-        from learning import build_learning_signals
-    except Exception:
-        def build_learning_signals(symbol):
-            return []
-    _boot_print("project_import_done", module="memory_learning_runtime")
+        module = importlib.import_module(module_name)
+        values = tuple(getattr(module, name) for name in attributes)
+    except Exception as exc:
+        _boot_print("project_import_failed", module=module_name, error=f"{type(exc).__name__}: {exc}")
+        raise RuntimeError(f"required module unavailable: {module_name}") from exc
+    _boot_print("project_import_done", module=module_name)
+    return values[0] if len(values) == 1 else values
+
+
+def _load_optional(module_name: str, attributes: tuple[str, ...], fallback):
+    """Load an additive module without taking the stable analysis path offline."""
+    _boot_print("optional_import_start", module=module_name)
+    try:
+        module = importlib.import_module(module_name)
+        values = tuple(getattr(module, name) for name in attributes)
+        _boot_print("optional_import_done", module=module_name)
+        return values[0] if len(values) == 1 else values
+    except Exception as exc:
+        _log_exception(f"optional_import_failed:{module_name}", exc)
+        return fallback
+
+
+def _learning_center_unavailable(st_module) -> None:
+    st_module.warning("預測學習模組暫時停用；個股正式分析仍可正常使用。")
+
+
+def _ensure_memory_fallback(*args, **kwargs):
+    return {"status": "DEGRADED", "reason": "memory_module_unavailable"}
+
+
+def _prediction_signature_fallback(*args, **kwargs) -> str:
+    return ""
+
+
+def _log_prediction_fallback(*args, **kwargs):
+    return None
+
+
+def _build_learning_signals_fallback(*args, **kwargs):
+    return []
+
+
+try:
+    fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
+    orchestrate = _load_required("orchestrator", "orchestrate")
+
+    render_admin = _load_required("ui_admin", "render_admin")
+    render_battle_panel = _load_required("ui_v9_battle_panel", "render_battle_panel")
+    render_deep_report = _load_required("ui_v9_deep_report", "render_deep_report")
+    render_input = _load_required("ui_v9_input", "render_input")
+    render_radar = _load_required("ui_v9_radar", "render_radar")
+    render_watch_center = _load_required("ui_watch_center", "render_watch_center")
+    mark_runtime_stage = _load_required("runtime_guard", "mark_runtime_stage")
+
+    render_learning_center = _load_optional(
+        "ui_learning_center", ("render_learning_center",), _learning_center_unavailable
+    )
+    ensure_memory_initialized_bootsafe = _load_optional(
+        "tino_persistent_store", ("ensure_memory_initialized_bootsafe",), _ensure_memory_fallback
+    )
+    log_prediction, prediction_signature, build_learning_signals = _load_optional(
+        "learning",
+        ("log_prediction", "prediction_signature", "build_learning_signals"),
+        (_log_prediction_fallback, _prediction_signature_fallback, _build_learning_signals_fallback),
+    )
 except Exception as exc:
-    _trace = _log_exception("project_import_failed", exc)
+    trace = _log_exception("project_import_failed", exc)
     _theme()
-    st.error("系統模組載入失敗，已安全停止正式預測。")
-    _render_admin_trace(_trace)
+    st.error("系統核心模組尚未完成同步，正式預測已安全停止。")
+    _render_admin_trace(trace)
     st.stop()
 
 

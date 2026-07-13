@@ -26,8 +26,30 @@ from models import FinalForecast, NewsItem, PredictionTrace, PriceFrame, RawFore
 from price_guard import apply_market_bounds, validate_price_frame
 from truth_guard import truth_to_main_label
 from data_sources_market_heat import fetch_tw_market_heat, market_heat_radar_line
-from macro_event_calendar import macro_calendar_guard_text
-from event_intelligence import assess_policy_geo
+try:
+    from macro_event_calendar import macro_calendar_guard_text
+except Exception:
+    def macro_calendar_guard_text(*args, **kwargs):
+        return "宏觀事件待同步"
+try:
+    from event_intelligence import assess_policy_geo
+except Exception:
+    def assess_policy_geo(*args, **kwargs):
+        return {
+            "line": "Policy/Geo｜觀察｜事件資料待同步",
+            "score": 0.0,
+            "risk": 0.0,
+            "bias": 0.0,
+            "confidence": 0.0,
+            "uncertainty": 0.0,
+            "reason": "event_intelligence_unavailable",
+            "level": "觀察",
+            "labels": [],
+            "channels": [],
+            "sectors": [],
+            "top_title": "",
+            "matched_count": 0,
+        }
 def collect_signals(price: PriceFrame, manual_macro: str = "neutral") -> List[SignalPacket]:
     signals = common_signals(price, manual_macro)
     if price.ticker.asset_type == "etf":
@@ -640,6 +662,7 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "價格時間": price_meta.get("label", ""),
         # Admin-only payload. UI panels ignore underscore keys; do not render this in V9 front stage.
         "_price_meta": price_meta,
+        "_market_microstructure": (price.context or {}).get("market_microstructure", {}),
         "_trend_snapshot": build_trend_snapshot(price).to_dict(),
         "_foreign_flow_v2": (price.context or {}).get("foreign_flow_v2", {}),
         "_tv_pressure": (price.context or {}).get("tv_pressure", {}),

@@ -19,7 +19,33 @@ from memory_store import (
     save_profiles,
 )
 from ticker_resolver import resolve_ticker
-from learning_market_clock import target_trade_date_for_forecast, fetch_actual_daily_snapshot, actual_matches_target
+try:
+    from learning_market_clock import target_trade_date_for_forecast, fetch_actual_daily_snapshot, actual_matches_target
+except Exception:
+    def target_trade_date_for_forecast(forecast):
+        from datetime import timedelta
+        day = datetime.now(TW_TZ).date() + timedelta(days=1)
+        while day.weekday() >= 5:
+            day += timedelta(days=1)
+        return day.isoformat()
+    def fetch_actual_daily_snapshot(ticker):
+        return {"actual_valid": False, "price_date": "", "source": "learning_clock_unavailable"}
+    def actual_matches_target(actual, target_date):
+        return False
+try:
+    from learning_dna import prediction_dna, contribution_attribution, update_attribution_learning
+except Exception:
+    def prediction_dna(forecast, direction, card):
+        return {
+            "schema": "TINO_PREDICTION_DNA_DEGRADED",
+            "ticker": getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""),
+            "factor_contributions": dict(direction.get("factor_contributions") or {}),
+            "family_contributions": dict(direction.get("family_contributions") or {}),
+        }
+    def contribution_attribution(values, actual_direction, **kwargs):
+        return {}
+    def update_attribution_learning(current, attribution, **kwargs):
+        return dict(current or {})
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 NY_TZ = ZoneInfo("America/New_York")
@@ -201,9 +227,13 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
         "direction_conflict": direction.get("conflict"),
         "direction_regime": direction.get("regime"),
         "direction_family_scores": dict(direction.get("family_scores") or {}),
+        "direction_family_weights": dict(direction.get("family_weights") or {}),
+        "direction_family_contributions": dict(direction.get("family_contributions") or {}),
         "direction_factor_contributions": dict(direction.get("factor_contributions") or {}),
         "direction_risk_contributions": dict(direction.get("risk_contributions") or {}),
         "direction_confidence_adjustments": dict(direction.get("confidence_adjustments") or {}),
+        "direction_confidence_components": dict(direction.get("confidence_components") or {}),
+        "direction_learning_calibration": dict(direction.get("learning_calibration") or {}),
         "entry_low_1": _first_number(card.get("低接第一批")),
         "entry_low_2": _first_number(card.get("低接第二批")),
         "turn_level": _first_number(card.get("轉強")),
@@ -217,6 +247,8 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
         "tv_pressure": dict(card.get("_tv_pressure", {}) or {}),
         "truths": [getattr(x, "__dict__", {}) for x in forecast.data_truths],
         "trace": forecast.trace.to_rows() if forecast.trace else [],
+        "prediction_dna": prediction_dna(forecast, direction, card),
+        "learning_schema": "RC4.5_DNA_V1",
         "audited": False,
     }
 def log_prediction(forecast: FinalForecast, macro: str = "neutral", live_data: bool = True) -> Dict[str, Any]:
@@ -403,8 +435,17 @@ def audit_prediction_row(
         "direction_quality": row.get("direction_quality"),
         "direction_conflict": row.get("direction_conflict"),
         "direction_regime": row.get("direction_regime"),
+        "direction_family_contributions": dict(row.get("direction_family_contributions") or {}),
         "direction_factor_contributions": dict(row.get("direction_factor_contributions") or {}),
         "direction_risk_contributions": dict(row.get("direction_risk_contributions") or {}),
+        "family_attribution": contribution_attribution(
+            dict(row.get("direction_family_contributions") or {}), actual_direction, limit=16
+        ) if target == "next" else {},
+        "factor_attribution": contribution_attribution(
+            dict(row.get("direction_factor_contributions") or {}), actual_direction, limit=20
+        ) if target == "next" else {},
+        "dominant_force": ((row.get("prediction_dna") or {}).get("dominant_force") if isinstance(row.get("prediction_dna"), dict) else None),
+        "dominant_force_hit": None,
         "price_sample_quality": row.get("price_sample_quality"),
         "actual_price_date": snap.get("price_date"),
         "actual_market_status": snap.get("market_status"),
@@ -415,6 +456,12 @@ def audit_prediction_row(
         "safe_to_apply": bool(abs(err_pct) >= 1.0 and row.get("price_sample_quality") == "verified" and actual_valid),
         "applied": False,
     }
+    audit["actual_valid"] = actual_valid
+    dominant_force = str(audit.get("dominant_force") or "")
+    if dominant_force and isinstance(audit.get("factor_attribution"), dict):
+        dominant_row = audit["factor_attribution"].get(dominant_force)
+        if isinstance(dominant_row, dict):
+            audit["dominant_force_hit"] = bool(dominant_row.get("aligned"))
     append_jsonl(AUDIT_LOG, audit)
     _update_profile_from_audit(audit)
     return audit
@@ -542,6 +589,18 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
         range_hit_rate = ((range_hit_rate * (range_count - 1)) + range_hit) / range_count
         tail = abs(min(_safe_float(audit.get("downside_tail_breach_pct"), 0.0), 0.0))
         avg_tail_breach = ((avg_tail_breach * (range_count - 1)) + tail) / range_count
+    family_learning = p.get("family_learning", {}) if isinstance(p.get("family_learning"), dict) else {}
+    factor_learning = p.get("factor_learning", {}) if isinstance(p.get("factor_learning"), dict) else {}
+    verified_t1 = bool(
+        audit.get("target") == "next"
+        and audit.get("price_sample_quality") == "verified"
+        and audit.get("actual_valid")
+        and str(audit.get("actual_direction") or "") in {"UP", "DOWN"}
+    )
+    if verified_t1:
+        family_learning = update_attribution_learning(family_learning, dict(audit.get("family_attribution") or {}), now_text=_now())
+        factor_learning = update_attribution_learning(factor_learning, dict(audit.get("factor_attribution") or {}), now_text=_now())
+
     # V12.1 safety gate: no permanent stock bias from two observations.
     # Only verified samples, at least 20 audited closes, and a repeated error
     # pattern may create a small suggestion.  Tino approval is still required.
@@ -574,7 +633,14 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
         "last_defense_stop_touched": audit.get("defense_stop_touched"),
         "suggested_bias": round(suggested_bias, 4),
         "approved_bias": _safe_float(p.get("approved_bias", 0.0)),
-        "learning_gate": "verified>=20_and_repeated>=5",
+        "family_learning": family_learning,
+        "factor_learning": factor_learning,
+        "learning_maturity": round(min(1.0, direction_count / 40.0), 4) if direction_count else 0.0,
+        "active_family_count": sum(1 for row in family_learning.values() if isinstance(row, dict) and int(_safe_float(row.get("count"), 0.0)) >= 8),
+        "last_dominant_force": audit.get("dominant_force"),
+        "last_dominant_force_hit": audit.get("dominant_force_hit"),
+        "learning_schema": "RC4.5_DNA_V1",
+        "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
         "updated_at_tw": _now(),
     })
     profiles[ticker] = p

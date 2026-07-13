@@ -24,7 +24,22 @@ except Exception:
     # uploaded yet.  Compatibility exports live in quantum_entanglement.
     from quantum_entanglement import dynamic_family_multiplier, entanglement_adjustment
 from trend_engine import build_trend_snapshot
-from learning_calibration import bounded_learning_calibration
+try:
+    from learning_calibration import bounded_learning_calibration
+except Exception:
+    def bounded_learning_calibration(ticker, family_contributions):
+        return {
+            "eligible": False,
+            "ticker": str(ticker or "").upper(),
+            "direction_audit_count": 0,
+            "direction_hit_rate": None,
+            "maturity": 0.0,
+            "raw_delta": 0.0,
+            "delta": 0.0,
+            "confidence_delta": 0.0,
+            "applied_families": {},
+            "gate": "learning_module_unavailable",
+        }
 
 
 @dataclass(frozen=True)

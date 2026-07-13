@@ -7,6 +7,7 @@ from config import TW_PRICE_LIMIT_PCT, TWO_PRICE_LIMIT_PCT
 
 TW_NAME_MAP = {
     "2337": ("旺宏", "2337.TW", "TWSE"),
+    "2327": ("國巨", "2327.TW", "TWSE"),
     "2454": ("聯發科", "2454.TW", "TWSE"),
     "6770": ("力積電", "6770.TW", "TWSE"),
     # 6586 醣基是興櫃/TPEx 類股，Yahoo/TPEX 盤中價格常比上市櫃慢。
@@ -43,6 +44,7 @@ EMERGING_CODE_OVERRIDES = {
 TW_NAME_ALIAS = {
     "聯發科": "2454", "MEDIATEK": "2454",
     "旺宏": "2337", "MACRONIX": "2337",
+    "國巨": "2327", "YAGEO": "2327",
     "力積電": "6770",
     "醣基": "6586",
     "欣銓": "3264",
@@ -127,3 +129,39 @@ def resolve_ticker(raw: str) -> TickerInfo:
     symbol = text.split(".")[0]
     name, resolved, exchange = US_NAME_MAP.get(symbol, (symbol, symbol, "US"))
     return TickerInfo(raw=raw, resolved_symbol=resolved, name=name, market="US", asset_type="stock", exchange=exchange, currency="USD", price_limit_pct=None)
+
+
+def is_unmapped_tw_numeric(raw: str) -> bool:
+    """True only for a plain numeric Taiwan code not covered by the local map.
+
+    This allows the data layer to try TWSE and TPEx once without overriding an
+    explicit .TW/.TWO request or a known exchange mapping.
+    """
+    text = _clean(raw)
+    if not text or text.endswith(".TW") or text.endswith(".TWO"):
+        return False
+    base, _ = _split_tw_suffix(text)
+    if base in TW_NAME_ALIAS:
+        return False
+    return bool(re.fullmatch(r"\d{4,5}[A-Z]?", base) and base not in TW_NAME_MAP and base not in TPEX_CODE_OVERRIDES)
+
+
+def alternate_tw_ticker(ticker: TickerInfo) -> TickerInfo | None:
+    """Return the other Taiwan exchange candidate for a numeric symbol."""
+    if str(ticker.market or "").upper() != "TW":
+        return None
+    symbol = str(ticker.resolved_symbol or "").upper()
+    code = symbol.split(".")[0]
+    if not re.fullmatch(r"\d{4,5}[A-Z]?", code):
+        return None
+    if symbol.endswith(".TW"):
+        resolved, exchange = f"{code}.TWO", ("TPEX_EMERGING" if code in EMERGING_CODE_OVERRIDES else "TPEX")
+    elif symbol.endswith(".TWO"):
+        resolved, exchange = f"{code}.TW", "TWSE"
+    else:
+        return None
+    return TickerInfo(
+        raw=ticker.raw, resolved_symbol=resolved, name=ticker.name, market="TW",
+        asset_type=ticker.asset_type, exchange=exchange, currency="TWD",
+        price_limit_pct=TWO_PRICE_LIMIT_PCT if resolved.endswith(".TWO") else TW_PRICE_LIMIT_PCT,
+    )

@@ -68,6 +68,7 @@ def _mis_debug_base(symbol: str, prefix: str, ex_ch: str) -> Dict[str, Any]:
         "mis_parsed_low": None,
         "mis_parsed_time": None,
         "mis_last_source": None,
+        "mis_quote_name": None,
         "mis_reject_reason": None,
     }
 
@@ -147,6 +148,7 @@ def _parse_mis_row(symbol: str, row: Dict[str, Any], prefix: str, fetched_at: da
     lots = _num(row.get("v")) or _num(row.get("tv")) or 0.0
     volume = lots * 1000.0 if lots and lots < 10_000_000 else lots
     price_date, raw_time = _build_raw_time(row, fetched_at)
+    quote_name = str(row.get("n") or row.get("nf") or row.get("name") or "").strip()
     if debug is not None:
         debug.update({
             "mis_parsed_last": float(last),
@@ -157,6 +159,7 @@ def _parse_mis_row(symbol: str, row: Dict[str, Any], prefix: str, fetched_at: da
             "mis_volume": float(volume or 0),
             "mis_parsed_time": raw_time,
             "mis_last_source": last_source,
+            "mis_quote_name": quote_name or None,
         })
 
     return {
@@ -173,6 +176,7 @@ def _parse_mis_row(symbol: str, row: Dict[str, Any], prefix: str, fetched_at: da
         "raw_time": raw_time,
         "mis_symbol": f"{prefix}_{_code(symbol)}.tw",
         "mis_last_source": last_source,
+        "quote_name": quote_name,
         "mis_debug": debug or {},
     }
 

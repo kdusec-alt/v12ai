@@ -48,6 +48,22 @@ def _time(item: NewsItem | Mapping[str, Any]) -> str:
     return str(raw or "").strip()
 
 
+def _source(item: NewsItem | Mapping[str, Any]) -> str:
+    raw = item.get("source") if isinstance(item, Mapping) else getattr(item, "source", "")
+    return re.sub(r"\s+", " ", str(raw or "")).strip()
+
+
+def _source_quality(source: str) -> float:
+    text = str(source or "").lower()
+    if any(k in text for k in ("reuters", "associated press", " ap ", "bloomberg", "官方", "government", "fed", "bls")):
+        return 1.00
+    if any(k in text for k in ("yahoo", "cna", "中央社", "鉅亨", "moneydj", "工商", "經濟日報")):
+        return 0.88
+    if text:
+        return 0.74
+    return 0.62
+
+
 def _age_hours(item: NewsItem | Mapping[str, Any], now: datetime | None = None) -> float | None:
     text = _time(item)
     if not text or text.lower() in {"latest", "sample", "待同步", "觀察"}:
@@ -79,7 +95,8 @@ _RULES: Sequence[Dict[str, Any]] = (
         "label": "荷姆茲海峽/原油通道",
         "terms": (
             "荷姆茲", "霍爾木茲", "hormuz", "strait of hormuz", "海峽控制權",
-            "封鎖海峽", "關閉海峽", "blockade the strait",
+            "封鎖海峽", "關閉海峽", "blockade the strait", "荷姆茲控制權",
+            "霍爾木茲控制權", "海峽爭奪", "航道控制權", "封鎖航道",
         ),
         "direction": -1.0,
         "severity": 4.8,
@@ -92,6 +109,7 @@ _RULES: Sequence[Dict[str, Any]] = (
         "terms": (
             "美伊", "美國 伊朗", "伊朗 美國", "us-iran", "u.s.-iran", "iran war",
             "以伊", "以色列 伊朗", "israel iran", "iran israel", "伊朗戰爭",
+            "美伊戰爭", "戰火重啟", "美伊衝突重啟", "iran conflict resumes",
         ),
         "direction": -1.0,
         "severity": 4.1,
@@ -103,7 +121,8 @@ _RULES: Sequence[Dict[str, Any]] = (
         "label": "中東/紅海航運",
         "terms": (
             "中東", "紅海", "胡塞", "houthi", "red sea", "葉門", "yemen",
-            "oil tanker", "油輪", "航運中斷", "shipping disruption",
+            "oil tanker", "油輪", "油輪遇襲", "航運中斷", "shipping disruption",
+            "石油禁運", "航道中斷", "海運原油",
         ),
         "direction": -1.0,
         "severity": 3.1,
@@ -211,6 +230,14 @@ def _profile_sensitivity(profile: str, rule_key: str) -> float:
     if p == "defense":
         if rule_key in {"iran_us", "middle_east", "taiwan_strait"}:
             return 0.35
+    if p == "biotech":
+        # Biotech/emerging names are usually driven more by trial, funding and
+        # company-specific events. Geo still raises risk, but its direct sign is
+        # deliberately smaller unless the headline is a Taiwan supply event.
+        if rule_key in {"hormuz", "iran_us", "middle_east", "tariff"}:
+            return 0.62
+        if rule_key in {"chip_controls", "rare_earth"}:
+            return 0.45
     return 1.0
 
 
@@ -251,12 +278,14 @@ def assess_policy_geo(
         )
         age = _age_hours(item, now)
         decay = _decay(age)
+        source = _source(item)
+        source_quality = _source_quality(source)
         if decay <= 0:
             continue
         for rule in _RULES:
             if not _contains(text, rule["terms"]):
                 continue
-            strength = float(rule["severity"]) * decay * _profile_sensitivity(profile, str(rule["key"]))
+            strength = float(rule["severity"]) * decay * source_quality * _profile_sensitivity(profile, str(rule["key"]))
             existing = matches.get(str(rule["key"]))
             row = {
                 "key": rule["key"],
@@ -267,11 +296,29 @@ def assess_policy_geo(
                 "channels": tuple(rule["channels"]),
                 "sectors": tuple(rule["sectors"]),
                 "title": _title(item),
+                "source": source,
+                "source_quality": source_quality,
+                "sources": {source} if source else set(),
             }
-            if existing is None or strength > float(existing.get("strength") or 0.0):
+            if existing is None:
                 matches[str(rule["key"])] = row
+            else:
+                sources = set(existing.get("sources") or set())
+                if source:
+                    sources.add(source)
+                if strength > float(existing.get("strength") or 0.0):
+                    row["sources"] = sources
+                    matches[str(rule["key"])] = row
+                else:
+                    existing["sources"] = sources
 
     rows = list(matches.values())
+    for row in rows:
+        source_count = len(set(row.get("sources") or set()))
+        if source_count >= 2:
+            row["strength"] = float(row.get("strength") or 0.0) * min(1.22, 1.0 + 0.07 * (source_count - 1))
+        row["source_count"] = source_count
+        row["sources"] = sorted(set(row.get("sources") or set()))
     if not rows:
         return {
             "line": "Policy/Geo｜觀察｜近端政策/地緣事件未形成方向",
@@ -373,6 +420,7 @@ def assess_policy_geo(
         "sectors": sectors,
         "top_title": top_title,
         "matched_count": len(rows),
+        "source_count": len({src for row in rows for src in (row.get("sources") or []) if src}),
         "confirmation": confirm_state,
         "oil_up": oil_up,
         "yield_up": yield_up,

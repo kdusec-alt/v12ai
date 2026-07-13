@@ -24,7 +24,23 @@ except Exception:
         return "", ""
 from truth_guard import make_truth, parse_date_safe
 from quantum_market_context import fetch_market_proxy_context
-from macro_event_calendar import build_macro_context
+try:
+    from macro_event_calendar import build_macro_context
+except Exception:
+    def build_macro_context(price_date: str = "", **kwargs):
+        return {
+            "accepted": False,
+            "source": "MACRO_CALENDAR_UNAVAILABLE",
+            "date": str(price_date or ""),
+            "calendar": "宏觀事件待同步",
+            "events": [],
+            "nearest_event": {},
+            "event_uncertainty": 0.0,
+            "event_risk": 0.0,
+            "confidence_penalty": 0.0,
+            "position_scale": 1.0,
+            "pre_event_direction": 0.0,
+        }
 
 US_SAMPLE = {
     "ONDS": dict(open=2.42, high=2.55, low=2.31, last=2.38, previous_close=2.45, volume=3600000, vwap=2.41, atr14=0.22),

@@ -21,8 +21,30 @@ import re
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from models import NewsItem, PriceFrame, SignalPacket
-from macro_event_calendar import event_risk_from_context
-from event_intelligence import assess_policy_geo
+try:
+    from macro_event_calendar import event_risk_from_context
+except Exception:
+    def event_risk_from_context(*args, **kwargs):
+        return 0.0, []
+try:
+    from event_intelligence import assess_policy_geo
+except Exception:
+    def assess_policy_geo(*args, **kwargs):
+        return {
+            "line": "Policy/Geo｜觀察｜事件資料待同步",
+            "score": 0.0,
+            "risk": 0.0,
+            "bias": 0.0,
+            "confidence": 0.0,
+            "uncertainty": 0.0,
+            "reason": "event_intelligence_unavailable",
+            "level": "觀察",
+            "labels": [],
+            "channels": [],
+            "sectors": [],
+            "top_title": "",
+            "matched_count": 0,
+        }
 try:
     from analyst_event_intelligence import assess_analyst_event
 except Exception:
