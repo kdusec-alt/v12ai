@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 
+DEFAULT_VISIBLE_LOG_ROWS = 900
+
+
 def _default_memory_dir() -> Path:
     """Return the first writable TINO memory directory.
 
@@ -201,6 +204,40 @@ def _row_identity(row: Dict[str, Any], kind: str) -> str:
         return f"object:{id(row)}"
 
 
+def _dedupe_rows_keep_latest(
+    rows: Iterable[Dict[str, Any]],
+    *,
+    kind: str,
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """Return one canonical row per identity, keeping the newest occurrence.
+
+    JSONL is append-only, so a repeated ``id`` can appear after reconnect,
+    recovery or an interrupted mirror.  Every Prediction Log consumer must see
+    the same de-duplicated tail; otherwise Storage Guard and Learning Center can
+    report different counts for the same file.
+    """
+    try:
+        max_rows = max(1, int(limit or 1))
+    except Exception:
+        max_rows = DEFAULT_VISIBLE_LOG_ROWS
+
+    clean = [row for row in rows if isinstance(row, dict) and row]
+    output_reversed: List[Dict[str, Any]] = []
+    seen = set()
+    for row in reversed(clean):
+        ident = _row_identity(row, kind)
+        if ident and ident in seen:
+            continue
+        if ident:
+            seen.add(ident)
+        output_reversed.append(row)
+        if len(output_reversed) >= max_rows:
+            break
+    output_reversed.reverse()
+    return output_reversed
+
+
 def _merge_jsonl_candidates(primary: Path, limit: int, kind: str) -> List[Dict[str, Any]]:
     """Read the active tail and use legacy files only as empty-file recovery.
 
@@ -209,7 +246,11 @@ def _merge_jsonl_candidates(primary: Path, limit: int, kind: str) -> List[Dict[s
     preventing doubled I/O on every Streamlit rerun.
     """
     max_rows = max(1, int(limit or 1))
-    active = read_jsonl(primary, max_rows)
+    active = _dedupe_rows_keep_latest(
+        read_jsonl(primary, max_rows),
+        kind=kind,
+        limit=max_rows,
+    )
     if active and os.environ.get("TINO_MEMORY_MERGE_LEGACY", "0").strip() != "1":
         return active[-max_rows:]
 
@@ -240,7 +281,7 @@ def _merge_jsonl_candidates(primary: Path, limit: int, kind: str) -> List[Dict[s
         )
 
     collected.sort(key=_stamp)
-    return collected[-max_rows:]
+    return _dedupe_rows_keep_latest(collected, kind=kind, limit=max_rows)
 
 
 def read_prediction_log(limit: int = 100) -> List[Dict[str, Any]]:
@@ -284,17 +325,32 @@ def _line_count(path: Path, cap: int = 200_000) -> int:
     return count
 
 
-def memory_diagnostics() -> Dict[str, Any]:
+def memory_diagnostics(limit: int = DEFAULT_VISIBLE_LOG_ROWS) -> Dict[str, Any]:
     """Small scalar-only status payload for the Admin Learning Center."""
+    try:
+        visible_limit = max(1, int(limit or 1))
+    except Exception:
+        visible_limit = DEFAULT_VISIBLE_LOG_ROWS
+
+    prediction_rows = read_prediction_log(visible_limit)
+    audit_rows = read_audit_log(visible_limit)
     files = []
     for path in (PREDICTION_LOG, AUDIT_LOG, TICKER_PROFILE):
         try:
+            physical_rows = _line_count(path) if path.suffix == ".jsonl" else None
+            if path == PREDICTION_LOG:
+                visible_rows = len(prediction_rows)
+            elif path == AUDIT_LOG:
+                visible_rows = len(audit_rows)
+            else:
+                visible_rows = None
             files.append({
                 "file": path.name,
                 "path": str(path),
                 "exists": path.exists(),
                 "size_bytes": path.stat().st_size if path.exists() else 0,
-                "rows": _line_count(path) if path.suffix == ".jsonl" else None,
+                "rows": visible_rows,
+                "physical_rows": physical_rows,
             })
         except Exception as exc:
             files.append({
@@ -308,7 +364,8 @@ def memory_diagnostics() -> Dict[str, Any]:
     return {
         "memory_dir": str(MEMORY_DIR),
         "files": files,
-        "prediction_rows_visible": len(read_prediction_log(2000)),
-        "audit_rows_visible": len(read_audit_log(2000)),
+        "visible_limit": visible_limit,
+        "prediction_rows_visible": len(prediction_rows),
+        "audit_rows_visible": len(audit_rows),
         "profile_count": len(load_profiles()),
     }

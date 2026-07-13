@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 from memory_store import (
+    DEFAULT_VISIBLE_LOG_ROWS,
     MEMORY_DIR,
     PREDICTION_LOG,
     AUDIT_LOG,
@@ -38,7 +39,7 @@ except Exception:
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 _MAX_VIEW_ROWS = 80
-_MAX_LOG_ROWS = 900
+_MAX_LOG_ROWS = DEFAULT_VISIBLE_LOG_ROWS
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -537,7 +538,7 @@ def _file_status(path: Path) -> Dict[str, Any]:
 def _storage_rows() -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     try:
-        diagnostics = memory_diagnostics()
+        diagnostics = memory_diagnostics(_MAX_LOG_ROWS)
     except Exception as exc:
         diagnostics = {"memory_dir": str(MEMORY_DIR), "files": [], "error": f"{type(exc).__name__}: {exc}"}
 
@@ -555,7 +556,7 @@ def _storage_rows() -> List[Dict[str, Any]]:
     rows.append({
         "item": "Visible Predictions",
         "status": diagnostics.get("prediction_rows_visible", 0),
-        "value": "merged active/legacy tail",
+        "value": "canonical Prediction Log (ID de-duplicated)",
         "note": None,
     })
     rows.append({
@@ -592,7 +593,11 @@ def _storage_rows() -> List[Dict[str, Any]]:
             "item": file_row.get("file"),
             "status": "EXISTS" if file_row.get("exists") else "MISSING",
             "value": f"{round(_safe_float(file_row.get('size_bytes')) or 0.0, 0):.0f} bytes｜rows {file_row.get('rows', '--')}",
-            "note": file_row.get("path") or file_row.get("error"),
+            "note": (
+                f"physical lines {file_row.get('physical_rows')}｜{file_row.get('path')}"
+                if file_row.get("physical_rows") is not None
+                else file_row.get("path") or file_row.get("error")
+            ),
         })
     rows.append({
         "item": "Memory Recovery Index",

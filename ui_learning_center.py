@@ -12,8 +12,6 @@ from tino_persistent_store import (
 )
 from learning_center_core import (
     _MAX_LOG_ROWS,
-    _merge_rows,
-    _ledger_recovery_rows,
     _normalize_prediction,
     _normalize_audit,
     _is_recent,
@@ -31,6 +29,11 @@ from learning_center_core import (
     auto_audit_status_rows,
     execute_due_auto_audit_once,
 )
+
+
+_PREDICTION_VIEWS = {"總覽", "正式樣本", "Prediction DNA", "Raw Log"}
+_AUDIT_VIEWS = {"總覽", "昨測今收"}
+
 
 def _inject_learning_css(st) -> None:
     st.markdown(
@@ -55,40 +58,48 @@ def _render_admin_error(st, title: str, exc: Exception) -> None:
         st.code(f"{type(exc).__name__}: {exc}")
 
 
+def _render_section_error(st, view: str, exc: Exception) -> None:
+    """Stop only the selected Learning Center section."""
+    st.error(f"{view} 區塊暫時無法讀取；其他頁籤與主分析不受影響。")
+    with st.expander(f"{view} 診斷", expanded=False):
+        st.code(f"{type(exc).__name__}: {exc}")
+
+
 def _load_learning_data(view: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    predictions: List[Dict[str, Any]] = []
-    audits: List[Dict[str, Any]] = []
-    ledger_predictions: List[Dict[str, Any]] = []
-    ledger_audits: List[Dict[str, Any]] = []
-    if view in {"總覽", "正式樣本", "Prediction DNA", "Raw Log"}:
-        ledger_predictions, _ = _ledger_recovery_rows()
-        predictions = _merge_rows(read_prediction_log(_MAX_LOG_ROWS), ledger_predictions, _MAX_LOG_ROWS)
-    if view in {"總覽", "昨測今收"}:
-        _, ledger_audits = _ledger_recovery_rows()
-        audits = _merge_rows(read_audit_log(_MAX_LOG_ROWS), ledger_audits, _MAX_LOG_ROWS)
+    """Read each log from its canonical repository exactly once per selected view.
+
+    The ledger is a recovery index only.  Boot initialization restores it into
+    JSONL when the active file is empty, so merging it again during rendering
+    would create a second count/de-duplication path.
+    """
+    predictions = read_prediction_log(_MAX_LOG_ROWS) if view in _PREDICTION_VIEWS else []
+    audits = read_audit_log(_MAX_LOG_ROWS) if view in _AUDIT_VIEWS else []
     return predictions, audits
 
 
-def _render_learning_center_impl(st) -> None:
-    _inject_learning_css(st)
-    if not bool(st.session_state.get("admin_authenticated", False)):
-        st.warning("預測學習為 Admin-only 頁面。請先在側邊欄輸入 Admin Password。")
-        return
+def _normalize_rows(rows: List[Dict[str, Any]], normalizer) -> List[Dict[str, Any]]:
+    """Skip one malformed historical row without failing the selected tab."""
+    output: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            normalized = normalizer(row)
+        except Exception:
+            continue
+        if isinstance(normalized, dict) and normalized:
+            output.append(normalized)
+    return output
 
-    st.markdown("### 🧠 預測學習 / Learning Center")
-    st.caption("正式預測由個股分析完成後立即寫入一次；本頁只查閱與稽核，不會在切頁時重複寫入。")
 
-    view = st.radio(
-        "檢視區塊",
-        ["總覽", "昨測今收", "正式樣本", "Prediction DNA", "Raw Log", "Bias History", "Storage Status"],
-        horizontal=True,
-        key="learning_center_view",
-    )
-
+def _render_learning_view(st, view: str) -> None:
     predictions, audits = _load_learning_data(view)
-    normalized_predictions = [_normalize_prediction(row) for row in predictions if isinstance(row, dict)]
-    normalized_audits = [_normalize_audit(row) for row in audits if isinstance(row, dict)]
-    recent_predictions = [row for row in normalized_predictions if _is_recent(row, 30) and row.get("skipped") is not True]
+    normalized_predictions = _normalize_rows(predictions, _normalize_prediction)
+    normalized_audits = _normalize_rows(audits, _normalize_audit)
+    recent_predictions = [
+        row for row in normalized_predictions
+        if _is_recent(row, 30) and row.get("skipped") is not True
+    ]
     recent_audits = [row for row in normalized_audits if _is_recent(row, 30)]
     formal_all = _latest_formal_samples(normalized_predictions)
     formal_recent = [row for row in formal_all if _is_recent(row, 30)]
@@ -266,11 +277,33 @@ def _render_learning_center_impl(st) -> None:
         return
 
 
+def _render_learning_center_impl(st) -> None:
+    _inject_learning_css(st)
+    if not bool(st.session_state.get("admin_authenticated", False)):
+        st.warning("預測學習為 Admin-only 頁面。請先在側邊欄輸入 Admin Password。")
+        return
+
+    st.markdown("### 🧠 預測學習 / Learning Center")
+    st.caption("正式預測由個股分析完成後立即寫入一次；本頁只查閱與稽核，不會在切頁時重複寫入。")
+
+    view = st.radio(
+        "檢視區塊",
+        ["總覽", "昨測今收", "正式樣本", "Prediction DNA", "Raw Log", "Bias History", "Storage Status"],
+        horizontal=True,
+        key="learning_center_view",
+    )
+
+    try:
+        _render_learning_view(st, view)
+    except Exception as exc:
+        _render_section_error(st, view, exc)
+
+
 def render_learning_center(st) -> None:
     """RC4.7 crash-isolated Learning Center.
 
-    Any malformed historical row is skipped/flattened.  No section may take the
-    main stock-analysis app offline.
+    A malformed row or one failed selected section is contained inside that
+    section.  It cannot take the main stock-analysis app offline.
     """
     try:
         if "memory_init_report" not in st.session_state:
@@ -280,4 +313,4 @@ def render_learning_center(st) -> None:
                 st.session_state["memory_init_report"] = {"status": "DEGRADED"}
         _render_learning_center_impl(st)
     except Exception as exc:
-        _render_admin_error(st, "預測學習頁面已安全停止；個股分析與即時股價不受影響。", exc)
+        _render_admin_error(st, "預測學習外框已安全停止；個股分析與即時股價不受影響。", exc)
