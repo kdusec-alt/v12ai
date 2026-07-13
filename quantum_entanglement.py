@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple
 from models import NewsItem, PriceFrame, SignalPacket
 from macro_event_calendar import event_risk_from_context
 from event_intelligence import assess_policy_geo
+from analyst_event_intelligence import assess_analyst_event
 
 
 @dataclass(frozen=True)
@@ -229,6 +230,11 @@ def sector_profile(price: PriceFrame) -> str:
         return "defense"
     if any(word in blob for word in ("FINANCIAL", "BANK", "INSURANCE", "金融", "銀行", "保險")):
         return "financial"
+    if any(word in blob for word in (
+        "BIOTECH", "BIOPHARMA", "PHARMA", "HEALTHCARE", "生技", "生醫", "醫療",
+        "新藥", "醣基", "GLYCAN", "抗體", "疫苗",
+    )):
+        return "biotech"
     return "broad"
 
 
@@ -543,6 +549,33 @@ def _geo_policy_family(
     ok = bool(labels or abs(score) >= 0.5 or risk_points >= 1.0)
     return score, ok, uncertainty, risk_points, reason, labels
 
+def _analyst_event_family(
+    price: PriceFrame,
+    news_items: Sequence[NewsItem | Mapping[str, Any]],
+    trend_score: float,
+    intraday_score: float,
+) -> Tuple[float, bool, float, float, str, str]:
+    """Contrarian broker-rating family with price/flow confirmation.
+
+    A higher target is not bullish by default.  It becomes a temporary negative
+    contribution only when price loses VWAP / turns down and, for Taiwan,
+    foreign flow also rejects the report.
+    """
+    result = assess_analyst_event(
+        price,
+        news_items,
+        trend_score=trend_score,
+        intraday_score=intraday_score,
+    )
+    score = _clamp(_num(result.get("score"), 0.0), -58.0, 20.0)
+    risk = _clamp(_num(result.get("risk"), 0.0), 0.0, 10.0)
+    uncertainty = _clamp(_num(result.get("uncertainty"), 0.0), 0.0, 0.07)
+    reason = str(result.get("reason") or "")
+    label = str(result.get("label") or "")
+    ok = bool(result.get("ok")) and bool(label or abs(score) >= 0.5 or risk >= 0.5)
+    return score, ok, uncertainty, risk, reason, label
+
+
 def _macro_event_risk(price: PriceFrame) -> Tuple[float, List[str]]:
     macro = (price.context or {}).get("macro")
     earnings_days = None
@@ -599,6 +632,13 @@ def build_quantum_evidence(
         }
         reasons = [value for value in (fundamental_reason, overnight_reason) if value]
 
+    analyst, analyst_ok, analyst_uncertainty, analyst_risk_points, analyst_reason, analyst_label = _analyst_event_family(
+        price, news_items, trend_score, intraday_score
+    )
+    families["analyst_event"] = (analyst, 0.052 if market == "TW" else 0.048, analyst_ok)
+    if analyst_reason:
+        reasons.append(analyst_reason)
+
     geo, geo_ok, geo_uncertainty, geo_risk_points, geo_reason, geo_labels = _geo_policy_family(
         price, signals, news_items, profile, overnight, overnight_ok
     )
@@ -607,17 +647,21 @@ def build_quantum_evidence(
         reasons.append(geo_reason)
 
     macro_uncertainty, macro_risk_factors = _macro_event_risk(price)
-    uncertainty = _clamp(macro_uncertainty + geo_uncertainty, 0.0, 0.30)
+    uncertainty = _clamp(macro_uncertainty + geo_uncertainty + analyst_uncertainty, 0.0, 0.30)
     risk_contributions: Dict[str, float] = {}
     if macro_risk_factors and macro_uncertainty > 0:
         risk_contributions[str(macro_risk_factors[0])] = round(macro_uncertainty * 100.0, 3)
     if geo_risk_points > 0:
         geo_label = geo_labels[0] if geo_labels else "Policy/Geo"
         risk_contributions[f"地緣 {geo_label}"] = round(geo_risk_points, 3)
+    if analyst_risk_points > 0:
+        risk_contributions[f"評等事件 {analyst_label or '目標價待驗證'}"] = round(analyst_risk_points, 3)
     risk_factors = list(risk_contributions.keys())
     family_components: Dict[str, Dict[str, float]] = {}
     if overnight_components:
         family_components["overnight"] = overnight_components
+    if analyst_ok and abs(analyst) >= 0.001:
+        family_components["analyst_event"] = {"評等/目標價背離": analyst}
     return QuantumEvidence(
         profile=profile,
         families=families,
@@ -627,65 +671,3 @@ def build_quantum_evidence(
         risk_factors=risk_factors,
         risk_contributions=risk_contributions,
     )
-
-
-def dynamic_family_multiplier(
-    family: str,
-    *,
-    market_status: str,
-    profile: str,
-    fundamental_event_available: bool,
-    geo_available: bool,
-) -> float:
-    status = str(market_status or "")
-    multiplier = 1.0
-    if status in {"pre_market", "after_hours", "closed_reference", "after_close"}:
-        if family == "overnight":
-            multiplier *= 1.35
-        if family == "intraday":
-            multiplier *= 0.70
-    elif status in {"intraday", "close_confirm"}:
-        if family == "intraday":
-            multiplier *= 1.20
-        if family == "overnight":
-            multiplier *= 0.82
-    if profile in {"memory", "semiconductor"} and family == "overnight":
-        multiplier *= 1.18
-    if fundamental_event_available:
-        if family == "fundamental_event":
-            multiplier *= 1.28
-        if family == "news":
-            multiplier *= 0.55
-    if geo_available and family == "news":
-        multiplier *= 0.65
-    return multiplier
-
-
-def entanglement_adjustment(scores: Mapping[str, float], market: str) -> Tuple[float, List[str]]:
-    """Add bounded same-direction confirmations; never clone a single family."""
-    pairs = (
-        (
-            ("fundamental_event", "overnight", 7.0),
-            ("flow", "trend", 5.0),
-            ("leverage", "intraday", 4.0),
-            ("geo_policy", "overnight", 4.5),
-            ("foreign_pressure", "flow", 2.5),
-        )
-        if str(market).upper() == "TW"
-        else (
-            ("fundamental_event", "overnight", 7.5),
-            ("short", "trend", 3.0),
-            ("geo_policy", "overnight", 4.5),
-        )
-    )
-    total = 0.0
-    reasons: List[str] = []
-    for left, right, cap in pairs:
-        a = _num(scores.get(left), 0.0)
-        b = _num(scores.get(right), 0.0)
-        if abs(a) < 10.0 or abs(b) < 10.0 or a * b <= 0:
-            continue
-        strength = min(abs(a), abs(b)) / 100.0
-        total += math.copysign(cap * strength, a)
-        reasons.append(f"{left}×{right}")
-    return _clamp(total, -12.0, 12.0), reasons

@@ -97,6 +97,7 @@ def quantum_tactical_overlay(direction: DirectionResult | None) -> Dict[str, obj
     intraday = float(fs.get("intraday", 0.0) or 0.0)
     trend = float(fs.get("trend", 0.0) or 0.0)
     geo = float(fs.get("geo_policy", 0.0) or 0.0)
+    analyst = float(fs.get("analyst_event", 0.0) or 0.0)
     heat = float(fs.get("market_heat", 0.0) or 0.0)
     futures = float(fs.get("futures", 0.0) or 0.0)
     uncertainty = float(getattr(direction, "uncertainty", 0.0) or 0.0)
@@ -112,9 +113,13 @@ def quantum_tactical_overlay(direction: DirectionResult | None) -> Dict[str, obj
         and geo <= -16.0
         and overnight <= -14.0
     )
+    analyst_distribution = bool(
+        analyst <= -14.0
+        and (intraday <= -8.0 or flow <= -8.0 or trend <= -18.0)
+    )
     pause_second = bool(
-        leverage <= -20.0
-        and (flow <= -8.0 or intraday <= -10.0 or trend <= -20.0)
+        (leverage <= -20.0 and (flow <= -8.0 or intraday <= -10.0 or trend <= -20.0))
+        or (analyst <= -24.0 and (intraday <= -10.0 or flow <= -10.0))
     )
     catalyst = abs(fund) >= 16.0
 
@@ -131,6 +136,11 @@ def quantum_tactical_overlay(direction: DirectionResult | None) -> Dict[str, obj
         notes.append("融資升溫，降低試單部位")
     elif leverage >= 15.0:
         notes.append("融資清洗有利籌碼沉澱")
+
+    if analyst_distribution:
+        notes.append("評等/目標價上調後出現價量或法人背離，不追價，先等VWAP與承接確認")
+    elif analyst >= 10.0:
+        notes.append("評等事件已獲價量確認，但只作小幅加分，不以目標價單獨追價")
 
     if fund >= 16.0:
         notes.append("月營收/財報正向催化只計近兩交易日，急拉不追")
@@ -158,4 +168,6 @@ def quantum_tactical_overlay(direction: DirectionResult | None) -> Dict[str, obj
         "overnight": round(overnight, 2),
         "leverage": round(leverage, 2),
         "geo_policy": round(geo, 2),
+        "analyst_event": round(analyst, 2),
+        "analyst_distribution": analyst_distribution,
     }

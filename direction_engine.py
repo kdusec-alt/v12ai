@@ -16,10 +16,10 @@ from statistics import mean
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from models import NewsItem, PriceFrame, SignalPacket
-from quantum_entanglement import (
-    build_quantum_evidence, dynamic_family_multiplier, entanglement_adjustment,
-)
+from quantum_entanglement import build_quantum_evidence
+from quantum_interactions import dynamic_family_multiplier, entanglement_adjustment
 from trend_engine import build_trend_snapshot
+from learning_calibration import bounded_learning_calibration
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,8 @@ class DirectionResult:
     risk_contributions: Dict[str, float] = field(default_factory=dict)
     confidence_adjustments: Dict[str, float] = field(default_factory=dict)
     gate_state: str = ""
+    confidence_components: Dict[str, float] = field(default_factory=dict)
+    learning_calibration: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -342,6 +344,16 @@ def _data_quality(price: PriceFrame, available_count: int) -> float:
         quality -= 0.13
     if bool(meta.get("decision_blocked")):
         quality -= 0.30
+    micro = (price.context or {}).get("market_microstructure")
+    micro = micro if isinstance(micro, Mapping) else {}
+    if bool(micro.get("is_emerging")):
+        quality -= 0.06
+        if int(_num(micro.get("history_count"), 0.0)) < 20:
+            quality -= 0.05
+        if str(micro.get("liquidity") or "") == "薄量":
+            quality -= 0.04
+    if int(_num(micro.get("coverage_score"), 5.0)) <= 2:
+        quality -= 0.04
     quality += min(max(available_count - 3, 0), 3) * 0.025
     return _clamp(quality, 0.20, 0.98)
 
@@ -392,12 +404,12 @@ _FAMILY_LABELS_TW = {
     "flow": "法人", "news": "新聞", "fundamental_event": "月營收",
     "overnight": "跨市場", "leverage": "融資", "market_heat": "市場融資",
     "futures": "外資期貨", "foreign_pressure": "外資匯率",
-    "geo_policy": "政策/地緣", "exhaustion": "過熱/耗竭",
+    "geo_policy": "政策/地緣", "analyst_event": "評等/目標價背離", "exhaustion": "過熱/耗竭",
 }
 _FAMILY_LABELS_US = {
     "trend": "趨勢", "intraday": "盤中結構", "price_action": "價格結構",
     "short": "Short Float", "news": "新聞", "fundamental_event": "財報/guidance",
-    "overnight": "跨市場", "geo_policy": "政策/地緣", "exhaustion": "過熱/耗竭",
+    "overnight": "跨市場", "geo_policy": "政策/地緣", "analyst_event": "評等/目標價背離", "exhaustion": "過熱/耗竭",
 }
 
 
@@ -434,9 +446,11 @@ def build_direction_forecast(
     US -> trend/intraday/price action + sector proxies + fresh earnings/guidance
           catalyst + short-float confirmation.
 
-    Revenue, earnings, policy and geopolitical effects decay by trading session
-    or headline age. Stale events are not allowed to keep pushing tomorrow's
-    direction.
+    Revenue, earnings, policy, geopolitical and analyst target/rating effects
+    decay by trading session or headline age. Stale events are not allowed to
+    keep pushing tomorrow's direction.  A higher target is never bullish by
+    default; it requires price/flow confirmation and can become a bounded
+    distribution-risk signal when the market rejects it.
     """
     signals = list(signals or [])
     news_items = list(news_items or [])
@@ -508,9 +522,15 @@ def build_direction_forecast(
     total_weight = sum(weight for _, weight in valid.values()) or 1.0
     scores = {name: round(_clamp(score, -100.0, 100.0), 4) for name, (score, _) in valid.items()}
     weights = {name: weight / total_weight for name, (_, weight) in valid.items()}
-    base_score = sum(scores[name] * weights[name] for name in scores)
+    raw_family_contributions = {name: scores[name] * weights[name] for name in scores}
+    base_score = sum(raw_family_contributions.values())
     interaction, interaction_reasons = entanglement_adjustment(scores, market)
-    unbounded_raw = base_score + interaction
+    learning_calibration = bounded_learning_calibration(
+        price.ticker.resolved_symbol,
+        raw_family_contributions,
+    )
+    learning_delta_raw = _clamp(_num(learning_calibration.get("delta"), 0.0), -6.0, 6.0)
+    unbounded_raw = base_score + interaction + learning_delta_raw
     raw_score = _clamp(unbounded_raw, -100.0, 100.0)
 
     conflict = _family_conflict(scores, weights)
@@ -525,6 +545,7 @@ def build_direction_forecast(
         for name in scores
     }
     interaction_contribution = interaction * scale * clip_ratio
+    learning_contribution = learning_delta_raw * scale * clip_ratio
 
     # Split only when the child components are mathematically traceable to the
     # parent family.  Their sum plus interaction equals the displayed total.
@@ -547,6 +568,8 @@ def build_direction_forecast(
             factor_contributions[label] = factor_contributions.get(label, 0.0) + contribution
     if abs(interaction_contribution) >= 0.005:
         factor_contributions["糾纏確認"] = interaction_contribution
+    if abs(learning_contribution) >= 0.005:
+        factor_contributions["學習校準"] = learning_contribution
 
     # Contribution Truth Guard: every visible direction component must reconcile
     # to the exact effective direction score.  Any tiny numeric/clip remainder is
@@ -570,6 +593,9 @@ def build_direction_forecast(
         str(name): round(confidence_cut_total * float(value) / risk_total, 3)
         for name, value in risk_contributions.items()
     } if risk_total > 0 else {}
+    learning_confidence_delta = _clamp(_num(learning_calibration.get("confidence_delta"), 0.0), -2.0, 2.0)
+    if abs(learning_confidence_delta) >= 0.005:
+        confidence_adjustments["學習成熟度"] = round(learning_confidence_delta, 3)
     p_up, p_neutral, p_down = _probabilities(effective, quality, conflict, uncertainty)
 
     if p_up >= 0.50 and (p_up - p_down) >= 0.15:
@@ -580,11 +606,15 @@ def build_direction_forecast(
         label = "NEUTRAL"
 
     strength = abs(effective) / 100.0
-    confidence = _clamp(
-        45.0 + 38.0 * strength + 10.0 * (quality - 0.5) - 18.0 * conflict - 28.0 * uncertainty,
-        32.0,
-        88.0,
-    )
+    confidence_components = {
+        "基礎": 45.0,
+        "方向強度": 38.0 * strength,
+        "資料品質": 10.0 * (quality - 0.5),
+        "多空衝突": -18.0 * conflict,
+        "事件不確定性": -28.0 * uncertainty,
+        "學習成熟度": learning_confidence_delta,
+    }
+    confidence = _clamp(sum(confidence_components.values()), 32.0, 88.0)
     expected_move_atr = _clamp(
         (effective / 100.0) * (0.65 + 0.15 * quality) * (1.0 - 0.40 * uncertainty),
         -0.80,
@@ -602,9 +632,18 @@ def build_direction_forecast(
     if quality < 0.60:
         reasons.append("資料品質降權")
 
+    # Round first, then reconcile once more.  This guarantees that the values
+    # persisted in Prediction DNA and rendered in the Quantum row sum to the
+    # exact same two-decimal direction score (not merely the unrounded float).
+    rounded_score = round(effective, 2)
+    rounded_factors = {k: round(v, 3) for k, v in factor_contributions.items()}
+    rounded_residual = round(rounded_score - sum(rounded_factors.values()), 3)
+    if abs(rounded_residual) >= 0.001:
+        rounded_factors["其他因子"] = round(rounded_factors.get("其他因子", 0.0) + rounded_residual, 3)
+
     return DirectionResult(
         label=label,
-        score=round(effective, 2),
+        score=rounded_score,
         p_up=round(p_up, 4),
         p_neutral=round(p_neutral, 4),
         p_down=round(p_down, 4),
@@ -617,12 +656,14 @@ def build_direction_forecast(
         family_weights={k: round(v, 4) for k, v in weights.items()},
         reasons=reasons,
         family_contributions={k: round(v, 3) for k, v in family_contributions.items()},
-        factor_contributions={k: round(v, 3) for k, v in factor_contributions.items()},
+        factor_contributions=rounded_factors,
         interaction_contribution=round(interaction_contribution, 3),
         uncertainty=round(uncertainty, 3),
         risk_factors=list(quantum.risk_factors),
         risk_contributions=risk_contributions,
         confidence_adjustments=confidence_adjustments,
         gate_state=_quantum_gate_state(p_up, p_neutral, p_down),
+        confidence_components={k: round(v, 3) for k, v in confidence_components.items()},
+        learning_calibration=dict(learning_calibration or {}),
     )
 

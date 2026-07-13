@@ -20,6 +20,9 @@ from foreign_flow_predicto import predict_foreign_flow_v2
 from data_sources_tw_yahoo_chip import fetch_yahoo_institutional, fetch_yahoo_margin
 from quantum_market_context import fetch_market_proxy_context
 from macro_event_calendar import build_macro_context
+from tw_market_microstructure import ticker_with_quote_identity, attach_market_microstructure
+from ticker_resolver import EMERGING_CODE_OVERRIDES
+from analyst_event_intelligence import classify_analyst_headline
 TW_SAMPLE = {"6770.TW": dict(open=83.20, high=85.20, low=78.10, last=78.30, previous_close=83.20, volume=86000, vwap=80.53, atr14=5.99), "6586.TWO": dict(open=123.50, high=130.50, low=114.00, last=126.00, previous_close=120.50, volume=4200, vwap=123.50, atr14=9.50), "2454.TW": dict(open=4055.0, high=4145.0, low=4025.0, last=4055.0, previous_close=4100.0, volume=6800, vwap=4075.0, atr14=145.0), "2337.TW": dict(open=158.0, high=161.5, low=154.5, last=156.0, previous_close=159.0, volume=15000, vwap=157.8, atr14=7.3), "2308.TW": dict(open=1815.0, high=1855.0, low=1785.0, last=1810.0, previous_close=1835.0, volume=12200, vwap=1816.7, atr14=65.0), "00919.TW": dict(open=23.25, high=23.35, low=23.10, last=23.18, previous_close=23.22, volume=50000, vwap=23.21, atr14=0.24), "5469.TW": dict(open=90.8, high=94.0, low=90.0, last=91.8, previous_close=87.4, volume=19000, vwap=91.93, atr14=4.2)}
 BULL = ["獲利", "成長", "EPS", "營收", "買超", "創高", "法說", "AI", "訂單", "擴產", "回補", "強勢", "漲"]
 BEAR = ["虧損", "減損", "賣超", "下修", "衰退", "跌", "處置", "警示", "庫存", "法說虧損", "利空"]
@@ -1118,6 +1121,7 @@ def _yahoo_chart_intraday(symbol: str) -> Dict[str, object]:
             "previous_close": prev, "volume": vol, "vwap": float(vwap),
             "price_date": price_date,
             "raw_time": raw_time,
+            "quote_name": str(meta.get("shortName") or meta.get("longName") or "").strip(),
         }
     except Exception as exc:
         return {"accepted": False, "reason": f"chart_error:{type(exc).__name__}"}
@@ -1154,6 +1158,7 @@ def _yahoo_quote_fast(symbol: str) -> Dict[str, object]:
             "vwap": (high + low + float(last)) / 3.0,
             "price_date": price_date,
             "raw_time": raw_time,
+            "quote_name": str(q.get("shortName") or q.get("longName") or "").strip(),
         }
     except Exception as exc:
         return {"accepted": False, "reason": f"quote_error:{type(exc).__name__}"}
@@ -1192,7 +1197,7 @@ def _is_tw_intraday_now(now=None) -> bool:
 # 興櫃價格常比上市/上櫃慢，尤其 YahooChart_1m 可能延遲 10~30 分鐘。
 # 但只要來源回傳的是有效真實價格，就應該「標示延遲參考」而不是 STOP；
 # 仍然禁止 fallback/mock/sample 價格進入正式預測。
-EMERGING_PRICE_CODES = {"6586"}
+EMERGING_PRICE_CODES = set(EMERGING_CODE_OVERRIDES)
 EMERGING_PRICE_GRACE_SECONDS = 45 * 60
 
 
@@ -1217,6 +1222,10 @@ def _apply_emerging_price_grace(candidate: Dict[str, object], symbol: str) -> Di
     out = dict(candidate)
     out["decision_blocked"] = False
     out["emerging_price_grace"] = True
+    # Real but delayed emerging quote may drive a cautious reference card, yet
+    # must not be treated as a verified intraday sample for weight learning.
+    out["limited_price_mode"] = True
+    out["price_verified"] = False
     out["price_status"] = "興櫃延遲參考" if age > 90 else str(out.get("price_status") or "盤中快報")
     hm = str(out.get("source_time_hm") or "--:--")
     out["price_time_label"] = f"價格時間：{hm}｜來源：{src}｜狀態：興櫃延遲參考｜不視為即時"
@@ -1359,6 +1368,7 @@ def _mis_candidate_from_debug(symbol: str, mis_candidate: Dict[str, object]) -> 
         "price_date": str(out.get("price_date") or today_taipei_date()),
         "raw_time": raw_time,
         "mis_debug": dbg,
+        "quote_name": str(out.get("quote_name") or dbg.get("mis_quote_name") or "").strip(),
         "reason": "",
     })
     return _enrich_price_freshness(out)
@@ -1465,6 +1475,7 @@ def fetch_tw_price(ticker: TickerInfo) -> PriceFrame:
 
         # Fetch realtime first; fast quote is source of truth when available.
         fast = _pick_fast_price(ticker.resolved_symbol)
+        ticker = ticker_with_quote_identity(ticker, fast)
 
         hist = yf.Ticker(ticker.resolved_symbol).history(period="6mo", interval="1d", auto_adjust=False, timeout=6)
         if hist is None or hist.empty:
@@ -1486,6 +1497,7 @@ def fetch_tw_price(ticker: TickerInfo) -> PriceFrame:
                     "emerging_price_grace": bool(fast.get("emerging_price_grace")),
                     "mis_debug": fast.get("mis_debug", {}),
                 }
+                context = attach_market_microstructure(context, ticker, history_count=0, volume=vol, is_emerging=_is_emerging_symbol(ticker.resolved_symbol))
                 context = _attach_price_snapshot(context, open_price=open_, high=high, low=low, last=close, previous_close=previous_close, volume=vol, vwap=vwap, price_time=str(fast.get("source_time") or fast.get("source_time_hm") or d), price_source=str(fast.get("source") or "RealtimeQuote"), market_mode=_tw_market_status(d))
                 return PriceFrame(ticker=ticker, truth=make_truth(str(fast.get("source", "RealtimeQuote")), d, False, True, str(fast.get("price_time_label") or "價格快速同步｜日K待補"), "intraday_fast" if not fast.get("stale") else "intraday_delayed"), open=open_, high=high, low=low, last=close, previous_close=previous_close, volume=vol, vwap=vwap, atr14=float(base.get("atr14") or max(close * 0.03, 0.01)), recent_closes=s["closes"], recent_highs=s["highs"], recent_lows=s["lows"], recent_volumes=s["volumes"], price_date=d, market_status=_tw_market_status(d), context=context)
             return _invalid_price(ticker, f"yfinance 無資料；快速報價也未取得｜{fast.get('reason')}", debug={"fast": fast})
@@ -1571,6 +1583,7 @@ def fetch_tw_price(ticker: TickerInfo) -> PriceFrame:
                 "price_verified": not limited_daily,
                 "mis_debug": fast.get("mis_debug", {}) if isinstance(fast, dict) else {},
             }
+        context = attach_market_microstructure(context, ticker, history_count=len(closes), volume=vol, is_emerging=_is_emerging_symbol(ticker.resolved_symbol))
         context = _attach_price_snapshot(context, open_price=open_, high=high, low=low, last=close, previous_close=previous_close, volume=vol, vwap=vwap, price_time=str((fast.get("source_time") if isinstance(fast, dict) else None) or (fast.get("source_time_hm") if isinstance(fast, dict) else None) or price_date), price_source=str(source_name), market_mode=_tw_market_status(price_date))
         return PriceFrame(
             ticker=ticker,
@@ -1584,6 +1597,10 @@ def fetch_tw_price(ticker: TickerInfo) -> PriceFrame:
         return _invalid_price(ticker, f"資料源錯誤：{type(exc).__name__}；不使用樣本價格")
 def _score_news(title: str) -> Tuple[float, str]:
     t = str(title or "").lower()
+    _, analyst_action = classify_analyst_headline(t)
+    # Dedicated analyst engine combines target changes with VWAP/flow; no generic News double count.
+    if analyst_action:
+        return 0.0, f"analyst_target_{analyst_action}"
     pos = sum(1 for k in BULL if k.lower() in t)
     neg = sum(1 for k in BEAR if k.lower() in t)
     score = round((pos - neg) * 0.06, 3)
@@ -1649,6 +1666,7 @@ def _tw_news_ttl_days(title: str = "", query: str = "") -> int:
     finance_terms = [
         "法說", "財報", "營收", "eps", "獲利", "毛利", "財測", "展望",
         "guidance", "earnings", "revenue", "conference", "q1", "q2", "q3", "q4",
+        "目標價", "升評", "降評", "rating", "price target",
     ]
     if any(k.lower() in text for k in macro_geo_terms):
         return 14
@@ -1757,11 +1775,7 @@ def fetch_tw_news(ticker: TickerInfo) -> List[NewsItem]:
     for item in _global_tw_macro_geo_news()[:6]:
         _add(item)
 
-    queries = [
-        f"{ticker.name} {_code(ticker.resolved_symbol)} 股票",
-        f"{ticker.name} 法說 EPS 營收",
-        f"{ticker.name} AI 半導體",
-    ]
+    queries = [f"{ticker.name} {_code(ticker.resolved_symbol)} 股票", f"{ticker.name} 法說 EPS 營收", f"{ticker.name} (大摩 OR 小摩 OR 摩根士丹利 OR 摩根大通 OR 目標價 OR 升評)"]
     for query in queries:
         for item in _google_news(query, 8):
             _add(item)

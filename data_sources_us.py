@@ -16,6 +16,7 @@ import time
 
 
 from models import PriceFrame, TickerInfo, NewsItem
+from analyst_event_intelligence import classify_analyst_headline
 from truth_guard import make_truth, parse_date_safe
 from quantum_market_context import fetch_market_proxy_context
 from macro_event_calendar import build_macro_context
@@ -530,7 +531,6 @@ _US_AI_SEMI_TERMS = [
 ]
 _US_EARNINGS_TERMS = ["earnings", "revenue", "guidance", "q1", "q2", "q3", "q4", "quarter", "outlook"]
 
-
 def _us_company_base_name(ticker: TickerInfo) -> str:
     sym = str(ticker.resolved_symbol or ticker.symbol or "").upper()
     info = US_PUBLIC_MEMORY.get(sym, {})
@@ -552,10 +552,18 @@ def _us_news_profile_queries(ticker: TickerInfo) -> List[Tuple[str, str, int]]:
     # Keep query count bounded for speed. Company / industry news is fetched
     # after Daily Headline so global market weather never gets starved by a
     # very active ticker such as MU/NVDA.
-    company = prof.get("company") or [f"{base} earnings", f"{base} stock", f"{base} guidance"]
+    company = list(prof.get("company") or [f"{base} earnings", f"{base} stock", f"{base} guidance"])
     industry = prof.get("industry") or []
     peers = prof.get("peers") or []
-    for q in company[:3]:
+    analyst_query = f"{base} price target Morgan Stanley JPMorgan analyst rating"
+    # Keep only three company calls for speed: two operating/company routes plus
+    # one dedicated analyst route so target changes cannot be starved.
+    company_queries = company[:2]
+    if not any("price target" in str(q).lower() or "analyst" in str(q).lower() for q in company_queries):
+        company_queries.append(analyst_query)
+    else:
+        company_queries.extend(company[2:3])
+    for q in company_queries[:3]:
         queries.append((q, "company", 3))
     for q in industry[:2]:
         queries.append((q, "industry", 2))
@@ -622,6 +630,10 @@ def _score_us_news(title: str, bucket: str = "company") -> Tuple[float, str]:
     """
     text = str(title or "").lower()
     score = 0.0
+    _, analyst_action = classify_analyst_headline(text)
+    # Target/rating changes enter the dedicated price/flow confirmation engine.
+    if bucket != "daily" and analyst_action:
+        return 0.0, f"us_company_analyst_target_{analyst_action}"
     pos = sum(1 for k in _US_BULL_TERMS if k.lower() in text)
     neg = sum(1 for k in _US_BEAR_TERMS if k.lower() in text)
     ai_semi = sum(1 for k in _US_AI_SEMI_TERMS if k.lower() in text)
