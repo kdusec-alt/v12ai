@@ -36,7 +36,11 @@ def _price_usable(frame: PriceFrame | None) -> bool:
 
 
 def _fetch_by_ticker(ticker: TickerInfo) -> PriceFrame:
-    if ticker.asset_type == "etf":
+    # Taiwan ETFs keep the dedicated TW route.  US ETFs must stay on the US
+    # pipeline because their quote/news/fund metadata are not compatible with
+    # TWSE/TPEX sources.  Asset type may be upgraded dynamically after Yahoo
+    # metadata is read, so this branch must remain market-aware.
+    if ticker.market == "TW" and ticker.asset_type == "etf":
         return fetch_etf_price(ticker)
     if ticker.market == "TW":
         return fetch_tw_price(ticker)
@@ -74,7 +78,7 @@ def fetch_price(raw_ticker: str) -> PriceFrame:
 def fetch_news(raw_ticker: str) -> List[NewsItem]:
     key = _cache_key(raw_ticker)
     ticker = _RESOLVED_ROUTE_CACHE.get(key) or resolve_ticker(raw_ticker)
-    if ticker.asset_type == "etf":
+    if ticker.market == "TW" and ticker.asset_type == "etf":
         return fetch_etf_news(ticker)
     if ticker.market == "TW":
         return fetch_tw_news(ticker)

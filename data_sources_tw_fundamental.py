@@ -642,6 +642,41 @@ def _run_sources_fast(symbol: str, price_date: str) -> List[Dict[str, object]]:
     return results
 
 
+
+def _enrich_same_month_growth(primary: Dict[str, object], records: List[Dict[str, object]]) -> Dict[str, object]:
+    """Fill missing TW monthly growth fields from the same revenue month only.
+
+    Revenue amount and growth percentages sometimes arrive from different public
+    endpoints.  Mixing months would create a false acceleration signal, so this
+    helper only coalesces accepted rows with an identical normalized month and
+    records every contributing source.
+    """
+    out = dict(primary or {})
+    month = _normalize_month_text(out.get("month"))
+    if not month:
+        return out
+    same = [
+        row for row in records
+        if isinstance(row, dict)
+        and row.get("accepted")
+        and _normalize_month_text(row.get("month")) == month
+    ]
+    same = sorted(same, key=lambda row: _source_rank(str(row.get("source"))))
+    used = []
+    for key in ("mom", "yoy", "accum_revenue", "accum_revenue_billion", "accum_yoy"):
+        if out.get(key) not in (None, "", "NA", "--"):
+            continue
+        for row in same:
+            value = row.get(key)
+            if value not in (None, "", "NA", "--"):
+                out[key] = value
+                used.append(str(row.get("source") or ""))
+                break
+    if used:
+        existing = [x for x in str(out.get("growth_sources") or "").split(",") if x]
+        out["growth_sources"] = ",".join(dict.fromkeys(existing + used))
+    return out
+
 def fetch_tw_fundamental_crosscheck(symbol: str, price_date: str) -> Dict[str, object]:
     if os.environ.get("TINO_OFFLINE_TEST") == "1":
         return {"accepted": False, "source": "TW_FUNDAMENTAL_OFFLINE", "reason": "offline"}
@@ -655,7 +690,7 @@ def fetch_tw_fundamental_crosscheck(symbol: str, price_date: str) -> Dict[str, o
     primary, status, model_ok, quality = _choose_revenue_record(source_results, price_date)
     raw_sources = [str(x.get("source")) for x in source_results if x.get("accepted")]
     eps_meta = _eps_freshness(eps.get("eps_date", ""), price_date) if eps.get("accepted") else {"eps_quarter": "最近季", "eps_stale": True, "eps_usable": False, "eps_age_days": None}
-    primary = primary or {}
+    primary = _enrich_same_month_growth(primary or {}, source_results)
     announcement_date = str(primary.get("announcement_date") or "")[:10]
     if not announcement_date:
         primary_month = str(primary.get("month") or "")
@@ -673,9 +708,16 @@ def fetch_tw_fundamental_crosscheck(symbol: str, price_date: str) -> Dict[str, o
         "revenue": primary.get("revenue", ""),
         "revenue_billion": primary.get("revenue_billion"),
         "mom": primary.get("mom", ""),
+        "monthly_mom": primary.get("mom", ""),
+        "mom_verified": bool(model_ok and primary.get("mom") not in (None, "", "NA", "--")),
         "yoy": primary.get("yoy", ""),
+        "revenue_yoy": primary.get("yoy", ""),
+        "yoy_verified": bool(model_ok and primary.get("yoy") not in (None, "", "NA", "--")),
         "accum_revenue": primary.get("accum_revenue", ""),
         "accum_yoy": primary.get("accum_yoy", ""),
+        "accum_yoy_verified": bool(model_ok and primary.get("accum_yoy") not in (None, "", "NA", "--")),
+        "growth_metrics_eligible": bool(model_ok and not primary.get("month_anchor_risk")),
+        "growth_sources": primary.get("growth_sources", ""),
         "revenue_status": status,
         "revenue_source": primary.get("source") or "TW_FUNDAMENTAL_MULTI_SOURCE_PENDING",
         "source": primary.get("source") or "TW_FUNDAMENTAL_MULTI_SOURCE_PENDING",
@@ -694,6 +736,12 @@ def fetch_tw_fundamental_crosscheck(symbol: str, price_date: str) -> Dict[str, o
         "eps_usable": bool(eps_meta.get("eps_usable")),
         "eps_age_days": eps_meta.get("eps_age_days"),
         "fund_latency_sec": round(time.time() - t0, 2),
+        "growth_accelerating": bool(
+            model_ok
+            and _safe_float(primary.get("yoy")) is not None
+            and _safe_float(primary.get("accum_yoy")) is not None
+            and float(_safe_float(primary.get("accum_yoy"), 0.0)) > float(_safe_float(primary.get("yoy"), 0.0)) + 5.0
+        ),
         "reason": "月營收來源：" + (",".join(raw_sources) if raw_sources else "無") + ("｜EPS FinMind" if eps.get("accepted") else "｜EPS待同步"),
     }
     return _cache_put(cache_key, out)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta, datetime, time as dtime
+from dataclasses import replace
 import os
 import re
 from typing import List, Dict, Tuple
@@ -24,7 +25,7 @@ except Exception:
         return "", ""
 from truth_guard import make_truth, parse_date_safe
 from quantum_market_context import fetch_market_proxy_context
-from fundamental_growth_guard import fetch_us_quarterly_metrics, build_us_fundamental_context
+from fundamental_growth_guard import fetch_us_quarterly_metrics, build_us_fundamental_context, detect_us_asset_type
 try:
     from macro_event_calendar import build_macro_context
 except Exception:
@@ -179,9 +180,12 @@ def _get_us_info(symbol: str) -> Dict[str, object]:
         except Exception:
             info = {}
     info = _merge_public_memory(symbol, info)
-    quarterly = fetch_us_quarterly_metrics(symbol)
-    if quarterly:
-        info['_quarterly_metrics'] = quarterly
+    # ETFs do not have one-company quarterly revenue/EPS.  Skip the extra
+    # fundamentals request entirely to keep the universal route lightweight.
+    if detect_us_asset_type(info) != "etf":
+        quarterly = fetch_us_quarterly_metrics(symbol)
+        if quarterly:
+            info['_quarterly_metrics'] = quarterly
     return info
 
 def _fetch_finviz_short(symbol: str) -> Dict[str, object]:
@@ -386,6 +390,27 @@ def _fetch_us_extended_quote(symbol: str, previous_close: float, status: str) ->
         out["error"] = type(exc).__name__
     return out
 
+def _resolved_us_ticker(ticker: TickerInfo, info: Dict[str, object]) -> TickerInfo:
+    """Resolve stock/ETF from metadata without any ticker-specific list."""
+    asset_type = detect_us_asset_type(info)
+    name = str(info.get("longName") or info.get("shortName") or ticker.name or ticker.resolved_symbol)
+    exchange = str(info.get("fullExchangeName") or info.get("exchange") or ticker.exchange or "US")
+    try:
+        return replace(ticker, asset_type=asset_type, name=name, exchange=exchange)
+    except Exception:
+        return ticker
+
+
+def _us_etf_persona(ticker: TickerInfo, info: Dict[str, object]) -> Dict[str, str]:
+    category = str(info.get("category") or info.get("legalType") or "ETF")
+    return {
+        "badge": "ETF / 資產組合｜以價格熱度、成分與市場風險驗證",
+        "label": f"ETF / {category}",
+        "bias": "ETF熱度觀察｜不套單一公司EPS/PE",
+        "chip": "ETF不套單一公司財報；泡沫雷達僅使用價格熱度、事件預期與市場風險。",
+    }
+
+
 def _fallback_price(ticker: TickerInfo, reason: str) -> PriceFrame:
     b = US_SAMPLE.get(ticker.resolved_symbol, dict(open=50, high=52, low=48, last=50, previous_close=50, volume=1000000, vwap=50, atr14=2.5))
     last = b["last"]
@@ -395,17 +420,28 @@ def _fallback_price(ticker: TickerInfo, reason: str) -> PriceFrame:
     vols = [b["volume"] * (0.7 + i/140) for i in range(60,0,-1)]
     closes[-1] = b["last"]; highs[-1] = b["high"]; lows[-1] = b["low"]; vols[-1] = b["volume"]
     d = (date.today() - timedelta(days=1)).isoformat()
-    info=_get_us_info(ticker.resolved_symbol)
-    short=_us_short_context(ticker.resolved_symbol, info, b["last"], b["low"], b["high"], b["atr14"])
-    short["date"]=d
-    persona=_sector_persona(ticker.resolved_symbol, info)
-    ctx={"macro":_us_macro_context(d),"short":short,"persona":persona,"fundamental":_us_fundamental_context(ticker.resolved_symbol, info, d),"inst":{"accepted":False,"source":"US","date":d},"margin":{"accepted":False,"source":"US","date":d}}
+    info = _get_us_info(ticker.resolved_symbol)
+    ticker = _resolved_us_ticker(ticker, info)
+    is_etf = ticker.asset_type == "etf"
+    short = {"accepted": False, "source": "US_ETF", "date": d} if is_etf else _us_short_context(ticker.resolved_symbol, info, b["last"], b["low"], b["high"], b["atr14"])
+    short["date"] = d
+    persona = _us_etf_persona(ticker, info) if is_etf else _sector_persona(ticker.resolved_symbol, info)
+    ctx = {
+        "macro": _us_macro_context(d),
+        "short": short,
+        "persona": persona,
+        "fundamental": _us_fundamental_context(ticker.resolved_symbol, info, d, ticker.asset_type),
+        "inst": {"accepted": False, "source": "US", "date": d},
+        "margin": {"accepted": False, "source": "US", "date": d},
+    }
+    if is_etf:
+        ctx["etf_mode"] = True
+        ctx["distribution"] = "ETF Mode：價格熱度 / 成分 / 流動性 / 市場風險"
     return PriceFrame(ticker, make_truth("US_PRICE_SAMPLE", d, True, True, reason, "fallback_reference"), b["open"], b["high"], b["low"], b["last"], b["previous_close"], b["volume"], b["vwap"], b["atr14"], closes, highs, lows, vols, d, _us_market_status_now(), ctx)
 
 
-
-def _us_fundamental_context(symbol: str, info: Dict[str, object], price_date: str) -> Dict[str, object]:
-    return build_us_fundamental_context(info, price_date)
+def _us_fundamental_context(symbol: str, info: Dict[str, object], price_date: str, asset_type: str = "stock") -> Dict[str, object]:
+    return build_us_fundamental_context(info, price_date, asset_type=asset_type)
 
 def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
     if os.environ.get("TINO_OFFLINE_TEST") == "1":
@@ -432,7 +468,9 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
         atr = float(tr.rolling(14).mean().iloc[-1]) if len(tr) >= 14 else max(regular_close*0.04, .01)
         d = parse_date_safe(hist.index[-1].date().isoformat())
         info = _get_us_info(ticker.resolved_symbol)
-        short = _us_short_context(ticker.resolved_symbol, info, live_last, live_low, live_high, atr)
+        ticker = _resolved_us_ticker(ticker, info)
+        is_etf = ticker.asset_type == "etf"
+        short = {"accepted": False, "source": "US_ETF", "date": d} if is_etf else _us_short_context(ticker.resolved_symbol, info, live_last, live_low, live_high, atr)
         short["date"] = d
         price_meta = {
             "label": ext.get("timestamp") or "",
@@ -446,13 +484,16 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
         ctx = {
             "macro": _us_macro_context(d),
             "short": short,
-            "persona": _sector_persona(ticker.resolved_symbol, info),
-            "fundamental": _us_fundamental_context(ticker.resolved_symbol, info, d),
+            "persona": _us_etf_persona(ticker, info) if is_etf else _sector_persona(ticker.resolved_symbol, info),
+            "fundamental": _us_fundamental_context(ticker.resolved_symbol, info, d, ticker.asset_type),
             "inst": {"accepted":False,"source":"US","date":d},
             "margin": {"accepted":False,"source":"US","date":d},
             "us_session": ext,
             "price_meta": price_meta,
         }
+        if is_etf:
+            ctx["etf_mode"] = True
+            ctx["distribution"] = "ETF Mode：價格熱度 / 成分 / 流動性 / 市場風險"
         truth_source = "YahooFinance_1m_PrePost" if ext.get("accepted") else "YahooFinance"
         truth_reason = f"{_us_session_label(status)}價格快照｜正式日K保留" if ext.get("accepted") else "價格最新｜日K"
         return PriceFrame(ticker, make_truth(truth_source, d, False, True, truth_reason, "latest"), float(last["Open"]), live_high, live_low, live_last, previous_close, live_volume, live_vwap, atr, [float(x) for x in hist["Close"].tail(60)], [float(x) for x in hist["High"].tail(60)], [float(x) for x in hist["Low"].tail(60)], [float(x) for x in hist["Volume"].tail(60)], d, status, ctx)

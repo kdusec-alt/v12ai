@@ -929,6 +929,8 @@ def _us_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None =
         return f"Company News｜{price.ticker.resolved_symbol}｜{level}｜英文新聞 {len(use)}則｜{themes}｜{tone}｜{top}"
     return f"Company News｜{price.ticker.resolved_symbol}｜英文新聞查詢中｜先看 Macro Core / VWAP / 財報"
 def _us_fundamental_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
+    if str(getattr(price.ticker, 'asset_type', 'stock') or 'stock').lower() == 'etf':
+        return "ETF Mode｜不套單一公司 EPS / PE｜泡沫雷達改看價格熱度、事件預期與市場風險"
     f=price.context.get('fundamental',{}) or {}
     if f.get('accepted'):
         eps=f.get('eps'); rev=f.get('revenue'); qoq=f.get('qoq'); yoy=f.get('revenue_yoy', f.get('yoy')); pe=f.get('pe')
@@ -948,26 +950,39 @@ def _us_fundamental_line(price: PriceFrame, news_items: List[NewsItem] | None = 
         if rev is not None:
             rev_label = "營收(季)" if f.get('revenue_kind') == 'quarterly' else "營收(TTM)"
             parts.append(f"{rev_label} {_us_money(rev)}")
-        # QoQ is displayed only when it comes from an actual sequential-quarter
-        # revenue series.  Yahoo earningsQuarterlyGrowth is 獲利YoY, not QoQ.
         if qoq is not None and f.get('qoq_verified'):
             parts.append(f"營收QoQ {float(qoq):+.2f}%")
         if yoy is not None and f.get('yoy_verified', True):
             parts.append(f"營收YoY {float(yoy):+.2f}%")
         if eps is not None:
-            eps_label = "EPS(季)" if f.get('eps_kind') == 'quarterly' else "EPS(TTM)"
+            basis = str(f.get('eps_basis') or '')
+            if basis == 'normalized_diluted':
+                eps_label = "可比EPS(季)"
+            elif f.get('eps_kind') == 'quarterly':
+                eps_label = "GAAP EPS(季)"
+            else:
+                eps_label = "GAAP EPS(TTM)"
             parts.append(f"{eps_label} {float(eps):.2f}")
+            gaap_eps = f.get('gaap_eps')
+            if basis == 'normalized_diluted' and gaap_eps is not None and abs(float(gaap_eps) - float(eps)) > 0.005:
+                parts.append(f"GAAP EPS(季) {float(gaap_eps):.2f}")
         if eps_yoy is not None and f.get('eps_yoy_verified', True):
-            parts.append(f"獲利YoY {float(eps_yoy):+.2f}%")
+            eps_yoy_label = str(f.get('eps_yoy_label') or 'GAAP EPS YoY')
+            suffix = "（僅揭露/不計泡沫Decision）" if not f.get('eps_yoy_decision_eligible', False) else ""
+            parts.append(f"{eps_yoy_label} {float(eps_yoy):+.2f}%{suffix}")
         if pe is not None: parts.append(f"PE {float(pe):.2f}")
+        if f.get('forward_pe') is not None: parts.append(f"Forward PE {float(f.get('forward_pe')):.2f}")
+        if f.get('ps') is not None: parts.append(f"PS {float(f.get('ps')):.2f}")
         if nxt: parts.append(f"下次財報 {nxt}")
         if days is not None: parts.append(f"財報倒數 {days}天")
         if not f.get('qoq_verified'):
             parts.append("QoQ未取得正式季度序列，不計分")
-        parts.append("財報語意｜AI / 記憶體 / 供應鏈敘事｜來源 YahooFinanceRSS")
+        source = str(f.get('source') or 'YahooFinance')
+        parts.append(f"財報語意｜AI / 記憶體 / 供應鏈敘事｜來源 {source}")
         return "｜".join([x for x in parts if x not in ('', None)])
     news=_news_summary(news_items or [])
     return f"月營收：美股不適用｜財報/營收｜Yahoo/Finviz 財報欄位回補中｜新聞事件 {news.get('count',0)}則"
+
 def _us_macro_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
     # RC24: Macro Core is fixed evidence, never hidden by empty company-news results.
     return _us_macro_core_line(price)
