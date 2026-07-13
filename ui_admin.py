@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import gc
 import hmac
 import os
 import html
@@ -145,6 +146,105 @@ def _file_status_rows() -> List[Dict[str, Any]]:
     return rows
 
 
+def _run_admin_auto_audit_maintenance(st) -> None:
+    """Run a tiny close-time audit once per market/date in this Admin session.
+
+    This intentionally has no worker, timer, pandas object or full-log cache.
+    Before market close it performs only a clock check.  After close it scans a
+    bounded JSONL tail and audits at most three tickers for the due market.
+    Any failure is isolated to this sidebar status and can never take down the
+    main Streamlit application.
+    """
+    attempted = st.session_state.get("tino_admin_auto_audit_attempted")
+    if not isinstance(attempted, dict):
+        attempted = {}
+        st.session_state["tino_admin_auto_audit_attempted"] = attempted
+
+    try:
+        from auto_audit_scheduler import (
+            execute_due_auto_audit_once,
+            maybe_run_auto_audit_time_guard,
+        )
+
+        guard = maybe_run_auto_audit_time_guard(markets=["TW", "US"], execute=False)
+        due_markets: List[str] = []
+        due_keys: Dict[str, str] = {}
+        for market, meta in (guard.get("markets") or {}).items():
+            if not isinstance(meta, dict) or not bool(meta.get("ready")):
+                continue
+            trade_date = str(meta.get("trade_date") or "")
+            key = f"{market}:{trade_date}"
+            due_keys[str(market)] = key
+            if not attempted.get(key):
+                due_markets.append(str(market))
+
+        if due_markets:
+            st.sidebar.info("Learning 維護中：收盤後安全小批次…")
+            result = execute_due_auto_audit_once(
+                markets=due_markets,
+                max_tickers_per_market=3,
+                scan_limit=300,
+                apply_safe_learning=True,
+            )
+
+            market_rows = result.get("markets") or {}
+            audited = 0
+            pending = 0
+            errors = 0
+            statuses: List[str] = []
+            for market in due_markets:
+                row = market_rows.get(market) if isinstance(market_rows, dict) else {}
+                row = row if isinstance(row, dict) else {}
+                status = str(row.get("status") or result.get("status") or "unknown")
+                statuses.append(f"{market}:{status}")
+                audited += int(row.get("audited_t1") or 0) + int(row.get("audited_today") or 0)
+                pending += int(row.get("pending_t1") or 0) + int(row.get("pending_today") or 0)
+                errors += int(row.get("errors") or 0)
+                # Busy is transient; allow the next rerun to retry. Every other
+                # result is marked once for this Admin browser session.
+                if status != "busy":
+                    attempted[due_keys.get(market, market)] = status
+
+            st.session_state["tino_admin_auto_audit_summary"] = {
+                "markets": ", ".join(statuses),
+                "audited": audited,
+                "pending": pending,
+                "errors": errors,
+                "attempt_at_tw": str(result.get("attempt_at_tw") or guard.get("attempt_at_tw") or ""),
+            }
+            # Do not retain actual-price snapshots or Prediction DNA rows in
+            # session_state after the batch has completed.
+            del market_rows
+            del result
+            gc.collect()
+
+        summary = st.session_state.get("tino_admin_auto_audit_summary")
+        if isinstance(summary, dict) and summary:
+            audited = int(summary.get("audited") or 0)
+            errors = int(summary.get("errors") or 0)
+            markets = str(summary.get("markets") or "")
+            if errors:
+                st.sidebar.warning(f"Auto Audit 已安全完成｜新增 {audited}｜錯誤 {errors}｜{markets}")
+            elif audited:
+                st.sidebar.success(f"Auto Audit 完成｜新增 {audited} 筆｜{markets}")
+            else:
+                st.sidebar.caption(f"Auto Audit：目前無新增樣本｜{markets}")
+        else:
+            st.sidebar.caption("Auto Audit：登入後僅於收盤時段檢查；每市場最多3檔。")
+    except Exception as exc:
+        # Remember only a short scalar error. Never keep tracebacks or payloads
+        # in session_state, and never let maintenance crash the application.
+        st.session_state["tino_admin_auto_audit_summary"] = {
+            "markets": "",
+            "audited": 0,
+            "pending": 0,
+            "errors": 1,
+            "attempt_at_tw": "",
+        }
+        st.sidebar.warning(f"Auto Audit 維護暫緩：{type(exc).__name__}")
+        gc.collect()
+
+
 def _learning_panel(st, forecast):
     """RC3.3 light Auto-Learning panel.
 
@@ -259,6 +359,8 @@ def render_admin(st, forecast):
     authed = _admin_gate(st)
     if not authed:
         return "neutral", False, True, False
+
+    _run_admin_auto_audit_maintenance(st)
 
     macro = st.sidebar.selectbox("Macro 手動偏壓", ["neutral", "bullish", "bearish"], index=0)
     auto = st.sidebar.checkbox("Auto Analyze", value=False, help="預設關閉，避免開頁就抓外部資料。")

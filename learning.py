@@ -703,12 +703,32 @@ def audit_latest_prediction_for_ticker(ticker: str, actual_close: float, target:
     return audit_prediction_row(rows[-1], actual_close, source="manual_admin", target=target)
 
 # === TINO V12 Hotfix: Query Ledger Auto Audit ===
-def _audit_exists(prediction_id: str, target: str) -> bool:
+def _audit_id_set(limit: int = 1200) -> set[str]:
+    """Read the bounded audit tail once and keep only compact IDs.
+
+    The previous pending scan reopened and reparsed the audit JSONL once per
+    prediction row.  On a long-lived Streamlit process that created avoidable
+    I/O and temporary Python objects.  One compact set keeps memory stable and
+    makes duplicate checks O(1).
+    """
+    try:
+        bounded = max(100, min(int(limit), 2000))
+    except Exception:
+        bounded = 1200
+    return {
+        str(row.get("audit_id") or "")
+        for row in read_audit_log(bounded)
+        if isinstance(row, dict) and row.get("audit_id")
+    }
+
+
+def _audit_exists(prediction_id: str, target: str, audit_ids: Optional[set[str]] = None) -> bool:
     audit_id = f"{prediction_id}:{target}"
-    for old in read_audit_log(1200):
-        if old.get("audit_id") == audit_id:
-            return True
-    return False
+    if audit_ids is not None:
+        return audit_id in audit_ids
+    return audit_id in _audit_id_set(1200)
+
+
 def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] = None, trade_date: Optional[str] = None) -> Dict[str, Any]:
     """Summarize snapshots created by normal Analyze that can be audited later.
     Every Analyze already writes a prediction snapshot through app.py/log_prediction.
@@ -716,6 +736,7 @@ def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] =
     """
     today = str(trade_date or _audit_trade_date(market_filter))
     preds = read_prediction_log(limit)
+    audit_ids = _audit_id_set(max(1200, int(limit or 0)))
     t1_pending = []
     today_pending = []
     seen_t1 = set()
@@ -725,7 +746,7 @@ def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] =
         ticker = str(r.get("ticker") or "")
         if not pid or not ticker or not _market_matches(r, market_filter):
             continue
-        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None and not _audit_exists(pid, "next"):
+        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None and not _audit_exists(pid, "next", audit_ids):
             k = (ticker, str(r.get("target_trade_date") or ""), pid)
             if k not in seen_t1:
                 t1_pending.append(r); seen_t1.add(k)
@@ -739,7 +760,7 @@ def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] =
             today_target == today
             and str(r.get("session_mode") or "") == "intraday"
             and r.get("today_close_est") is not None
-            and not _audit_exists(pid, "today")
+            and not _audit_exists(pid, "today", audit_ids)
         ):
             k = (ticker, today_target, pid)
             if k not in seen_today:
@@ -763,6 +784,7 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
     """
     today = str(trade_date or _audit_trade_date(market_filter))
     preds = read_prediction_log(limit)
+    audit_ids = _audit_id_set(max(1200, int(limit or 0)))
     # keep the latest row per ticker/target/session bucket to avoid over-fetching
     t1_rows: Dict[str, Dict[str, Any]] = {}
     today_rows: Dict[str, Dict[str, Any]] = {}
@@ -771,7 +793,7 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
         ticker = str(r.get("ticker") or "")
         if not pid or not ticker or not _market_matches(r, market_filter):
             continue
-        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None and not _audit_exists(pid, "next"):
+        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None and not _audit_exists(pid, "next", audit_ids):
             # newest prediction for the same ticker/target date wins
             key = f"{ticker}|{r.get('target_trade_date')}"
             t1_rows[key] = r
@@ -785,7 +807,7 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
             today_target == today
             and str(r.get("session_mode") or "") == "intraday"
             and r.get("today_close_est") is not None
-            and not _audit_exists(pid, "today")
+            and not _audit_exists(pid, "today", audit_ids)
         ):
             key = f"{ticker}|{today_target}"
             today_rows[key] = r

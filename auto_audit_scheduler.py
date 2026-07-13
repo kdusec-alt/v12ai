@@ -64,6 +64,7 @@ def execute_due_auto_audit_once(
     *,
     markets: Optional[List[str]] = None,
     max_tickers_per_market: int = 5,
+    scan_limit: int = 800,
     apply_safe_learning: bool = True,
     actual_foreign_billion: Optional[float] = None,
 ) -> Dict[str, Any]:
@@ -74,6 +75,12 @@ def execute_due_auto_audit_once(
     """
     now_tw = _now_tw(now)
     selected = [str(m).upper() for m in (markets or ["TW", "US"]) if str(m).upper() in {"TW", "US"}]
+    # Bound every automatic scan. Prediction DNA rows can be large, so the
+    # Admin-login path deliberately keeps only a small JSONL tail in memory.
+    try:
+        bounded_scan_limit = max(50, min(int(scan_limit), 1200))
+    except Exception:
+        bounded_scan_limit = 300
     if not _LOCK.acquire(blocking=False):
         return {
             "status": "busy",
@@ -89,7 +96,7 @@ def execute_due_auto_audit_once(
         for market in selected:
             window = _market_window(market, now_tw)
             pending = pending_auto_audit_summary(
-                limit=800, market_filter=market, trade_date=str(window.get("trade_date") or "")
+                limit=bounded_scan_limit, market_filter=market, trade_date=str(window.get("trade_date") or "")
             )
             base = {
                 "market": market,
@@ -111,7 +118,7 @@ def execute_due_auto_audit_once(
 
             try:
                 run = auto_audit_queried_predictions(
-                    limit=800,
+                    limit=bounded_scan_limit,
                     max_tickers=max(1, min(int(max_tickers_per_market), 8)),
                     apply_safe_learning=bool(apply_safe_learning),
                     actual_foreign_billion=(actual_foreign_billion if market == "TW" else None),
@@ -124,6 +131,7 @@ def execute_due_auto_audit_once(
                     "audited_today": int(run.get("audited_today_count") or 0),
                     "fetched": int(run.get("fetched_ticker_count") or 0),
                     "errors": len(run.get("errors") or []),
+                    "scan_limit": bounded_scan_limit,
                     "reason": "安全小批次完成",
                 })
             except Exception as exc:
@@ -139,7 +147,8 @@ def execute_due_auto_audit_once(
         return {
             "status": "done",
             "attempt_at_tw": now_tw.isoformat(timespec="seconds"),
-            "reason": "Admin controlled batch",
+            "reason": "Admin controlled bounded batch",
+            "scan_limit": bounded_scan_limit,
             "markets": results,
         }
     finally:
