@@ -173,6 +173,29 @@ def render_research_lab(st) -> None:
 
     with status_tab:
         report = dict(last_report) if isinstance(last_report, Mapping) else {}
+        close_report = st.session_state.get("last_close_recheck_report") or {}
+        if not isinstance(close_report, Mapping) or not close_report:
+            close_state = dashboard.get("close_recheck_state") or {}
+            close_report = dict(close_state) if isinstance(close_state, Mapping) else {}
+        if close_report:
+            st.markdown("**台股收盤自動重檢**")
+            q1, q2, q3, q4, q5 = st.columns(5)
+            q1.metric("狀態", str(close_report.get("status") or "已記錄"))
+            q2.metric("正式寫入", int(_number(close_report.get("formal_written"))))
+            q3.metric("情境更新", int(_number(close_report.get("context_updated"))))
+            q4.metric("無變化", int(_number(close_report.get("unchanged"))))
+            pending_text = (
+                f"待資料 {int(_number(close_report.get('waiting_institution')))} / "
+                f"錯誤 {int(_number(close_report.get('errors')))}"
+            )
+            q5.metric("待處理", pending_text)
+            st.caption(
+                f"資料日：{close_report.get('trade_date', '')}｜"
+                f"今日已查：{int(_number(close_report.get('today_tickers')))}｜"
+                f"剩餘：{int(_number(close_report.get('remaining')))}｜"
+                "只重檢今日已查台股；正式預測有變才新增樣本，僅籌碼情境改變則只存研究紀錄；不影響 V12 Decision。"
+            )
+
         r1, r2, r3 = st.columns(3)
         r1.metric("最近 Scheduler 狀態", str(report.get("status") or "尚無本次工作階段資料"))
         r2.metric("最近總耗時", f"{_number(report.get('total_ms')):.3f} ms")

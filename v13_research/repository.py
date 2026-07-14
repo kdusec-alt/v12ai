@@ -21,6 +21,8 @@ RESEARCH_DIR = Path(MEMORY_DIR) / "v13_research"
 RESEARCH_SEED_LOG = RESEARCH_DIR / "research_seed.jsonl"
 GENOME_SNAPSHOT_LOG = RESEARCH_DIR / "genome_snapshot.jsonl"
 DETECTION_EVENT_LOG = RESEARCH_DIR / "detection_event.jsonl"
+CLOSE_RECHECK_LOG = RESEARCH_DIR / "close_recheck.jsonl"
+CLOSE_RECHECK_STATE = RESEARCH_DIR / "close_recheck_state.json"
 
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _ID_CACHE: Dict[Tuple[str, str], Tuple[int, int, set[str]]] = {}
@@ -159,6 +161,34 @@ def append_detection_event(row: Dict[str, Any]) -> Dict[str, Any]:
     return _append_once(DETECTION_EVENT_LOG, row, "event_id")
 
 
+def append_close_recheck_event(row: Dict[str, Any]) -> Dict[str, Any]:
+    return _append_once(CLOSE_RECHECK_LOG, row, "event_id")
+
+
+def load_recent_close_rechecks(limit: int = 200) -> List[Dict[str, Any]]:
+    return _read_recent_rows(CLOSE_RECHECK_LOG, limit)
+
+
+def load_close_recheck_state() -> Dict[str, Any]:
+    try:
+        value = json.loads(CLOSE_RECHECK_STATE.read_text(encoding="utf-8"))
+        return dict(value) if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_close_recheck_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    payload = dict(state or {})
+    temp = CLOSE_RECHECK_STATE.with_suffix(".json.tmp")
+    temp.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str),
+        encoding="utf-8",
+    )
+    os.replace(str(temp), str(CLOSE_RECHECK_STATE))
+    return {"status": "written", "path": str(CLOSE_RECHECK_STATE)}
+
+
 def _ensure_recent_ticker_cache() -> None:
     global _RECENT_CACHE_SIGNATURE
     signature = _signature(GENOME_SNAPSHOT_LOG)
@@ -208,12 +238,15 @@ def research_storage_status() -> Dict[str, Any]:
         "seed": _one(RESEARCH_SEED_LOG),
         "genome": _one(GENOME_SNAPSHOT_LOG),
         "detection": _one(DETECTION_EVENT_LOG),
+        "close_recheck": _one(CLOSE_RECHECK_LOG),
+        "close_recheck_state": _one(CLOSE_RECHECK_STATE),
     }
 
 
 def load_research_dashboard(genome_limit: int = 500, detection_limit: int = 500) -> Dict[str, Any]:
     genomes = load_recent_genomes(genome_limit)
     detections = load_recent_detections(detection_limit)
+    close_rechecks = load_recent_close_rechecks(200)
     latest_by_ticker: Dict[str, Dict[str, Any]] = {}
     for row in genomes:
         ticker = str(row.get("ticker") or "").strip().upper()
@@ -222,6 +255,8 @@ def load_research_dashboard(genome_limit: int = 500, detection_limit: int = 500)
     return {
         "genomes": genomes,
         "detections": detections,
+        "close_rechecks": close_rechecks,
+        "close_recheck_state": load_close_recheck_state(),
         "latest_by_ticker": latest_by_ticker,
         "storage": research_storage_status(),
     }
