@@ -625,8 +625,8 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-07-14T08:26:19+08:00",
     "approved_bias": 0.0,
-    "audit_count": 5,
-    "avg_abs_error_pct": 1.4725,
+    "audit_count": 6,
+    "avg_abs_error_pct": 1.2986,
     "avg_direction_brier": 0.198081,
     "avg_downside_tail_breach_pct": 0.0,
     "close_range_hit_rate": 1.0,
@@ -635,7 +635,7 @@
     "error_type_counts": {
       "over_prediction": 2,
       "under_prediction": 1,
-      "within_tolerance": 2
+      "within_tolerance": 3
     },
     "factor_learning": {
       "Short Float": {
@@ -915,13 +915,13 @@
       }
     },
     "last_actual_direction": "DOWN",
-    "last_close_in_predicted_range": true,
+    "last_close_in_predicted_range": null,
     "last_defense_stop_touched": false,
     "last_direction_hit": false,
     "last_dominant_force": "趨勢",
-    "last_dominant_force_hit": true,
+    "last_dominant_force_hit": null,
     "last_downside_tail_breach_pct": 0.0,
-    "last_error_pct": 0.578,
+    "last_error_pct": -0.4292,
     "last_error_type": "within_tolerance",
     "last_predicted_direction": "NEUTRAL",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
@@ -930,6 +930,6 @@
     "range_audit_count": 3,
     "suggested_bias": 0.0,
     "ticker": "ONDS",
-    "updated_at_tw": "2026-07-14T09:56:51+08:00"
+    "updated_at_tw": "2026-07-14T09:56:54+08:00"
   }
 }
