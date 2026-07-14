@@ -54,6 +54,7 @@ _boot_print("script_enter", python=os.sys.version.split()[0])
 os.environ.setdefault("TINO_FUND_DEEP_CROSSCHECK", "0")
 os.environ.setdefault("TINO_INLINE_REMOTE_SYNC", "1")
 os.environ.setdefault("TINO_INLINE_MEMORY_MIRROR", "0")
+os.environ.setdefault("TINO_V13_RESEARCH", "0")
 
 st.set_page_config(page_title="系統化分析", layout="wide", initial_sidebar_state="collapsed")
 _boot_print("page_config_done", streamlit=getattr(st, "__version__", "unknown"))
@@ -194,6 +195,10 @@ def _build_learning_signals_degraded(*args, **kwargs):
     return []
 
 
+def _capture_prediction_seed_degraded(*args, **kwargs):
+    return {"status": "disabled", "reason": "v13_research_module_unavailable"}
+
+
 try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
     orchestrate = _load_required("orchestrator", "orchestrate")
@@ -216,6 +221,9 @@ try:
         "learning",
         ("log_prediction", "prediction_signature", "build_learning_signals"),
         (_log_prediction_degraded, _prediction_signature_degraded, _build_learning_signals_degraded),
+    )
+    capture_prediction_seed = _load_optional(
+        "v13_research.service", ("capture_prediction_seed",), _capture_prediction_seed_degraded
     )
 except Exception as exc:
     trace = _log_exception("project_import_failed", exc)
@@ -412,9 +420,25 @@ def main():
                 ):
                     sig = prediction_signature(st.session_state.forecast)
                     if sig and st.session_state.get("last_logged_prediction_sig") != sig:
-                        log_prediction(st.session_state.forecast, macro=macro, live_data=live)
+                        logged_row = log_prediction(st.session_state.forecast, macro=macro, live_data=live)
                         st.session_state.last_logged_prediction_sig = sig
                         mark_runtime_stage("prediction_log_done", symbol=symbol)
+                        # V13 Phase 0 sidecar: consume only the already-persisted
+                        # formal V12 row.  This hook is disabled by default and
+                        # may never interrupt the analysis/render path.
+                        try:
+                            research_report = capture_prediction_seed(logged_row)
+                            st.session_state["last_v13_research_report"] = research_report
+                            mark_runtime_stage(
+                                "v13_research_seed_done",
+                                symbol=symbol,
+                                status=str((research_report or {}).get("status") or "unknown"),
+                            )
+                        except Exception as _research_exc:
+                            st.session_state["last_v13_research_report"] = {
+                                "status": "degraded",
+                                "reason": f"{type(_research_exc).__name__}: {_research_exc}",
+                            }
                 st.session_state.last_error = ""
         except Exception as exc:
             st.session_state.forecast = None

@@ -179,35 +179,12 @@ def _valuation_heat(pe: float | None, forward_pe: float | None, ps: float | None
 
 
 def _decision_adjustment(score: float, growth_score: float, *, mode: str, accepted: bool) -> float:
-    if not accepted:
-        return 0.0
-    if mode == "etf":
-        if score >= 75:
-            return -1.5
-        if score >= 60:
-            return -1.0
-        if score >= 45:
-            return -0.5
-        return 0.0
-    growth_adjustment = _clamp(growth_score * 0.32, 0.0, 4.0)
-    if score >= 75:
-        penalty = 6.0
-    elif score >= 60:
-        penalty = 4.0
-    elif score >= 45:
-        penalty = 2.0
-    elif score >= 25:
-        penalty = 0.75
-    else:
-        penalty = 0.0
-    value = _clamp(growth_adjustment - penalty, -6.0, 4.0)
-    # A high-risk/alert state must never simultaneously publish a positive
-    # Decision contribution. This removes the prior MU-style contradiction.
-    if score >= 60:
-        value = min(value, 0.0)
-    if score >= 75:
-        value = min(value, -2.0)
-    return value
+    """Compatibility field retained for old Prediction Log readers.
+
+    V13 architecture contract: Bubble Engine is research-only and therefore
+    always contributes exactly zero to the formal AI Decision.
+    """
+    return 0.0
 
 
 def _extreme_growth_guard(
@@ -329,7 +306,7 @@ def _assess_etf(
             f"AI泡沫雷達｜{icon} {score:.0f}℃ ETF{level if accepted else '資料待補'}",
             f"價熱 {price_heat:.0f}",
             f"預期 {expectation:.0f}",
-            f"Decision {adjustment:+.1f}",
+            "研究模式，不介入決策",
             f"資料 {quality * 100:.0f}%",
             reason,
         )
@@ -342,6 +319,8 @@ def _assess_etf(
         "level": f"ETF{level}" if accepted else "ETF資料待補",
         "icon": icon,
         "decision_adjustment": round(adjustment, 2),
+        "research_only": True,
+        "decision_influence": False,
         "quality": round(quality, 4),
         "line": line,
         "reason": reason,
@@ -526,7 +505,7 @@ def assess_bubble_risk(
                 f"估值 {valuation_heat:.0f}",
                 f"預期 {expectation_heat:.0f}",
                 f"成長支撐 -{growth_support:.0f}",
-                f"Decision {adjustment:+.1f}",
+                "研究模式，不介入決策",
                 f"資料 {quality * 100:.0f}%",
                 reasons[0],
             )
@@ -541,7 +520,7 @@ def assess_bubble_risk(
                 "估值 NA",
                 f"預期 {expectation_heat:.0f}",
                 f"成長支撐 -{growth_support:.0f}",
-                f"Decision {adjustment:+.1f}",
+                "研究模式，不介入決策",
                 f"資料 {quality * 100:.0f}%",
                 "估值待確認，不做完整泡沫結論",
             )
@@ -554,7 +533,7 @@ def assess_bubble_risk(
             (
                 f"AI泡沫雷達｜{icon} {score:.0f}℃ 價格熱度觀察",
                 f"價熱 {price_heat:.0f}",
-                "Decision +0.0",
+                "研究模式，不介入決策",
                 f"資料 {quality * 100:.0f}%",
                 "基本面不足，不做泡沫結論",
             )
@@ -568,6 +547,8 @@ def assess_bubble_risk(
         "level": level,
         "icon": icon,
         "decision_adjustment": round(adjustment, 2),
+        "research_only": True,
+        "decision_influence": False,
         "quality": round(quality, 4),
         "line": line,
         "reason": "；".join(reasons[:3]),
@@ -605,5 +586,5 @@ def assess_bubble_risk(
 
 def bubble_radar_line(value: Mapping[str, Any] | None) -> str:
     if not isinstance(value, Mapping):
-        return "AI泡沫雷達｜⚪ 0℃ 資料待補｜Decision +0.0"
-    return str(value.get("line") or "AI泡沫雷達｜⚪ 0℃ 資料待補｜Decision +0.0")
+        return "AI泡沫雷達｜⚪ 0℃ 資料待補｜研究模式，不介入決策"
+    return str(value.get("line") or "AI泡沫雷達｜⚪ 0℃ 資料待補｜研究模式，不介入決策")

@@ -649,27 +649,12 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
     if overlay_note:
         one = one.rstrip("。") + "。" + overlay_note + "。"
 
+    # V13 research isolation contract:
+    # Bubble remains available as an Admin/research payload and radar line, but
+    # it must not change the formal AI Decision card, score, tactical wording,
+    # entry levels, direction, confidence, or forecast values.
     bubble = bubble if isinstance(bubble, dict) else {}
-    bubble_accepted = bool(bubble.get("accepted"))
-    bubble_score = float(bubble.get("score") or 0.0) if bubble_accepted else 0.0
-    bubble_level = str(bubble.get("level") or "")
-    bubble_temp = int(float(bubble.get("temperature") or bubble_score)) if bubble_accepted else 0
-    bubble_adjustment = float(bubble.get("decision_adjustment") or 0.0) if bubble_accepted else 0.0
-    bubble_note = ""
-    if bubble_accepted:
-        bubble_note = f"AI泡沫雷達 {bubble_temp}℃ {bubble_level}｜Decision {bubble_adjustment:+.1f}"
-        if bubble_score >= 75:
-            head += "｜泡沫警戒"
-            axis += "｜縮小部位｜禁止追價"
-            one = one.rstrip("。") + "。估值/預期明顯領先基本面，縮小部位且禁止追價。"
-        elif bubble_score >= 60:
-            head += "｜高溫防追"
-            axis += "｜降低追價曝險"
-            one = one.rstrip("。") + "。泡沫溫度偏高，基本面即使仍強也只做確認單。"
-        elif bubble_score >= 45:
-            axis += "｜過熱觀察"
-            one = one.rstrip("。") + "。價格與估值開始領先基本面，急拉不追。"
-    displayed_score = clamp(float(score) + bubble_adjustment, -100.0, 100.0)
+    displayed_score = clamp(float(score), -100.0, 100.0)
     chg = last - float(price.previous_close or last)
     chgp = chg / float(price.previous_close or last) * 100 if float(price.previous_close or last) else 0.0
     price_meta = ((price.context or {}).get("price_meta") or {})
@@ -678,7 +663,7 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "攻擊": ("事件前縮小試單" if event_caution else (f"站穩 {attack:.2f} 可攻" if bullish and not hard_defense else ("等待海外/融資止穩" if hard_defense or pause_second else f"{low1:.2f} 試單｜{low2:.2f} 再接"))),
         "轉強": f"突破 {turn:.2f} 加碼", "防守": round(stop, 2), "不追": round(no_chase, 2),
         "一句話": one.split("：", 1)[-1], "操作主軸": axis, "決策分": round(displayed_score, 2),
-        "模型原因": "｜".join([x for x in (overlay_note, bubble_note) if x]),
+        "模型原因": overlay_note,
         "資料標題": words["info"], "開盤": round(float(price.open), 2), "現價": round(last, 2),
         "最高": round(float(price.high), 2), "最低": round(float(price.low), 2),
         "漲跌": round(chg, 2), "漲跌幅": round(chgp, 2), "VWAP位置": _ssot_vwap_state(price),
