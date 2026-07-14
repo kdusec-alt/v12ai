@@ -55,6 +55,7 @@ os.environ.setdefault("TINO_FUND_DEEP_CROSSCHECK", "0")
 os.environ.setdefault("TINO_INLINE_REMOTE_SYNC", "1")
 os.environ.setdefault("TINO_INLINE_MEMORY_MIRROR", "0")
 os.environ.setdefault("TINO_V13_RESEARCH", "1")
+os.environ.setdefault("TINO_V13_CLOSE_RECHECK", "1")
 
 st.set_page_config(page_title="系統化分析", layout="wide", initial_sidebar_state="collapsed")
 _boot_print("page_config_done", streamlit=getattr(st, "__version__", "unknown"))
@@ -203,6 +204,14 @@ def _capture_prediction_seed_degraded(*args, **kwargs):
     return {"status": "disabled", "reason": "v13_research_module_unavailable"}
 
 
+def _forecast_snapshot_degraded(*args, **kwargs):
+    return {}
+
+
+def _run_close_recheck_degraded(*args, **kwargs):
+    return {"status": "disabled", "reason": "close_recheck_module_unavailable"}
+
+
 try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
     orchestrate = _load_required("orchestrator", "orchestrate")
@@ -224,13 +233,21 @@ try:
     ensure_memory_initialized_bootsafe = _load_optional(
         "tino_persistent_store", ("ensure_memory_initialized_bootsafe",), _ensure_memory_degraded
     )
-    log_prediction, prediction_signature, build_learning_signals = _load_optional(
+    log_prediction, prediction_signature, build_learning_signals, forecast_snapshot = _load_optional(
         "learning",
-        ("log_prediction", "prediction_signature", "build_learning_signals"),
-        (_log_prediction_degraded, _prediction_signature_degraded, _build_learning_signals_degraded),
+        ("log_prediction", "prediction_signature", "build_learning_signals", "forecast_snapshot"),
+        (
+            _log_prediction_degraded,
+            _prediction_signature_degraded,
+            _build_learning_signals_degraded,
+            _forecast_snapshot_degraded,
+        ),
     )
     capture_prediction_seed = _load_optional(
         "v13_research.service", ("capture_prediction_seed",), _capture_prediction_seed_degraded
+    )
+    run_login_close_recheck = _load_optional(
+        "v13_research.close_recheck", ("run_login_close_recheck",), _run_close_recheck_degraded
     )
 except Exception as exc:
     trace = _log_exception("project_import_failed", exc)
@@ -358,6 +375,42 @@ def main():
     _boot_print("render_admin_start")
     macro, auto, live, debug = render_admin(st, st.session_state.forecast)
     _boot_print("render_admin_done")
+
+    # V13 controlled close recheck: after authenticated Admin login and the
+    # Taiwan 17:00 data window, re-analyse only today's already-queried TW
+    # tickers.  The sidecar is bounded, one-shot per ticker/day and may never
+    # alter an existing V12 forecast object or Decision output.
+    if bool(st.session_state.get("admin_authenticated", False)):
+        try:
+            close_report = run_login_close_recheck(
+                st,
+                analyzer=run_analysis,
+                snapshot_builder=forecast_snapshot,
+                log_writer=log_prediction,
+                research_capture=capture_prediction_seed,
+                macro=macro,
+                live_data=live,
+            )
+            st.session_state["last_close_recheck_report"] = close_report
+            close_status = str((close_report or {}).get("status") or "")
+            if close_status in {"complete", "partial"}:
+                st.sidebar.info(
+                    "收盤重檢｜"
+                    f"正式寫入 {(close_report or {}).get('formal_written', 0)}｜"
+                    f"情境更新 {(close_report or {}).get('context_updated', 0)}｜"
+                    f"無變化 {(close_report or {}).get('unchanged', 0)}｜"
+                    f"待資料 {(close_report or {}).get('waiting_institution', 0)}｜"
+                    f"錯誤 {(close_report or {}).get('errors', 0)}"
+                )
+        except Exception as _close_recheck_exc:
+            st.session_state["last_close_recheck_report"] = {
+                "status": "degraded",
+                "reason": f"{type(_close_recheck_exc).__name__}: {_close_recheck_exc}",
+                "research_only": True,
+                "decision_influence": False,
+            }
+            _log_exception("close_recheck_failed_safe", _close_recheck_exc)
+
     _boot_print("render_nav_start")
     main_view = _render_main_nav()
     _boot_print("render_nav_done", view=main_view)
