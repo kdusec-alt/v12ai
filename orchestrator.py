@@ -33,6 +33,12 @@ except Exception:
     def macro_calendar_guard_text(*args, **kwargs):
         return "宏觀事件待同步"
 try:
+    from v13_research.macro_event_engine import compact_macro_event_line
+except Exception:
+    def compact_macro_event_line(*args, **kwargs):
+        return ""
+
+try:
     from event_intelligence import assess_policy_geo
 except Exception:
     def assess_policy_geo(*args, **kwargs):
@@ -217,7 +223,13 @@ def _macro_line(macro: dict, price: PriceFrame | None = None, raw: RawForecast |
             except Exception:
                 continue
         cross_text = "｜跨市場 " + " / ".join(cross[:4]) if cross else ""
+        result_line = compact_macro_event_line(macro, news_items)
+        if result_line:
+            return f"{result_line}｜下一事件 {cal}｜強度 {strength}{cross_text}｜{geo}"
         return f"Macro｜{cal}｜強度 {strength}{cross_text}｜{geo}"
+    result_line = compact_macro_event_line(macro if isinstance(macro, dict) else {}, news_items)
+    if result_line:
+        return f"{result_line}｜{geo}"
     return f"Macro｜{_macro_calendar_guard_text()}｜強度 中｜{geo}"
 
 
@@ -859,8 +871,8 @@ def _us_news_themes(items: List[NewsItem]) -> str:
     return '、'.join(themes[:3]) if themes else '事件觀察'
 
 
-def _us_macro_core_line(price: PriceFrame) -> str:
-    """US Macro Core must always be visible and independent from company-news success."""
+def _us_macro_core_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
+    """US Macro Core: official calendar plus post-release result/reaction verdict."""
     m = price.context.get('macro', {}) or {}
     sox = m.get('sox')
     nq = m.get('nq') if m.get('nq') is not None else m.get('qqq')
@@ -873,6 +885,9 @@ def _us_macro_core_line(price: PriceFrame) -> str:
     ]
     if vix is not None:
         parts.append(f"VIX {vix}")
+    result_line = compact_macro_event_line(m, news_items)
+    if result_line:
+        return result_line.replace('Macro Event｜', 'Macro Core｜', 1) + '｜' + '｜'.join(parts)
     return 'Macro Core｜' + '｜'.join(parts)
 
 
@@ -969,8 +984,8 @@ def _us_fundamental_line(price: PriceFrame, news_items: List[NewsItem] | None = 
     return f"月營收：美股不適用｜財報/營收｜Yahoo/Finviz 財報欄位回補中｜新聞事件 {news.get('count',0)}則"
 
 def _us_macro_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
-    # RC24: Macro Core is fixed evidence, never hidden by empty company-news results.
-    return _us_macro_core_line(price)
+    # Macro Core remains visible even if company-news fetch is empty.
+    return _us_macro_core_line(price, news_items)
 
 def _us_extended_session_line(price: PriceFrame) -> str:
     uss = (price.context or {}).get('us_session', {}) if isinstance((price.context or {}), dict) else {}
