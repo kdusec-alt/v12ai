@@ -172,12 +172,40 @@ def _fmt_price(v: Optional[float]) -> str:
     return f"{x:,.2f}"
 
 
+def _display_streak(price: PriceFrame) -> tuple[str, int, Optional[float], str]:
+    """Return the streak shown on the UI without changing formal model inputs.
+
+    Formal trend calculations intentionally exclude unconfirmed intraday prices.
+    For the battle-panel header, however, Taiwan intraday / close-confirm sessions
+    should include the current live price as a provisional close; otherwise the
+    header shows yesterday's streak percentage next to today's large move.
+    """
+    confirmed = _confirmed_closes(price)
+    status = str(getattr(price, "market_status", "") or "")
+    mode = ""
+
+    if status in {"intraday", "close_confirm"}:
+        last = float(getattr(price, "last", 0) or 0)
+        if last > 0 and confirmed:
+            direction, days, streak_ret = _streak_from_closes([*confirmed, last])
+            return direction, days, streak_ret, "｜盤中參考"
+        mode = "｜盤中參考"
+    elif status == "pre_market":
+        mode = "｜盤前參考"
+    elif status == "after_hours":
+        mode = "｜盤後參考"
+    elif _is_live_unconfirmed(price):
+        mode = "｜盤中參考"
+
+    direction, days, streak_ret = _streak_from_closes(confirmed)
+    return direction, days, streak_ret, mode
+
+
 def trend_tag(price: PriceFrame) -> str:
-    s = build_trend_snapshot(price)
-    if s.streak_days <= 0 or s.streak_return_pct is None:
-        return s.direction
-    suffix = "｜盤中參考" if s.mode != "正式日K" else ""
-    return f"{s.direction}{s.streak_days}天 {_fmt_pct(s.streak_return_pct)}{suffix}"
+    direction, days, streak_ret, suffix = _display_streak(price)
+    if days <= 0 or streak_ret is None:
+        return f"{direction}{suffix}"
+    return f"{direction}{days}天 {_fmt_pct(streak_ret)}{suffix}"
 
 
 def _ma_piece(label: str, value: Optional[float], gap: Optional[float], need_days: int) -> str:
