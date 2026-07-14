@@ -10,6 +10,7 @@ from typing import Any, Dict, Mapping
 
 from .genome_engine import GENE_LABELS, GENE_ORDER
 from .repository import load_research_dashboard
+from .service import recover_research_history_from_prediction_log
 
 _MUTATION_ZH = {
     "baseline": "基準建立",
@@ -71,6 +72,8 @@ def render_research_lab(st) -> None:
     st.markdown("## 🔬 AI Research Lab / 市場研究實驗室")
     st.caption("獨立研究平台｜只讀正式 Prediction Log 衍生資料｜不影響 AI Decision、Direction、T1 或 Confidence")
 
+    recovery_report = recover_research_history_from_prediction_log(limit=600)
+    st.session_state["last_v13_recovery_report"] = recovery_report
     dashboard = load_research_dashboard(genome_limit=600, detection_limit=600)
     genomes = list(dashboard.get("genomes") or [])
     detections = list(dashboard.get("detections") or [])
@@ -276,6 +279,10 @@ def render_research_lab(st) -> None:
         r3.metric("Decision Influence", "FALSE")
         with st.expander("Storage Status", expanded=False):
             st.json(dashboard.get("storage") or {})
+        recovery = st.session_state.get("last_v13_recovery_report") or {}
+        if isinstance(recovery, Mapping) and recovery:
+            with st.expander("V13 長期記憶／自動重建狀態", expanded=False):
+                st.json(recovery)
         if report:
             with st.expander("最近一次 Scheduler Report", expanded=False):
                 st.json(report)

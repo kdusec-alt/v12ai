@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import threading
+import time
 from typing import Any, Dict, List, Tuple
 
 from memory_store import MEMORY_DIR
@@ -30,6 +32,51 @@ _ID_CACHE: Dict[Tuple[str, str], Tuple[int, int, set[str]]] = {}
 _ROWS_CACHE: Dict[Tuple[str, int], Tuple[int, int, List[Dict[str, Any]]]] = {}
 _RECENT_BY_TICKER: Dict[str, List[Dict[str, Any]]] = {}
 _RECENT_CACHE_SIGNATURE: Tuple[int, int] | None = None
+_REMOTE_SYNC_LOCK = threading.RLock()
+_REMOTE_SYNC_PENDING: set[str] = set()
+_REMOTE_SYNC_THREAD: threading.Thread | None = None
+
+
+def _research_remote_sync_worker() -> None:
+    """Flush changed V13 files without blocking the formal analysis path."""
+    global _REMOTE_SYNC_THREAD
+    # Small debounce lets Genome + Detection + Macro writes collapse into one
+    # bounded queue after a completed prediction.
+    time.sleep(0.35)
+    while True:
+        with _REMOTE_SYNC_LOCK:
+            if not _REMOTE_SYNC_PENDING:
+                _REMOTE_SYNC_THREAD = None
+                return
+            path_text = _REMOTE_SYNC_PENDING.pop()
+        try:
+            from tino_persistent_store import _sync_file_to_remote  # type: ignore
+            _sync_file_to_remote(Path(path_text), shrink_guard=True)
+        except Exception:
+            # The canonical local write already succeeded.  A later boot/sync
+            # will reconcile the file, so remote failure never affects V12.
+            continue
+
+
+def _notify_persistent_write(path: Path) -> None:
+    """Create a local backup and queue optional GitHub persistence."""
+    global _REMOTE_SYNC_THREAD
+    try:
+        from tino_persistent_store import _write_local_backup, inline_remote_sync_enabled  # type: ignore
+        _write_local_backup(path)
+        if not inline_remote_sync_enabled():
+            return
+    except Exception:
+        return
+    with _REMOTE_SYNC_LOCK:
+        _REMOTE_SYNC_PENDING.add(str(path))
+        if _REMOTE_SYNC_THREAD is None or not _REMOTE_SYNC_THREAD.is_alive():
+            _REMOTE_SYNC_THREAD = threading.Thread(
+                target=_research_remote_sync_worker,
+                name="tino-v13-memory-sync",
+                daemon=True,
+            )
+            _REMOTE_SYNC_THREAD.start()
 
 
 def _durable_write_enabled() -> bool:
@@ -116,6 +163,10 @@ def research_seed_exists(seed_id: str) -> bool:
     return record_exists(RESEARCH_SEED_LOG, "seed_id", seed_id)
 
 
+def genome_prediction_exists(prediction_id: str) -> bool:
+    return record_exists(GENOME_SNAPSHOT_LOG, "prediction_id", prediction_id)
+
+
 def _append_once(path: Path, row: Dict[str, Any], id_key: str) -> Dict[str, Any]:
     record_id = str((row or {}).get(id_key) or "").strip()
     if not record_id:
@@ -144,6 +195,7 @@ def _append_once(path: Path, row: Dict[str, Any], id_key: str) -> Dict[str, Any]
 
     for key in [key for key in _ROWS_CACHE if key[0] == str(path)]:
         _ROWS_CACHE.pop(key, None)
+    _notify_persistent_write(path)
     return {"status": "written", id_key: record_id, "path": str(path)}
 
 
@@ -195,6 +247,7 @@ def save_close_recheck_state(state: Dict[str, Any]) -> Dict[str, Any]:
         encoding="utf-8",
     )
     os.replace(str(temp), str(CLOSE_RECHECK_STATE))
+    _notify_persistent_write(CLOSE_RECHECK_STATE)
     return {"status": "written", "path": str(CLOSE_RECHECK_STATE)}
 
 
@@ -242,7 +295,7 @@ def research_storage_status() -> Dict[str, Any]:
     def _one(path: Path) -> Dict[str, Any]:
         sig = _signature(path)
         return {"path": str(path), "exists": path.exists(), "size_bytes": sig[1] if sig[1] >= 0 else 0}
-    return {
+    status = {
         "research_dir": str(RESEARCH_DIR),
         "seed": _one(RESEARCH_SEED_LOG),
         "genome": _one(GENOME_SNAPSHOT_LOG),
@@ -250,7 +303,21 @@ def research_storage_status() -> Dict[str, Any]:
         "close_recheck": _one(CLOSE_RECHECK_LOG),
         "close_recheck_state": _one(CLOSE_RECHECK_STATE),
         "macro_event": _one(MACRO_EVENT_LOG),
+        "long_term_registered": True,
     }
+    try:
+        from tino_persistent_store import remote_status  # type: ignore
+        remote = remote_status()
+        status["remote"] = {
+            "configured": bool(remote.get("configured")),
+            "status": str(remote.get("status") or ""),
+            "last_sync_at_tw": remote.get("last_sync_at_tw"),
+            "last_verified_at_tw": remote.get("last_verified_at_tw"),
+            "error": remote.get("error"),
+        }
+    except Exception:
+        status["remote"] = {"configured": False, "status": "unavailable"}
+    return status
 
 
 def load_research_dashboard(genome_limit: int = 500, detection_limit: int = 500) -> Dict[str, Any]:
