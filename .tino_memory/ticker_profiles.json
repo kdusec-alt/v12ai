@@ -805,15 +805,16 @@
   "6586.TWO": {
     "active_family_count": 0,
     "approved_bias": 0.0,
-    "audit_count": 1,
-    "avg_abs_error_pct": 5.8824,
+    "audit_count": 2,
+    "avg_abs_error_pct": 4.9932,
     "avg_direction_brier": 0.36371,
     "avg_downside_tail_breach_pct": 7.0423,
     "close_range_hit_rate": 0.0,
     "direction_audit_count": 1,
     "direction_hit_rate": 0.0,
     "error_type_counts": {
-      "over_prediction": 1
+      "over_prediction": 1,
+      "under_prediction": 1
     },
     "factor_learning": {
       "TSM ADR": {
@@ -1105,23 +1106,23 @@
         "weighted_reliability": 0.0
       }
     },
-    "last_actual_direction": "DOWN",
-    "last_close_in_predicted_range": false,
-    "last_defense_stop_touched": true,
-    "last_direction_hit": false,
+    "last_actual_direction": "UP",
+    "last_close_in_predicted_range": null,
+    "last_defense_stop_touched": false,
+    "last_direction_hit": true,
     "last_dominant_force": "趨勢",
-    "last_dominant_force_hit": false,
-    "last_downside_tail_breach_pct": -7.0423,
-    "last_error_pct": -5.8824,
-    "last_error_type": "over_prediction",
-    "last_predicted_direction": "NEUTRAL",
+    "last_dominant_force_hit": null,
+    "last_downside_tail_breach_pct": 0.0,
+    "last_error_pct": 4.1041,
+    "last_error_type": "under_prediction",
+    "last_predicted_direction": "UP",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
     "learning_maturity": 0.025,
     "learning_schema": "RC4.5_DNA_V1",
     "range_audit_count": 1,
     "suggested_bias": 0.0,
     "ticker": "6586.TWO",
-    "updated_at_tw": "2026-07-14T17:49:48+08:00"
+    "updated_at_tw": "2026-07-14T17:49:59+08:00"
   },
   "6770.TW": {
     "active_family_count": 0,
