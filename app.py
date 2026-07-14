@@ -54,7 +54,7 @@ _boot_print("script_enter", python=os.sys.version.split()[0])
 os.environ.setdefault("TINO_FUND_DEEP_CROSSCHECK", "0")
 os.environ.setdefault("TINO_INLINE_REMOTE_SYNC", "1")
 os.environ.setdefault("TINO_INLINE_MEMORY_MIRROR", "0")
-os.environ.setdefault("TINO_V13_RESEARCH", "0")
+os.environ.setdefault("TINO_V13_RESEARCH", "1")
 
 st.set_page_config(page_title="系統化分析", layout="wide", initial_sidebar_state="collapsed")
 _boot_print("page_config_done", streamlit=getattr(st, "__version__", "unknown"))
@@ -179,6 +179,10 @@ def _learning_center_unavailable(st_module) -> None:
     st_module.warning("預測學習模組暫時停用；個股正式分析仍可正常使用。")
 
 
+def _research_lab_unavailable(st_module) -> None:
+    st_module.warning("AI Research Lab 暫時無法載入；V12 個股分析與預測學習仍可正常使用。")
+
+
 def _ensure_memory_degraded(*args, **kwargs):
     return {"status": "DEGRADED", "reason": "memory_module_unavailable"}
 
@@ -213,6 +217,9 @@ try:
 
     render_learning_center = _load_optional(
         "ui_learning_center", ("render_learning_center",), _learning_center_unavailable
+    )
+    render_research_lab = _load_optional(
+        "v13_research.ui", ("render_research_lab",), _research_lab_unavailable
     )
     ensure_memory_initialized_bootsafe = _load_optional(
         "tino_persistent_store", ("ensure_memory_initialized_bootsafe",), _ensure_memory_degraded
@@ -289,7 +296,7 @@ def _set_main_view(view: str) -> None:
     """Switch pages and release the heavy forecast before table-heavy views."""
     target = str(view or "analysis")
     st.session_state["main_view"] = target
-    if target in {"watch", "learning"}:
+    if target in {"watch", "learning", "research"}:
         st.session_state["forecast"] = None
         st.session_state["last_error"] = ""
         gc.collect()
@@ -299,15 +306,15 @@ def _render_main_nav():
     is_admin = bool(st.session_state.get("admin_authenticated", False))
     if "main_view" not in st.session_state:
         st.session_state["main_view"] = "analysis"
-    if st.session_state.get("main_view") == "learning" and not is_admin:
+    if st.session_state.get("main_view") in {"learning", "research"} and not is_admin:
         st.session_state["main_view"] = "analysis"
 
     st.markdown("<div class='tino-nav-spacer'></div>", unsafe_allow_html=True)
     if is_admin:
-        n1, n2, n3, n4 = st.columns([0.18, 0.18, 0.18, 0.46], gap="small")
+        n1, n2, n3, n4, n5 = st.columns([0.16, 0.16, 0.16, 0.18, 0.34], gap="small")
     else:
-        n1, n2, n4 = st.columns([0.18, 0.18, 0.64], gap="small")
-        n3 = None
+        n1, n2, n5 = st.columns([0.18, 0.18, 0.64], gap="small")
+        n3 = n4 = None
 
     with n1:
         st.button("🎯 個股分析", use_container_width=True, key="nav_analysis",
@@ -315,10 +322,13 @@ def _render_main_nav():
     with n2:
         st.button("📊 即時股價", use_container_width=True, key="nav_watch",
                   on_click=_set_main_view, args=("watch",))
-    if is_admin and n3 is not None:
+    if is_admin and n3 is not None and n4 is not None:
         with n3:
             st.button("🧠 預測學習", use_container_width=True, key="nav_learning",
                       on_click=_set_main_view, args=("learning",))
+        with n4:
+            st.button("🔬 AI Research Lab", use_container_width=True, key="nav_research",
+                      on_click=_set_main_view, args=("research",))
     return st.session_state.get("main_view", "analysis")
 
 
@@ -366,6 +376,18 @@ def main():
             if bool(st.session_state.get("admin_authenticated", False)):
                 with st.expander("Admin 診斷", expanded=False):
                     st.code(_learning_trace)
+        return
+    if main_view == "research":
+        # V13 Research isolation: bounded local reads only.  Any research UI
+        # failure is contained and can never block the V12 analysis kernel.
+        try:
+            render_research_lab(st)
+        except Exception as _research_ui_exc:
+            _research_ui_trace = _log_exception("research_lab_failed_safe", _research_ui_exc)
+            st.error("AI Research Lab 暫時無法載入；V12 正式分析仍可正常使用。")
+            if bool(st.session_state.get("admin_authenticated", False)):
+                with st.expander("Admin 診斷", expanded=False):
+                    st.code(_research_ui_trace)
         return
 
     _boot_print("render_input_start")
