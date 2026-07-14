@@ -1,16 +1,21 @@
 # -*- coding: utf-8 -*-
-"""TINO AI V13 Research sidecar.
+"""TINO AI V13 Research platform.
 
-RC02 adds the fast Bubble Genome engine while preserving the RC01 bootstrap
-contract: research is isolated from V12 Decision and formal forecasting.
+RC03 adds the isolated AI Research Lab, Scheduler, mutation detection, quality
+guards, and bounded research storage while preserving the V12 Decision kernel.
 """
 from .contracts import (
+    DETECTION_ENGINE_VERSION,
+    DETECTION_SCHEMA_VERSION,
     GENOME_ENGINE_VERSION,
     GENOME_SCHEMA_VERSION,
     RESEARCH_SCHEMA_VERSION,
+    SCHEDULER_VERSION,
+    DetectionEvent,
     GenomeSnapshot,
     ResearchSeed,
 )
+from .detection_engine import detect_genome_event
 from .genome_engine import GENE_LABELS, GENE_ORDER, build_genome_snapshot
 from .service import capture_prediction_seed, research_enabled
 
@@ -18,11 +23,16 @@ __all__ = [
     "RESEARCH_SCHEMA_VERSION",
     "GENOME_SCHEMA_VERSION",
     "GENOME_ENGINE_VERSION",
+    "DETECTION_SCHEMA_VERSION",
+    "DETECTION_ENGINE_VERSION",
+    "SCHEDULER_VERSION",
     "ResearchSeed",
     "GenomeSnapshot",
+    "DetectionEvent",
     "GENE_ORDER",
     "GENE_LABELS",
     "build_genome_snapshot",
+    "detect_genome_event",
     "capture_prediction_seed",
     "research_enabled",
 ]

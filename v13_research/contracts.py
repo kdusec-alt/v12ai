@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Stable contracts for the V13 Research sidecar.
+"""Stable contracts for the isolated V13 Research platform.
 
-The research package is append-only and research-only.  Nothing in this file
-may change V12 forecast fields, model weights, Decision score, or front-stage
-UI output.
+Every record is research-only.  Nothing in this module may modify V12 forecast
+fields, model weights, Direction, Decision score, confidence, or front-stage
+battle-panel output.
 """
 from __future__ import annotations
 
@@ -13,6 +13,9 @@ from typing import Any, Dict, List
 RESEARCH_SCHEMA_VERSION = "V13_RESEARCH_SEED_V1"
 GENOME_SCHEMA_VERSION = "V13_BUBBLE_GENOME_V1"
 GENOME_ENGINE_VERSION = "V13_RC02_GENOME_1.0.0"
+DETECTION_SCHEMA_VERSION = "V13_RESEARCH_DETECTION_V1"
+DETECTION_ENGINE_VERSION = "V13_RC03_DETECTION_1.0.0"
+SCHEDULER_VERSION = "V13_RC03_SCHEDULER_1.0.0"
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,36 @@ class GenomeSnapshot:
     coverage: float = 0.0
     dominant_genes: List[str] = field(default_factory=list)
     data_quality: Dict[str, Any] = field(default_factory=dict)
+    research_only: bool = True
+    decision_influence: bool = False
+    calc_ms: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class DetectionEvent:
+    event_id: str
+    schema_version: str
+    engine_version: str
+    snapshot_id: str
+    previous_snapshot_id: str
+    ticker: str
+    market: str
+    asset_type: str
+    run_time_tw: str
+    severity: str
+    mutation_level: str
+    confirmed: bool
+    status: str
+    gene_deltas: Dict[str, float] = field(default_factory=dict)
+    changed_genes: List[str] = field(default_factory=list)
+    quality_flags: List[str] = field(default_factory=list)
+    alerts: List[str] = field(default_factory=list)
+    previous_genome_score: float | None = None
+    current_genome_score: float | None = None
+    score_delta: float | None = None
     research_only: bool = True
     decision_influence: bool = False
     calc_ms: float = 0.0

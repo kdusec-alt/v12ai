@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Fast append-only repository for V13 Research records.
+"""Bounded, append-only storage for V13 Research records.
 
-Research artifacts can always be rebuilt from the formal V12 Prediction Log,
-so the default write path favours low latency and skips per-record ``fsync``.
-Set ``TINO_V13_DURABLE_WRITE=1`` only when forced disk flush is required.
+Hot-path guarantees
+-------------------
+* No full-history scan.
+* No pandas / DataFrame creation.
+* Duplicate checks use file-signature-aware memory caches.
+* UI reads are bounded tails and execute only inside AI Research Lab.
 """
 from __future__ import annotations
 
@@ -17,9 +20,13 @@ from memory_store import MEMORY_DIR
 RESEARCH_DIR = Path(MEMORY_DIR) / "v13_research"
 RESEARCH_SEED_LOG = RESEARCH_DIR / "research_seed.jsonl"
 GENOME_SNAPSHOT_LOG = RESEARCH_DIR / "genome_snapshot.jsonl"
+DETECTION_EVENT_LOG = RESEARCH_DIR / "detection_event.jsonl"
 
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _ID_CACHE: Dict[Tuple[str, str], Tuple[int, int, set[str]]] = {}
+_ROWS_CACHE: Dict[Tuple[str, int], Tuple[int, int, List[Dict[str, Any]]]] = {}
+_RECENT_BY_TICKER: Dict[str, List[Dict[str, Any]]] = {}
+_RECENT_CACHE_SIGNATURE: Tuple[int, int] | None = None
 
 
 def _durable_write_enabled() -> bool:
@@ -27,7 +34,6 @@ def _durable_write_enabled() -> bool:
 
 
 def _tail_lines(path: Path, limit: int, max_bytes: int = 4 * 1024 * 1024) -> List[str]:
-    """Read only the bounded tail instead of scanning a multi-year JSONL file."""
     wanted = max(1, int(limit))
     try:
         with path.open("rb") as handle:
@@ -52,32 +58,59 @@ def _tail_lines(path: Path, limit: int, max_bytes: int = 4 * 1024 * 1024) -> Lis
     return [line for line in data.decode("utf-8", errors="replace").splitlines() if line.strip()][-wanted:]
 
 
-def _recent_ids(path: Path, id_key: str, limit: int = 3000) -> set[str]:
-    cache_key = (str(path), id_key)
+def _signature(path: Path) -> Tuple[int, int]:
     try:
         stat = path.stat()
-        signature = (int(stat.st_mtime_ns), int(stat.st_size))
+        return int(stat.st_mtime_ns), int(stat.st_size)
     except FileNotFoundError:
-        _ID_CACHE[cache_key] = (0, 0, set())
-        return set()
+        return 0, 0
     except Exception:
-        signature = (-1, -1)
+        return -1, -1
 
+
+def _read_recent_rows(path: Path, limit: int = 500) -> List[Dict[str, Any]]:
+    wanted = max(1, int(limit))
+    cache_key = (str(path), wanted)
+    signature = _signature(path)
+    cached = _ROWS_CACHE.get(cache_key)
+    if cached is not None and (cached[0], cached[1]) == signature:
+        return [dict(row) for row in cached[2]]
+
+    rows: List[Dict[str, Any]] = []
+    for line in _tail_lines(path, wanted):
+        try:
+            row = json.loads(line)
+            if isinstance(row, dict):
+                rows.append(row)
+        except Exception:
+            continue
+    _ROWS_CACHE[cache_key] = (signature[0], signature[1], rows)
+    return [dict(row) for row in rows]
+
+
+def _recent_ids(path: Path, id_key: str, limit: int = 3000) -> set[str]:
+    cache_key = (str(path), id_key)
+    signature = _signature(path)
     cached = _ID_CACHE.get(cache_key)
     if cached is not None and (cached[0], cached[1]) == signature:
         return cached[2]
 
     ids: set[str] = set()
-    for line in _tail_lines(path, limit):
-        try:
-            row = json.loads(line)
-            value = row.get(id_key) if isinstance(row, dict) else None
-            if value:
-                ids.add(str(value))
-        except Exception:
-            continue
+    for row in _read_recent_rows(path, limit):
+        value = row.get(id_key)
+        if value:
+            ids.add(str(value))
     _ID_CACHE[cache_key] = (signature[0], signature[1], ids)
     return ids
+
+
+def record_exists(path: Path, id_key: str, record_id: str) -> bool:
+    value = str(record_id or "").strip()
+    return bool(value and value in _recent_ids(path, id_key))
+
+
+def research_seed_exists(seed_id: str) -> bool:
+    return record_exists(RESEARCH_SEED_LOG, "seed_id", seed_id)
 
 
 def _append_once(path: Path, row: Dict[str, Any], id_key: str) -> Dict[str, Any]:
@@ -86,7 +119,7 @@ def _append_once(path: Path, row: Dict[str, Any], id_key: str) -> Dict[str, Any]
         raise ValueError(f"{id_key} is required")
 
     RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
-    if record_id in _recent_ids(path, id_key):
+    if record_exists(path, id_key, record_id):
         return {"status": "duplicate", id_key: record_id, "path": str(path)}
 
     payload = json.dumps(row, ensure_ascii=False, separators=(",", ":"), default=str) + "\n"
@@ -98,19 +131,16 @@ def _append_once(path: Path, row: Dict[str, Any], id_key: str) -> Dict[str, Any]
     finally:
         os.close(fd)
 
-    # Update the in-process cache immediately, avoiding another tail read on
-    # Streamlit reruns. Cross-process changes are still detected by file stat.
-    try:
-        stat = path.stat()
-        cache_key = (str(path), id_key)
-        ids = set(_ID_CACHE.get(cache_key, (0, 0, set()))[2])
-        ids.add(record_id)
-        if len(ids) > 4000:
-            ids = set(list(ids)[-3000:])
-        _ID_CACHE[cache_key] = (int(stat.st_mtime_ns), int(stat.st_size), ids)
-    except Exception:
-        pass
+    signature = _signature(path)
+    cache_key = (str(path), id_key)
+    ids = set(_ID_CACHE.get(cache_key, (0, 0, set()))[2])
+    ids.add(record_id)
+    if len(ids) > 4000:
+        ids = set(list(ids)[-3000:])
+    _ID_CACHE[cache_key] = (signature[0], signature[1], ids)
 
+    for key in [key for key in _ROWS_CACHE if key[0] == str(path)]:
+        _ROWS_CACHE.pop(key, None)
     return {"status": "written", id_key: record_id, "path": str(path)}
 
 
@@ -119,4 +149,79 @@ def append_research_seed(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def append_genome_snapshot(row: Dict[str, Any]) -> Dict[str, Any]:
-    return _append_once(GENOME_SNAPSHOT_LOG, row, "snapshot_id")
+    result = _append_once(GENOME_SNAPSHOT_LOG, row, "snapshot_id")
+    if str(result.get("status")) == "written":
+        _update_recent_ticker_cache(row)
+    return result
+
+
+def append_detection_event(row: Dict[str, Any]) -> Dict[str, Any]:
+    return _append_once(DETECTION_EVENT_LOG, row, "event_id")
+
+
+def _ensure_recent_ticker_cache() -> None:
+    global _RECENT_CACHE_SIGNATURE
+    signature = _signature(GENOME_SNAPSHOT_LOG)
+    if _RECENT_CACHE_SIGNATURE == signature:
+        return
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for row in _read_recent_rows(GENOME_SNAPSHOT_LOG, 4000):
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        grouped.setdefault(ticker, []).append(row)
+        grouped[ticker] = grouped[ticker][-4:]
+    _RECENT_BY_TICKER.clear()
+    _RECENT_BY_TICKER.update(grouped)
+    _RECENT_CACHE_SIGNATURE = signature
+
+
+def _update_recent_ticker_cache(row: Dict[str, Any]) -> None:
+    global _RECENT_CACHE_SIGNATURE
+    ticker = str((row or {}).get("ticker") or "").strip().upper()
+    if ticker:
+        _RECENT_BY_TICKER.setdefault(ticker, []).append(dict(row))
+        _RECENT_BY_TICKER[ticker] = _RECENT_BY_TICKER[ticker][-4:]
+    _RECENT_CACHE_SIGNATURE = _signature(GENOME_SNAPSHOT_LOG)
+
+
+def get_recent_genome_snapshots(ticker: str, limit: int = 2) -> List[Dict[str, Any]]:
+    _ensure_recent_ticker_cache()
+    key = str(ticker or "").strip().upper()
+    return [dict(row) for row in _RECENT_BY_TICKER.get(key, [])[-max(1, int(limit)):]]
+
+
+def load_recent_genomes(limit: int = 500) -> List[Dict[str, Any]]:
+    return _read_recent_rows(GENOME_SNAPSHOT_LOG, limit)
+
+
+def load_recent_detections(limit: int = 500) -> List[Dict[str, Any]]:
+    return _read_recent_rows(DETECTION_EVENT_LOG, limit)
+
+
+def research_storage_status() -> Dict[str, Any]:
+    def _one(path: Path) -> Dict[str, Any]:
+        sig = _signature(path)
+        return {"path": str(path), "exists": path.exists(), "size_bytes": sig[1] if sig[1] >= 0 else 0}
+    return {
+        "research_dir": str(RESEARCH_DIR),
+        "seed": _one(RESEARCH_SEED_LOG),
+        "genome": _one(GENOME_SNAPSHOT_LOG),
+        "detection": _one(DETECTION_EVENT_LOG),
+    }
+
+
+def load_research_dashboard(genome_limit: int = 500, detection_limit: int = 500) -> Dict[str, Any]:
+    genomes = load_recent_genomes(genome_limit)
+    detections = load_recent_detections(detection_limit)
+    latest_by_ticker: Dict[str, Dict[str, Any]] = {}
+    for row in genomes:
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if ticker:
+            latest_by_ticker[ticker] = row
+    return {
+        "genomes": genomes,
+        "detections": detections,
+        "latest_by_ticker": latest_by_ticker,
+        "storage": research_storage_status(),
+    }
