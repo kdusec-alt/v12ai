@@ -71,6 +71,14 @@ _MEMORY_FILES = [
     "audit_log.jsonl",
     "ticker_profiles.json",
     "tino_memory_ledger.json",
+    # V13 Research sidecar memory.  These files are independent from the V12
+    # Decision path, but they must survive Streamlit redeploy/container recycle.
+    "v13_research/research_seed.jsonl",
+    "v13_research/genome_snapshot.jsonl",
+    "v13_research/detection_event.jsonl",
+    "v13_research/close_recheck.jsonl",
+    "v13_research/close_recheck_state.json",
+    "v13_research/macro_event.jsonl",
 ]
 _LAST_REMOTE_REPORT: Dict[str, Any] = {
     "configured": False,
@@ -226,9 +234,30 @@ def _ensure_remote_branch() -> Tuple[bool, Optional[str]]:
         _LAST_REMOTE_REPORT["branch_ready"] = True
         return True, None
 
+def _memory_relative_name(path_or_name: str | Path) -> str:
+    """Return a stable path relative to ``.tino_memory``.
+
+    Core memory files live at the memory root while V13 Research files live in
+    ``v13_research/``.  The old basename-only mapping flattened both layouts
+    and therefore prevented research files from being restored after a
+    redeploy.
+    """
+    raw = str(path_or_name or "").strip().replace("\\", "/")
+    if not raw:
+        return ""
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        return raw.strip("/")
+    try:
+        return candidate.resolve().relative_to(Path(_TINO_MEMORY_DIR).resolve()).as_posix()
+    except Exception:
+        return candidate.name
+
+
 def _remote_path_for(local_path: str | Path) -> str:
     cfg = _remote_config()
-    return f"{cfg['memory_dir'].strip('/')}/{Path(local_path).name}"
+    relative_name = _memory_relative_name(local_path)
+    return f"{cfg['memory_dir'].strip('/')}/{relative_name}"
 
 
 def _record_remote_file(name: str, blob: bytes, sha: Optional[str], verified: bool) -> None:
@@ -245,13 +274,14 @@ def _record_remote_file(name: str, blob: bytes, sha: Optional[str], verified: bo
 
 def _github_read_file(file_name: str) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str]]:
     cfg = _remote_config()
+    memory_name = _memory_relative_name(file_name)
     if not cfg["configured"]:
         return False, None, None, "remote_not_configured"
     branch_ok, branch_err = _ensure_remote_branch()
     if not branch_ok:
         return False, None, None, branch_err
 
-    remote_path = f"{cfg['memory_dir'].strip('/')}/{Path(file_name).name}"
+    remote_path = f"{cfg['memory_dir'].strip('/')}/{memory_name}"
     remote_path_q = quote(remote_path, safe="/")
     url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path_q}?ref={quote(str(cfg['branch']), safe='')}"
     status, obj = _gh_request("GET", url, cfg["token"])
@@ -276,13 +306,22 @@ def _github_read_file(file_name: str) -> Tuple[bool, Optional[bytes], Optional[s
             content = base64.b64decode(blob_encoded.encode("ascii")) if blob_encoded else b""
         else:
             content = b""
-        _record_remote_file(Path(file_name).name, content, sha, verified=False)
+        _record_remote_file(memory_name, content, sha, verified=False)
         return True, content, sha, None
     except Exception as exc:
         return False, None, None, f"github_decode_failed:{type(exc).__name__}:{exc}"
 
 
-def _github_write_file(local_path: str | Path, message: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+def _github_write_file(
+    local_path: str | Path,
+    message: Optional[str] = None,
+    payload_bytes: Optional[bytes] = None,
+) -> Tuple[bool, Optional[str]]:
+    """Write the exact supplied snapshot to GitHub.
+
+    Passing the payload prevents an append that occurs between hashing and PUT
+    from producing a false ``remote_verify_mismatch``.
+    """
     cfg = _remote_config()
     if not cfg["configured"]:
         return False, "remote_not_configured"
@@ -293,15 +332,17 @@ def _github_write_file(local_path: str | Path, message: Optional[str] = None) ->
     p = Path(local_path)
     if not p.exists() or p.is_dir():
         return False, "local_missing"
-    ok, _old_bytes, sha, read_err = _github_read_file(p.name)
+    memory_name = _memory_relative_name(p)
+    ok, _old_bytes, sha, read_err = _github_read_file(memory_name)
     if read_err not in (None, "remote_missing"):
         return False, f"remote_prewrite_read_failed:{read_err}"
-    remote_path = _remote_path_for(p)
+    remote_path = _remote_path_for(memory_name)
     remote_path_q = quote(remote_path, safe="/")
     url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path_q}"
+    blob = bytes(payload_bytes) if payload_bytes is not None else p.read_bytes()
     payload: Dict[str, Any] = {
-        "message": message or f"TINO memory sync: {p.name}",
-        "content": base64.b64encode(p.read_bytes()).decode("ascii"),
+        "message": message or f"TINO memory sync: {memory_name}",
+        "content": base64.b64encode(blob).decode("ascii"),
         "branch": cfg["branch"],
     }
     if ok and sha:
@@ -347,15 +388,18 @@ def _atomic_write_bytes(path: str | Path, payload: bytes) -> None:
 def _memory_row_identity(row: Dict[str, Any]) -> str:
     if not isinstance(row, dict):
         return ""
-    for key in ("audit_id", "id", "prediction_id"):
+    for key in ("audit_id", "snapshot_id", "event_id", "seed_id", "id", "prediction_id"):
         value = row.get(key)
         if value not in (None, ""):
             return f"{key}:{value}"
     ticker = str(row.get("ticker") or row.get("symbol") or "")
     stamp = str(
         row.get("run_time_tw")
+        or row.get("observed_at_tw")
+        or row.get("release_at_tw")
         or row.get("audit_time_tw")
         or row.get("logged_at_tw")
+        or row.get("created_at_tw")
         or row.get("created_at")
         or ""
     )
@@ -371,8 +415,11 @@ def _memory_row_identity(row: Dict[str, Any]) -> str:
 def _memory_row_stamp(row: Dict[str, Any]) -> str:
     return str(
         row.get("run_time_tw")
+        or row.get("observed_at_tw")
+        or row.get("release_at_tw")
         or row.get("audit_time_tw")
         or row.get("logged_at_tw")
+        or row.get("created_at_tw")
         or row.get("created_at")
         or row.get("run_date_tw")
         or row.get("audit_date_tw")
@@ -570,15 +617,16 @@ def _restore_from_local_backup_if_bigger(path: str | Path) -> Tuple[bool, str]:
 
 
 def _local_path_for_memory_file(file_name: str) -> Path:
-    if file_name == "tino_memory_ledger.json":
+    memory_name = _memory_relative_name(file_name)
+    if memory_name == "tino_memory_ledger.json":
         return Path(DEFAULT_LEDGER_PATH)
-    if file_name == "prediction_log.jsonl":
+    if memory_name == "prediction_log.jsonl":
         return Path(PREDICTION_LOG)
-    if file_name == "audit_log.jsonl":
+    if memory_name == "audit_log.jsonl":
         return Path(AUDIT_LOG)
-    if file_name == "ticker_profiles.json":
+    if memory_name == "ticker_profiles.json":
         return Path(TICKER_PROFILE)
-    return Path(_TINO_MEMORY_DIR) / file_name
+    return Path(_TINO_MEMORY_DIR) / Path(memory_name)
 
 
 def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
@@ -659,52 +707,80 @@ def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
     return report
 
 def _sync_file_to_remote_unlocked(path: str | Path, shrink_guard: bool = True) -> Tuple[bool, Optional[str]]:
-    """Reconcile, upload and read-back verify one changed memory file."""
+    """Reconcile, upload and read-back verify one changed memory file.
+
+    One bounded retry handles a concurrent writer without falsely reporting a
+    mismatch.  V12 analysis remains fail-safe because callers invoke this only
+    after the canonical local write succeeds.
+    """
     cfg = _remote_config()
     if not cfg["configured"]:
         return False, "remote_not_configured"
     p = Path(path)
     if not p.exists() or p.is_dir():
         return False, "local_missing"
+    memory_name = _memory_relative_name(p)
 
-    exists, blob, _sha, err = _github_read_file(p.name)
+    exists, blob, _sha, err = _github_read_file(memory_name)
     if exists and blob is not None:
         ok, info, reconcile_err = _reconcile_local_with_remote(p, blob)
         if not ok:
-            msg = reconcile_err or f"reconcile_failed:{p.name}"
+            msg = reconcile_err or f"reconcile_failed:{memory_name}"
             _LAST_REMOTE_REPORT.setdefault("shrink_warnings", []).append(msg)
             return False, msg
         if info.get("changed"):
-            note = f"remote_merged_before_sync:{p.name}"
+            note = f"remote_merged_before_sync:{memory_name}"
             _LAST_REMOTE_REPORT.setdefault("shrink_warnings", []).append(note)
     elif err not in (None, "remote_missing"):
-        # Never overwrite a remote file when its current state cannot be read.
-        msg = f"remote_read_blocked:{p.name}:{err}"
+        msg = f"remote_read_blocked:{memory_name}:{err}"
         _LAST_REMOTE_REPORT.setdefault("shrink_warnings", []).append(msg)
         _LAST_REMOTE_REPORT["status"] = "WARN"
         _LAST_REMOTE_REPORT["error"] = msg
         return False, msg
 
+    def _upload_and_verify(upload_blob: bytes) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str]]:
+        write_ok, write_err = _github_write_file(
+            p,
+            message=f"TINO memory sync: {memory_name}",
+            payload_bytes=upload_blob,
+        )
+        if not write_ok:
+            return False, None, None, write_err
+        verified, verify_blob, verify_sha, verify_err = _github_read_file(memory_name)
+        if not verified or verify_blob is None:
+            return False, None, verify_sha, f"remote_verify_read_failed:{memory_name}:{verify_err}"
+        return True, verify_blob, verify_sha, None
+
     local_blob = p.read_bytes()
-    ok, write_err = _github_write_file(p, message=f"TINO memory sync: {p.name}")
-    if not ok:
+    ok, verify_blob, verify_sha, sync_err = _upload_and_verify(local_blob)
+    if not ok or verify_blob is None:
         _LAST_REMOTE_REPORT["status"] = "WARN"
-        _LAST_REMOTE_REPORT["error"] = write_err
-        return False, write_err
+        _LAST_REMOTE_REPORT["error"] = sync_err
+        return False, sync_err
 
-    verified, verify_blob, verify_sha, verify_err = _github_read_file(p.name)
-    if not verified or verify_blob is None:
-        msg = f"remote_verify_read_failed:{p.name}:{verify_err}"
-        _LAST_REMOTE_REPORT["status"] = "WARN"
-        _LAST_REMOTE_REPORT["error"] = msg
-        return False, msg
     if hashlib.sha256(verify_blob).digest() != hashlib.sha256(local_blob).digest():
-        msg = f"remote_verify_mismatch:{p.name}"
-        _LAST_REMOTE_REPORT["status"] = "WARN"
-        _LAST_REMOTE_REPORT["error"] = msg
-        return False, msg
+        # Another worker may have committed between our PUT and read-back.  Merge
+        # that remote state and retry once; never shrink either side.
+        reconciled, _info, reconcile_err = _reconcile_local_with_remote(p, verify_blob)
+        if not reconciled:
+            msg = reconcile_err or f"remote_verify_reconcile_failed:{memory_name}"
+            _LAST_REMOTE_REPORT["status"] = "WARN"
+            _LAST_REMOTE_REPORT["error"] = msg
+            return False, msg
+        retry_blob = p.read_bytes()
+        ok, verify_blob, verify_sha, sync_err = _upload_and_verify(retry_blob)
+        if not ok or verify_blob is None:
+            _LAST_REMOTE_REPORT["status"] = "WARN"
+            _LAST_REMOTE_REPORT["error"] = sync_err
+            return False, sync_err
+        if hashlib.sha256(verify_blob).digest() != hashlib.sha256(retry_blob).digest():
+            msg = f"remote_verify_mismatch:{memory_name}"
+            _LAST_REMOTE_REPORT["status"] = "WARN"
+            _LAST_REMOTE_REPORT["error"] = msg
+            return False, msg
+        local_blob = retry_blob
 
-    _record_remote_file(p.name, verify_blob, verify_sha, verified=True)
+    _record_remote_file(memory_name, verify_blob, verify_sha, verified=True)
     _LAST_REMOTE_REPORT["configured"] = True
     _LAST_REMOTE_REPORT["backend"] = "github"
     _LAST_REMOTE_REPORT["branch_ready"] = True
@@ -713,9 +789,9 @@ def _sync_file_to_remote_unlocked(path: str | Path, shrink_guard: bool = True) -
     _LAST_REMOTE_REPORT["last_verified_at_tw"] = now_tw_iso()
     _LAST_REMOTE_REPORT["error"] = None
     synced = list(_LAST_REMOTE_REPORT.get("synced_files", []))
-    if p.name not in synced:
-        synced.append(p.name)
-    _LAST_REMOTE_REPORT["synced_files"] = synced[-20:]
+    if memory_name not in synced:
+        synced.append(memory_name)
+    _LAST_REMOTE_REPORT["synced_files"] = synced[-30:]
     return True, None
 
 def _sync_file_to_remote(path: str | Path, shrink_guard: bool = True) -> Tuple[bool, Optional[str]]:
