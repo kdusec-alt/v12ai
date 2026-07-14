@@ -4,15 +4,15 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-07-14T07:33:51+08:00",
     "approved_bias": 0.0,
-    "audit_count": 3,
-    "avg_abs_error_pct": 0.6456,
+    "audit_count": 4,
+    "avg_abs_error_pct": 0.7142,
     "avg_direction_brier": 0.11927,
     "avg_downside_tail_breach_pct": 0.0,
     "close_range_hit_rate": 1.0,
     "direction_audit_count": 2,
     "direction_hit_rate": 1.0,
     "error_type_counts": {
-      "within_tolerance": 3
+      "within_tolerance": 4
     },
     "factor_learning": {
       "MU": {
@@ -253,13 +253,13 @@
       }
     },
     "last_actual_direction": "DOWN",
-    "last_close_in_predicted_range": true,
+    "last_close_in_predicted_range": null,
     "last_defense_stop_touched": false,
     "last_direction_hit": true,
     "last_dominant_force": "趨勢",
-    "last_dominant_force_hit": true,
+    "last_dominant_force_hit": null,
     "last_downside_tail_breach_pct": 0.0,
-    "last_error_pct": 0.499,
+    "last_error_pct": -0.9201,
     "last_error_type": "within_tolerance",
     "last_predicted_direction": "DOWN",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
@@ -268,7 +268,7 @@
     "range_audit_count": 2,
     "suggested_bias": 0.0,
     "ticker": "MRVL",
-    "updated_at_tw": "2026-07-14T08:26:01+08:00"
+    "updated_at_tw": "2026-07-14T08:26:15+08:00"
   },
   "MU": {
     "active_family_count": 0,
