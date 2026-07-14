@@ -75,6 +75,7 @@ def render_research_lab(st) -> None:
     genomes = list(dashboard.get("genomes") or [])
     detections = list(dashboard.get("detections") or [])
     latest_by_ticker = dict(dashboard.get("latest_by_ticker") or {})
+    macro_events = list(dashboard.get("macro_events") or [])
 
     last_report = st.session_state.get("last_v13_research_report") or {}
     if str(last_report.get("status") or "") == "degraded":
@@ -86,12 +87,13 @@ def render_research_lab(st) -> None:
         sum(_number(row.get("calc_ms")) for row in genomes) / len(genomes)
         if genomes else 0.0
     )
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Genome 快照", len(genomes))
     c2.metric("研究標的", len(latest_by_ticker))
     c3.metric("重大／結構突變", critical)
     c4.metric("資料品質警報", quality_alerts)
     c5.metric("Genome 平均耗時", f"{avg_calc:.3f} ms")
+    c6.metric("Macro Events", len(macro_events))
 
     if not latest_by_ticker:
         st.info("目前尚無 Genome 快照。請在個股分析完成一次正式 Prediction Log 後再回到本頁。")
@@ -121,8 +123,8 @@ def render_research_lab(st) -> None:
         f"｜ 資料時間：{latest.get('run_time_tw', '')}"
     )
 
-    overview_tab, detection_tab, history_tab, status_tab = st.tabs([
-        "🧬 Genome", "🚨 Detection", "🕒 Evolution", "⚙️ Research Status"
+    overview_tab, detection_tab, history_tab, macro_tab, status_tab = st.tabs([
+        "🧬 Genome", "🚨 Detection", "🕒 Evolution", "🌐 Macro Event", "⚙️ Research Status"
     ])
     with overview_tab:
         _render_gene_panel(st, latest)
@@ -170,6 +172,78 @@ def render_research_lab(st) -> None:
         st.dataframe(rows, use_container_width=True, hide_index=True)
         if len(history) < 2:
             st.caption("累積至少兩個不同日期／正式預測快照後，Mutation 與 Evolution 才會更有研究意義。")
+
+    with macro_tab:
+        if not macro_events:
+            st.info("尚無已確認的 CPI／PPI／FOMC 結果。事件公布後，系統會先驗證官方結果，再比對市場反應。")
+        else:
+            latest_macro = macro_events[-1]
+            reaction_labels = {
+                "pending": "等待市場確認",
+                "confirmed": "方向確認",
+                "sell_the_news": "利多出盡／Sell the News",
+                "bad_news_priced_in": "利空已反映／空方回補",
+                "positioning_selloff": "符合預期但市場仍賣",
+                "positioning_rally": "中性數據但市場上漲",
+            }
+            a1, a2, a3, a4 = st.columns(4)
+            a1.metric("事件", str(latest_macro.get("event_code") or "Macro"))
+            a2.metric("Event Score", f"{_number(latest_macro.get('event_score')):+.2f}")
+            a3.metric("解讀信心", f"{_number(latest_macro.get('event_confidence')) * 100:.0f}%")
+            reaction_state = str(latest_macro.get("reaction_state") or "pending")
+            a4.metric("市場反應", reaction_labels.get(reaction_state, reaction_state))
+            summary = str(latest_macro.get("summary_line") or "")
+            if reaction_state in {"sell_the_news", "positioning_selloff"}:
+                st.warning(summary)
+            elif reaction_state in {"confirmed", "positioning_rally", "bad_news_priced_in"}:
+                st.success(summary)
+            else:
+                st.info(summary)
+
+            actual = latest_macro.get("actual") if isinstance(latest_macro.get("actual"), Mapping) else {}
+            forecast = latest_macro.get("forecast") if isinstance(latest_macro.get("forecast"), Mapping) else {}
+            previous = latest_macro.get("previous") if isinstance(latest_macro.get("previous"), Mapping) else {}
+            surprise = latest_macro.get("surprise") if isinstance(latest_macro.get("surprise"), Mapping) else {}
+            metric_labels = {
+                "headline_mom": "Headline MoM",
+                "headline_yoy": "Headline YoY",
+                "core_mom": "Core MoM",
+                "core_yoy": "Core YoY",
+            }
+            metric_rows = []
+            for key, label in metric_labels.items():
+                if any(mapping.get(key) is not None for mapping in (actual, forecast, previous, surprise)):
+                    metric_rows.append({
+                        "指標": label,
+                        "實際": actual.get(key),
+                        "預期": forecast.get(key),
+                        "前值": previous.get(key),
+                        "Surprise": surprise.get(key),
+                    })
+            if metric_rows:
+                st.dataframe(metric_rows, use_container_width=True, hide_index=True)
+
+            confirmation = latest_macro.get("market_confirmation") if isinstance(latest_macro.get("market_confirmation"), Mapping) else {}
+            st.caption(
+                f"官方確認：{'YES' if latest_macro.get('official_confirmed') else '待確認'}｜"
+                f"來源：{latest_macro.get('source', '')}｜期間：{latest_macro.get('period', '')}｜"
+                f"SOX {confirmation.get('sox', 'NA')}｜NQ {confirmation.get('nq', 'NA')}｜"
+                f"殖利率 {confirmation.get('yield_signal', 'unknown')}｜美元 {confirmation.get('dollar_signal', 'unknown')}｜"
+                "僅供研究層，不影響 Direction / T1 / Confidence。"
+            )
+            with st.expander("近期 Macro Event History", expanded=False):
+                history_rows = [
+                    {
+                        "時間": row.get("observed_at_tw"),
+                        "事件": row.get("event_code"),
+                        "分數": row.get("event_score"),
+                        "預期差": row.get("expectation_state"),
+                        "市場反應": reaction_labels.get(str(row.get("reaction_state") or ""), row.get("reaction_state")),
+                        "結論": row.get("semantic_verdict"),
+                    }
+                    for row in reversed(macro_events[-30:])
+                ]
+                st.dataframe(history_rows, use_container_width=True, hide_index=True)
 
     with status_tab:
         report = dict(last_report) if isinstance(last_report, Mapping) else {}

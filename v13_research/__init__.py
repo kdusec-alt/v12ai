@@ -18,6 +18,12 @@ from .contracts import (
 from .detection_engine import detect_genome_event
 from .genome_engine import GENE_LABELS, GENE_ORDER, build_genome_snapshot
 from .service import capture_prediction_seed, research_enabled
+from .macro_event_engine import (
+    MACRO_EVENT_ENGINE_VERSION,
+    MACRO_EVENT_SCHEMA_VERSION,
+    assess_macro_event_result,
+    compact_macro_event_line,
+)
 
 __all__ = [
     "RESEARCH_SCHEMA_VERSION",
@@ -35,4 +41,8 @@ __all__ = [
     "detect_genome_event",
     "capture_prediction_seed",
     "research_enabled",
+    "MACRO_EVENT_SCHEMA_VERSION",
+    "MACRO_EVENT_ENGINE_VERSION",
+    "assess_macro_event_result",
+    "compact_macro_event_line",
 ]

@@ -23,6 +23,7 @@ GENOME_SNAPSHOT_LOG = RESEARCH_DIR / "genome_snapshot.jsonl"
 DETECTION_EVENT_LOG = RESEARCH_DIR / "detection_event.jsonl"
 CLOSE_RECHECK_LOG = RESEARCH_DIR / "close_recheck.jsonl"
 CLOSE_RECHECK_STATE = RESEARCH_DIR / "close_recheck_state.json"
+MACRO_EVENT_LOG = RESEARCH_DIR / "macro_event.jsonl"
 
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _ID_CACHE: Dict[Tuple[str, str], Tuple[int, int, set[str]]] = {}
@@ -165,6 +166,14 @@ def append_close_recheck_event(row: Dict[str, Any]) -> Dict[str, Any]:
     return _append_once(CLOSE_RECHECK_LOG, row, "event_id")
 
 
+def append_macro_event(row: Dict[str, Any]) -> Dict[str, Any]:
+    return _append_once(MACRO_EVENT_LOG, row, "event_id")
+
+
+def load_recent_macro_events(limit: int = 200) -> List[Dict[str, Any]]:
+    return _read_recent_rows(MACRO_EVENT_LOG, limit)
+
+
 def load_recent_close_rechecks(limit: int = 200) -> List[Dict[str, Any]]:
     return _read_recent_rows(CLOSE_RECHECK_LOG, limit)
 
@@ -240,6 +249,7 @@ def research_storage_status() -> Dict[str, Any]:
         "detection": _one(DETECTION_EVENT_LOG),
         "close_recheck": _one(CLOSE_RECHECK_LOG),
         "close_recheck_state": _one(CLOSE_RECHECK_STATE),
+        "macro_event": _one(MACRO_EVENT_LOG),
     }
 
 
@@ -247,6 +257,7 @@ def load_research_dashboard(genome_limit: int = 500, detection_limit: int = 500)
     genomes = load_recent_genomes(genome_limit)
     detections = load_recent_detections(detection_limit)
     close_rechecks = load_recent_close_rechecks(200)
+    macro_events = load_recent_macro_events(200)
     latest_by_ticker: Dict[str, Dict[str, Any]] = {}
     for row in genomes:
         ticker = str(row.get("ticker") or "").strip().upper()
@@ -256,6 +267,7 @@ def load_research_dashboard(genome_limit: int = 500, detection_limit: int = 500)
         "genomes": genomes,
         "detections": detections,
         "close_rechecks": close_rechecks,
+        "macro_events": macro_events,
         "close_recheck_state": load_close_recheck_state(),
         "latest_by_ticker": latest_by_ticker,
         "storage": research_storage_status(),
