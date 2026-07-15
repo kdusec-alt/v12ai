@@ -576,17 +576,51 @@ def _reconcile_local_with_remote(path: str | Path, remote_blob: bytes) -> Tuple[
         return False, info, f"reconcile_failed:{type(exc).__name__}:{exc}"
 
 def _write_local_backup(path: str | Path) -> None:
+    """Write a verified local backup without replacing a larger good history.
+
+    Append-only research/audit logs are monotonic.  A truncated runtime file
+    must therefore never overwrite the last healthy backup before the shrink
+    guard has a chance to restore it.  Mutable state JSON remains replaceable
+    as long as it is valid JSON.
+    """
     p = Path(path)
     if not p.exists() or p.is_dir():
         return
     try:
+        payload = p.read_bytes()
         bak_dir = p.parent / "_backup"
         bak_dir.mkdir(parents=True, exist_ok=True)
-        # latest backup is used by shrink guard after runtime hiccups.
-        (bak_dir / f"{p.name}.bak").write_bytes(p.read_bytes())
-        # daily rotating backup helps debugging without exploding file count.
+        latest = bak_dir / f"{p.name}.bak"
+
+        if p.suffix == ".jsonl":
+            candidate_lines = [line for line in payload.decode("utf-8", "strict").splitlines() if line.strip()]
+            candidate_rows = _decode_jsonl_bytes(payload)
+            # One malformed line means the candidate is not safe as a recovery
+            # source.  Preserve the previous backup instead.
+            if len(candidate_lines) != len(candidate_rows):
+                return
+            if latest.exists():
+                previous_blob = latest.read_bytes()
+                previous_rows = _decode_jsonl_bytes(previous_blob)
+                if len(previous_rows) > len(candidate_rows):
+                    return
+        else:
+            try:
+                candidate_doc = json.loads(payload.decode("utf-8"))
+            except Exception:
+                return
+            if not isinstance(candidate_doc, dict):
+                return
+            # Ticker profiles are cumulative knowledge.  A valid but smaller
+            # map is still suspicious and must not replace a richer backup.
+            if p.name == "ticker_profiles.json" and latest.exists():
+                previous_doc = _json_dict_from_bytes(latest.read_bytes())
+                if len(previous_doc) > len(candidate_doc):
+                    return
+
+        _atomic_write_bytes(latest, payload)
         day = datetime.now(TW_TZ).strftime("%Y%m%d")
-        (bak_dir / f"{p.name}.{day}.bak").write_bytes(p.read_bytes())
+        _atomic_write_bytes(bak_dir / f"{p.name}.{day}.bak", payload)
     except Exception:
         return
 
@@ -602,14 +636,31 @@ def _restore_from_local_backup_if_bigger(path: str | Path) -> Tuple[bool, str]:
             bak_n = _count_jsonl_file(bak)
             if bak_n > cur_n:
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_bytes(bak.read_bytes())
+                _atomic_write_bytes(p, bak.read_bytes())
                 return True, f"restored_from_backup_lines:{cur_n}->{bak_n}"
         else:
+            # Scheduler state is mutable and may legitimately become smaller.
+            # Restore it only when missing/corrupt, never merely by byte size.
+            if p.name == "close_recheck_state.json":
+                current_valid = False
+                if p.exists():
+                    try:
+                        current_valid = isinstance(json.loads(p.read_text(encoding="utf-8")), dict)
+                    except Exception:
+                        current_valid = False
+                if current_valid:
+                    return False, "mutable_state_valid"
+                backup_doc = _json_dict_from_bytes(bak.read_bytes())
+                if backup_doc:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    _atomic_write_bytes(p, bak.read_bytes())
+                    return True, "restored_mutable_state_from_valid_backup"
+                return False, "mutable_state_backup_invalid"
             cur_size = p.stat().st_size if p.exists() else 0
             bak_size = bak.stat().st_size
             if bak_size > cur_size and bak_size > 2:
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_bytes(bak.read_bytes())
+                _atomic_write_bytes(p, bak.read_bytes())
                 return True, f"restored_from_backup_bytes:{cur_size}->{bak_size}"
     except Exception as exc:
         return False, f"backup_restore_failed:{type(exc).__name__}:{exc}"
@@ -1385,8 +1436,21 @@ def ensure_memory_initialized(
             }
         report["remote_restore"] = restore_report
         _TINO_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        # Local backup shrink guard: if a hiccup produced a smaller file, restore .bak.
-        for _fp in [Path(PREDICTION_LOG), Path(AUDIT_LOG), Path(TICKER_PROFILE), p]:
+        # Local backup shrink guard covers both V12 core memory and every
+        # registered V13 research sidecar.  This protects a recycled runtime
+        # even when GitHub is temporarily unavailable.
+        backup_targets = [Path(PREDICTION_LOG), Path(AUDIT_LOG), Path(TICKER_PROFILE), p]
+        backup_targets.extend(
+            _local_path_for_memory_file(name)
+            for name in _MEMORY_FILES
+            if name not in {"prediction_log.jsonl", "audit_log.jsonl", "ticker_profiles.json", "tino_memory_ledger.json"}
+        )
+        seen_backup_targets: set[str] = set()
+        for _fp in backup_targets:
+            key = str(_fp)
+            if key in seen_backup_targets:
+                continue
+            seen_backup_targets.add(key)
             restored, note = _restore_from_local_backup_if_bigger(_fp)
             if restored:
                 report["notes"].append(f"{Path(_fp).name}:{note}")

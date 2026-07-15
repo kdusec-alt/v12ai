@@ -178,6 +178,63 @@ def _valuation_heat(pe: float | None, forward_pe: float | None, ps: float | None
     return _clamp(max(pe_heat, fpe_heat, ps_heat), 0.0, 22.0)
 
 
+def _bubble_family(
+    *,
+    price_heat: float,
+    valuation_heat: float,
+    expectation_heat: float,
+    divergence: float,
+    deceleration: float,
+    growth_support: float,
+    revenue_yoy: float | None,
+) -> tuple[str, str]:
+    """Classify *why* a company is hot without changing its temperature.
+
+    The family is descriptive research metadata.  It prevents a fast-growing
+    company from being mislabeled as a fundamentals-empty bubble merely because
+    its trailing valuation is expensive.
+    """
+    strong_growth = bool(
+        (revenue_yoy is not None and revenue_yoy >= 30.0)
+        or growth_support >= 9.0
+    )
+    if valuation_heat >= 18.0 and strong_growth:
+        return "growth_supported_valuation", "高成長支撐的估值過熱"
+    if divergence >= 15.0 and growth_support < 5.0:
+        return "fundamental_divergence", "價格與基本面明顯背離"
+    if deceleration >= 8.0:
+        return "growth_cooling", "成長降溫下的估值壓力"
+    if price_heat >= 20.0 and expectation_heat >= 6.0:
+        return "price_narrative_acceleration", "價格／敘事加速過熱"
+    if valuation_heat >= 12.0:
+        return "valuation_overheat", "估值過熱"
+    if price_heat >= 16.0:
+        return "price_overheat", "價格過熱"
+    return "balanced", "尚未形成單一泡沫家族"
+
+
+def _component_line_parts(components: Mapping[str, float]) -> list[str]:
+    """Render every non-zero component so the displayed sum is auditable."""
+    labels = (
+        ("price_heat", "價熱"),
+        ("valuation_heat", "估值"),
+        ("expectation_heat", "預期"),
+        ("divergence", "背離"),
+        ("deceleration", "降溫"),
+        ("growth_support", "成長支撐"),
+        ("score_adjustment", "溫度校準"),
+    )
+    out: list[str] = []
+    for key, label in labels:
+        value = float(components.get(key, 0.0) or 0.0)
+        if key == "growth_support":
+            if value > 0.004:
+                out.append(f"{label} -{value:.0f}")
+        elif abs(value) > 0.004:
+            out.append(f"{label} {value:+.0f}" if value < 0 else f"{label} {value:.0f}")
+    return out
+
+
 def _decision_adjustment(score: float, growth_score: float, *, mode: str, accepted: bool) -> float:
     """Compatibility field retained for old Prediction Log readers.
 
@@ -424,12 +481,19 @@ def assess_bubble_risk(
 
     divergence = 0.0
     divergence_reasons = []
+    strong_revenue_growth = bool(revenue_yoy is not None and revenue_yoy >= 30.0)
     if price_heat >= 22 and growth_score <= 5:
         divergence += 15.0
-        divergence_reasons.append("股價加速明顯領先成長")
+        divergence_reasons.append(
+            "股價加速領先已實現獲利，但營收成長仍具支撐"
+            if strong_revenue_growth else "股價加速明顯領先成長"
+        )
     elif price_heat >= 16 and growth_score <= 7:
         divergence += 9.0
-        divergence_reasons.append("股價領先基本面")
+        divergence_reasons.append(
+            "股價領先已實現獲利，但營收成長仍具支撐"
+            if strong_revenue_growth else "股價領先基本面"
+        )
     if valuation_heat >= 12 and (revenue_yoy is None or revenue_yoy < 15):
         divergence += 8.0
         divergence_reasons.append("高估值但營收成長不足")
@@ -441,11 +505,11 @@ def assess_bubble_risk(
         divergence_reasons.append("極高估值未獲可比EPS加速度支撐")
 
     growth_support = _clamp(growth_score * 1.25, 0.0, 20.0)
-    raw_score = _clamp(
-        price_heat + valuation_heat + expectation_heat + divergence + deceleration - growth_support,
-        0.0,
-        100.0,
+    unbounded_score = (
+        price_heat + valuation_heat + expectation_heat
+        + divergence + deceleration - growth_support
     )
+    raw_score = _clamp(unbounded_score, 0.0, 100.0)
 
     price_count = sum(metrics.get(key) is not None for key in ("ret20", "ret60", "ma20_gap"))
     fundamental_values = (qoq, revenue_yoy, earnings_yoy, pe, forward_pe, ps, monthly_mom, accum_yoy)
@@ -467,6 +531,36 @@ def assess_bubble_risk(
     else:
         score = _clamp(price_heat + expectation_heat * 0.45, 0.0, 44.0)
 
+    # Keep the displayed decomposition mathematically identical to the final
+    # temperature.  The adjustment is normally zero; it becomes non-zero only
+    # when a bounded floor/cap is deliberately applied.
+    component_basis = unbounded_score if accepted else price_heat + expectation_heat * 0.45
+    score_adjustment = score - component_basis
+    components = {
+        "price_heat": price_heat,
+        "valuation_heat": valuation_heat if accepted and valuation_available else 0.0,
+        "expectation_heat": expectation_heat if accepted else expectation_heat * 0.45,
+        "divergence": divergence if accepted else 0.0,
+        "deceleration": deceleration if accepted else 0.0,
+        "growth_support": growth_support if accepted else 0.0,
+        "score_adjustment": score_adjustment,
+    }
+    component_sum = (
+        components["price_heat"] + components["valuation_heat"]
+        + components["expectation_heat"] + components["divergence"]
+        + components["deceleration"] - components["growth_support"]
+        + components["score_adjustment"]
+    )
+    bubble_family, bubble_family_label = _bubble_family(
+        price_heat=price_heat,
+        valuation_heat=valuation_heat,
+        expectation_heat=expectation_heat,
+        divergence=divergence,
+        deceleration=deceleration,
+        growth_support=growth_support,
+        revenue_yoy=revenue_yoy,
+    )
+
     level, icon = _temperature_label(score)
     adjustment = _decision_adjustment(score, growth_score, mode=mode, accepted=accepted)
     adjustment = _cap_positive_decision_for_valuation(
@@ -478,20 +572,20 @@ def assess_bubble_risk(
         eps_value=eps_value,
     )
 
-    reasons = divergence_reasons + decel_reasons
+    reasons = [bubble_family_label] + divergence_reasons + decel_reasons
     if valuation_floor_reason and valuation_floor > raw_score:
         reasons.append(valuation_floor_reason)
     if extreme_reason:
         reasons.append(extreme_reason)
     if gaap_eps_yoy is not None and earnings_yoy is None:
         reasons.append("GAAP EPS波動僅揭露，不納入Decision")
-    if not reasons:
+    if bubble_family == "balanced":
         if accepted and growth_support >= 9:
-            reasons.append("成長可支撐目前估值")
+            reasons[0] = "成長可支撐目前估值"
         elif price_heat >= 12:
-            reasons.append("股價熱度升高")
+            reasons[0] = "股價熱度升高"
         else:
-            reasons.append("尚未出現明顯價格/基本面背離")
+            reasons[0] = "尚未出現明顯價格/基本面背離"
 
     bubble_conclusion_eligible = bool(accepted and valuation_available)
     alert = bool(bubble_conclusion_eligible and score >= 60.0)
@@ -499,16 +593,13 @@ def assess_bubble_risk(
 
     if accepted and valuation_available:
         line = "｜".join(
-            (
-                f"AI泡沫雷達｜{icon} {score:.0f}℃ {level}",
-                f"價熱 {price_heat:.0f}",
-                f"估值 {valuation_heat:.0f}",
-                f"預期 {expectation_heat:.0f}",
-                f"成長支撐 -{growth_support:.0f}",
+            [f"AI泡沫雷達｜{icon} {score:.0f}℃ {level}"]
+            + _component_line_parts(components)
+            + [
                 "研究模式，不介入決策",
                 f"資料 {quality * 100:.0f}%",
-                reasons[0],
-            )
+                bubble_family_label,
+            ]
         )
     elif accepted:
         icon = "⚪"
@@ -555,6 +646,11 @@ def assess_bubble_risk(
         "alert": alert,
         "alert_level": alert_level,
         "bubble_conclusion_eligible": bubble_conclusion_eligible,
+        "bubble_family": bubble_family,
+        "bubble_family_label": bubble_family_label,
+        "components": {key: round(float(value), 3) for key, value in components.items()},
+        "component_sum": round(component_sum, 3),
+        "component_gap": round(score - component_sum, 6),
         "metrics": {
             **metrics,
             "price_heat": round(price_heat, 3),
@@ -575,6 +671,11 @@ def assess_bubble_risk(
             "eps_value": eps_value,
             "valuation_available": valuation_available,
             "valuation_floor": round(valuation_floor, 3),
+            "unbounded_score": round(unbounded_score, 3),
+            "score_adjustment": round(score_adjustment, 3),
+            "component_sum": round(component_sum, 3),
+            "component_gap": round(score - component_sum, 6),
+            "bubble_family": bubble_family,
             "extreme_growth": extreme_growth,
             "extreme_growth_verified": extreme_verified,
             "extreme_growth_scale": extreme_scale,

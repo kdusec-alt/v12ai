@@ -610,12 +610,17 @@ def _geo_policy_family(
     headline can therefore reduce position/confidence without pretending to
     know tomorrow's sign before cross-market confirmation.
     """
+    # Event freshness must be evaluated against the price snapshot date, not
+    # the container wall clock.  Otherwise a historical/replayed Prediction
+    # silently loses its policy/geo family after a few real-world days.
+    reference_now = datetime.combine(_reference_date(price), datetime.max.time())
     result = assess_policy_geo(
         news_items,
         market=str(price.ticker.market or ""),
         profile=profile,
         overnight_score=overnight,
         overnight_ok=overnight_ok,
+        now=reference_now,
     )
     score = _clamp(_num(result.get("score"), 0.0), -60.0, 60.0)
     risk_points = _clamp(_num(result.get("risk"), 0.0), 0.0, 18.0)
