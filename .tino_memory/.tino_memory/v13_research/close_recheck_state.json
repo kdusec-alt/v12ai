@@ -1,1 +1,20 @@
-{"trade_date":"2026-07-15","completed_tickers":["2330.TW","2337.TW","6586.TWO"],"updated":3,"formal_written":3,"context_updated":0,"unchanged":0,"waiting_institution":0,"errors":0,"waiting_tickers":[],"error_tickers":[],"last_run_time_tw":"2026-07-15T17:12:59+08:00","status":"partial","remaining":3,"today_tickers":7}
+{
+  "completed_tickers": [
+    "2330.TW",
+    "2337.TW",
+    "6586.TWO"
+  ],
+  "context_updated": 0,
+  "error_tickers": [],
+  "errors": 0,
+  "formal_written": 3,
+  "last_run_time_tw": "2026-07-15T17:12:59+08:00",
+  "remaining": 3,
+  "status": "partial",
+  "today_tickers": 7,
+  "trade_date": "2026-07-15",
+  "unchanged": 0,
+  "updated": 3,
+  "waiting_institution": 0,
+  "waiting_tickers": []
+}
