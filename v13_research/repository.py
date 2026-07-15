@@ -35,6 +35,19 @@ _RECENT_CACHE_SIGNATURE: Tuple[int, int] | None = None
 _REMOTE_SYNC_LOCK = threading.RLock()
 _REMOTE_SYNC_PENDING: set[str] = set()
 _REMOTE_SYNC_THREAD: threading.Thread | None = None
+_PATH_LOCKS_GUARD = threading.RLock()
+_PATH_LOCKS: Dict[str, threading.RLock] = {}
+_STATE_LOCK = threading.RLock()
+
+
+def _path_lock(path: Path) -> threading.RLock:
+    key = str(path)
+    with _PATH_LOCKS_GUARD:
+        lock = _PATH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PATH_LOCKS[key] = lock
+        return lock
 
 
 def _research_remote_sync_worker() -> None:
@@ -51,10 +64,17 @@ def _research_remote_sync_worker() -> None:
             path_text = _REMOTE_SYNC_PENDING.pop()
         try:
             from tino_persistent_store import _sync_file_to_remote  # type: ignore
-            _sync_file_to_remote(Path(path_text), shrink_guard=True)
+            # Two bounded attempts absorb a transient GitHub conflict without
+            # blocking the formal analysis path.  The local canonical write is
+            # already durable before this worker starts.
+            for attempt in range(2):
+                ok, _err = _sync_file_to_remote(Path(path_text), shrink_guard=True)
+                if ok:
+                    break
+                if attempt == 0:
+                    time.sleep(0.75)
         except Exception:
-            # The canonical local write already succeeded.  A later boot/sync
-            # will reconcile the file, so remote failure never affects V12.
+            # A later boot/sync will reconcile the file; never raise into V12.
             continue
 
 
@@ -167,34 +187,43 @@ def genome_prediction_exists(prediction_id: str) -> bool:
     return record_exists(GENOME_SNAPSHOT_LOG, "prediction_id", prediction_id)
 
 
+def detection_snapshot_exists(snapshot_id: str) -> bool:
+    return record_exists(DETECTION_EVENT_LOG, "snapshot_id", snapshot_id)
+
+
 def _append_once(path: Path, row: Dict[str, Any], id_key: str) -> Dict[str, Any]:
     record_id = str((row or {}).get(id_key) or "").strip()
     if not record_id:
         raise ValueError(f"{id_key} is required")
 
     RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
-    if record_exists(path, id_key, record_id):
-        return {"status": "duplicate", id_key: record_id, "path": str(path)}
+    # Streamlit reruns and the close-recheck worker can reach this function at
+    # the same time.  Keep duplicate-check + append + cache update in one
+    # process-level critical section so one formal record is written once.
+    with _path_lock(path):
+        if record_exists(path, id_key, record_id):
+            return {"status": "duplicate", id_key: record_id, "path": str(path)}
 
-    payload = json.dumps(row, ensure_ascii=False, separators=(",", ":"), default=str) + "\n"
-    fd = os.open(str(path), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
-    try:
-        os.write(fd, payload.encode("utf-8"))
-        if _durable_write_enabled():
-            os.fsync(fd)
-    finally:
-        os.close(fd)
+        payload = json.dumps(row, ensure_ascii=False, separators=(",", ":"), default=str) + "\n"
+        fd = os.open(str(path), os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            os.write(fd, payload.encode("utf-8"))
+            if _durable_write_enabled():
+                os.fsync(fd)
+        finally:
+            os.close(fd)
 
-    signature = _signature(path)
-    cache_key = (str(path), id_key)
-    ids = set(_ID_CACHE.get(cache_key, (0, 0, set()))[2])
-    ids.add(record_id)
-    if len(ids) > 4000:
-        ids = set(list(ids)[-3000:])
-    _ID_CACHE[cache_key] = (signature[0], signature[1], ids)
+        signature = _signature(path)
+        cache_key = (str(path), id_key)
+        ids = set(_ID_CACHE.get(cache_key, (0, 0, set()))[2])
+        ids.add(record_id)
+        if len(ids) > 4000:
+            ids = set(sorted(ids)[-3000:])
+        _ID_CACHE[cache_key] = (signature[0], signature[1], ids)
 
-    for key in [key for key in _ROWS_CACHE if key[0] == str(path)]:
-        _ROWS_CACHE.pop(key, None)
+        for key in [key for key in _ROWS_CACHE if key[0] == str(path)]:
+            _ROWS_CACHE.pop(key, None)
+
     _notify_persistent_write(path)
     return {"status": "written", id_key: record_id, "path": str(path)}
 
@@ -231,22 +260,28 @@ def load_recent_close_rechecks(limit: int = 200) -> List[Dict[str, Any]]:
 
 
 def load_close_recheck_state() -> Dict[str, Any]:
-    try:
-        value = json.loads(CLOSE_RECHECK_STATE.read_text(encoding="utf-8"))
-        return dict(value) if isinstance(value, dict) else {}
-    except Exception:
-        return {}
+    with _STATE_LOCK:
+        try:
+            value = json.loads(CLOSE_RECHECK_STATE.read_text(encoding="utf-8"))
+            return dict(value) if isinstance(value, dict) else {}
+        except Exception:
+            return {}
 
 
 def save_close_recheck_state(state: Dict[str, Any]) -> Dict[str, Any]:
     RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
     payload = dict(state or {})
-    temp = CLOSE_RECHECK_STATE.with_suffix(".json.tmp")
-    temp.write_text(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str),
-        encoding="utf-8",
-    )
-    os.replace(str(temp), str(CLOSE_RECHECK_STATE))
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+    with _STATE_LOCK:
+        temp = CLOSE_RECHECK_STATE.with_suffix(".json.tmp")
+        fd = os.open(str(temp), os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
+        try:
+            os.write(fd, encoded)
+            if _durable_write_enabled():
+                os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(str(temp), str(CLOSE_RECHECK_STATE))
     _notify_persistent_write(CLOSE_RECHECK_STATE)
     return {"status": "written", "path": str(CLOSE_RECHECK_STATE)}
 
@@ -294,7 +329,19 @@ def load_recent_detections(limit: int = 500) -> List[Dict[str, Any]]:
 def research_storage_status() -> Dict[str, Any]:
     def _one(path: Path) -> Dict[str, Any]:
         sig = _signature(path)
-        return {"path": str(path), "exists": path.exists(), "size_bytes": sig[1] if sig[1] >= 0 else 0}
+        row_count = None
+        if path.suffix == ".jsonl" and path.exists():
+            try:
+                with path.open("rb") as handle:
+                    row_count = sum(1 for line in handle if line.strip())
+            except Exception:
+                row_count = None
+        return {
+            "path": str(path),
+            "exists": path.exists(),
+            "size_bytes": sig[1] if sig[1] >= 0 else 0,
+            "rows": row_count,
+        }
     status = {
         "research_dir": str(RESEARCH_DIR),
         "seed": _one(RESEARCH_SEED_LOG),

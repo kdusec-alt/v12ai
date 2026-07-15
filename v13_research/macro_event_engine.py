@@ -52,7 +52,7 @@ _TAIPEI = ZoneInfo("Asia/Taipei")
 _SUPPORTED_CODES = {"CPI", "PPI", "FOMC"}
 _FALSE_VALUES = {"0", "false", "no", "off", "disabled"}
 MACRO_EVENT_SCHEMA_VERSION = "V13_MACRO_EVENT_V1"
-MACRO_EVENT_ENGINE_VERSION = "V13_RC03_2_MACRO_1.0.0"
+MACRO_EVENT_ENGINE_VERSION = "V13_RC04_MACRO_1.1.0"
 _ASSESS_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _CACHE_LOCK = threading.RLock()
 
@@ -78,6 +78,7 @@ class MacroEventResult:
     semantic_verdict: str = ""
     risk_verdict: str = ""
     event_score: float = 0.0
+    score_basis: str = "none"
     event_confidence: float = 0.0
     reaction_state: str = "pending"
     reaction_score: float = 0.0
@@ -228,8 +229,10 @@ def assess_macro_event_result(
     cache_key = f"{code}:{release_date}:{int(reference.timestamp() // 300)}"
     with _CACHE_LOCK:
         cached = _ASSESS_CACHE.get(cache_key)
-        if cached and time.time() - cached[0] < 300:
-            return dict(cached[1])
+        if cached:
+            cached_ttl = 30 if str(cached[1].get("status") or "") == "result_pending" else 300
+            if time.time() - cached[0] < cached_ttl:
+                return dict(cached[1])
 
     texts = _news_texts(news_items)
     override = _override_for(code, release_date)
@@ -264,15 +267,23 @@ def assess_macro_event_result(
         surprise = _surprise_map(actual, forecast)
         event_score, score_basis = _inflation_event_score(code, surprise, actual, previous)
         semantic, risk = _semantic_inflation(code, actual, previous, event_score)
-        expectation = _expectation_state(event_score, surprise, _extract_expectation_words(texts))
+        word_hint = _extract_expectation_words(texts)
         available_forecasts = sum(1 for value in forecast.values() if value is not None)
-        if available_forecasts == 0:
+        if available_forecasts > 0:
+            expectation = _expectation_state(event_score, surprise, word_hint)
+        elif word_hint != "unknown":
+            # Explicit news wording is acceptable, but missing consensus numbers
+            # must never be converted from a trend score into "符合/高低於預期".
+            expectation = word_hint
+        else:
+            expectation = "unknown"
             quality_flags.append("forecast_missing")
         confidence = 0.58 + (0.22 if official_confirmed else 0.0) + min(0.12, available_forecasts * 0.03)
         if score_basis == "trend":
             confidence -= 0.08
     else:
         surprise = {}
+        score_basis = "fomc_action"
         event_score, semantic, risk, expectation, confidence = _fomc_result(
             actual, override, texts, official_confirmed
         )
@@ -309,6 +320,7 @@ def assess_macro_event_result(
         "semantic_verdict": semantic,
         "risk_verdict": risk,
         "event_score": round(event_score, 4),
+        "score_basis": score_basis,
         "event_confidence": round(confidence, 4),
         "reaction_state": reaction_state,
         "reaction_score": round(reaction_score, 4),
