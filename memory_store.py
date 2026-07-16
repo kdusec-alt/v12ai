@@ -11,23 +11,59 @@ from typing import Any, Dict, Iterable, List, Optional
 DEFAULT_VISIBLE_LOG_ROWS = 900
 
 
-def _default_memory_dir() -> Path:
-    """Return the first writable TINO memory directory.
+_MEMORY_ROOT_NAMES = {".tino_memory", "tino_memory"}
 
-    The module directory is kept as a second candidate because Streamlit Cloud
-    can relaunch with a different working directory after login/reconnect.
+
+def _normalize_memory_dir_path(value: str | os.PathLike[str] | Path) -> Path:
+    """Collapse accidental repeated memory-root segments.
+
+    Streamlit may restart with a different working directory, and an older
+    configuration once produced ``.tino_memory/.tino_memory``.  Local storage
+    must never recreate that nested layout, even when an environment variable
+    or current working directory already points at the memory folder.
     """
+    raw = os.path.expandvars(os.path.expanduser(str(value or ".tino_memory")))
+    candidate = Path(raw.replace("\\", "/"))
+    anchor = candidate.anchor
+    parts = [part for part in candidate.parts if part not in (anchor, "", ".")]
+    collapsed: List[str] = []
+    for part in parts:
+        if part in _MEMORY_ROOT_NAMES and collapsed and collapsed[-1] in _MEMORY_ROOT_NAMES:
+            continue
+        collapsed.append(part)
+    if anchor:
+        return Path(anchor, *collapsed)
+    return Path(*collapsed) if collapsed else Path(".tino_memory")
+
+
+def _default_memory_dir() -> Path:
+    """Return the first writable, canonical TINO memory directory."""
+    app_dir = Path(__file__).resolve().parent
+    cwd = Path.cwd()
+    candidates: List[Path] = []
+
     env = os.environ.get("TINO_MEMORY_DIR")
     if env:
-        return Path(env)
-    app_dir = Path(__file__).resolve().parent
-    candidates = [
-        Path.cwd() / ".tino_memory",
-        app_dir / ".tino_memory",
-        Path.home() / ".tino_stock_engine_memory",
-        Path("/tmp/tino_memory"),
-    ]
+        candidates.append(_normalize_memory_dir_path(env))
+
+    # If a maintenance command is launched from inside the memory folder,
+    # reuse that folder instead of appending another ``.tino_memory`` level.
+    candidates.extend([
+        _normalize_memory_dir_path(cwd if cwd.name in _MEMORY_ROOT_NAMES else cwd / ".tino_memory"),
+        _normalize_memory_dir_path(app_dir if app_dir.name in _MEMORY_ROOT_NAMES else app_dir / ".tino_memory"),
+        _normalize_memory_dir_path(Path.home() / ".tino_stock_engine_memory"),
+        _normalize_memory_dir_path(Path("/tmp/tino_memory")),
+    ])
+
+    seen = set()
     for candidate in candidates:
+        try:
+            key = str(candidate.resolve())
+        except Exception:
+            key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
         try:
             candidate.mkdir(parents=True, exist_ok=True)
             probe = candidate / ".write_test"
@@ -170,6 +206,11 @@ def _candidate_paths(primary: Path) -> List[Path]:
         primary,
         app_dir / ".tino_memory" / name,
         cwd / ".tino_memory" / name,
+        # Read-only recovery candidates for the historical double-root bug.
+        # They are never selected as the active write destination.
+        primary.parent / ".tino_memory" / name,
+        app_dir / ".tino_memory" / ".tino_memory" / name,
+        cwd / ".tino_memory" / ".tino_memory" / name,
         app_dir / name,
         cwd / name,
         primary.parent / "_backup" / f"{name}.bak",

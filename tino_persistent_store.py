@@ -137,21 +137,31 @@ def _secret(name: str, default: Optional[str] = None) -> Optional[str]:
 
 
 def _normalize_remote_memory_dir(value: Any) -> str:
-    """Return one safe remote memory root.
+    """Return one safe repository-relative memory root.
 
-    A historical V14 path bug accepted ``.tino_memory/prediction_log.jsonl``
-    as if it were already relative to the memory root, then prefixed the root a
-    second time.  Normalizing the configured root here prevents an accidentally
-    duplicated ``.tino_memory/.tino_memory`` setting from perpetuating that
-    layout.
+    Besides collapsing the historical double root, this rejects a configured
+    *file* path such as ``.tino_memory/prediction_log.jsonl``.  The GitHub
+    contents API must always receive exactly one directory root plus one
+    relative memory-file path.
     """
     raw = str(value or ".tino_memory").strip().replace("\\", "/").strip("/")
     parts = [part for part in raw.split("/") if part not in ("", ".")]
     if not parts or any(part == ".." for part in parts):
         return ".tino_memory"
+
+    known_files = {Path(name).name for name in _MEMORY_FILES}
+    # A root setting must not include a sidecar directory or a memory filename.
+    for idx, part in enumerate(parts):
+        if part == "v13_research" or part in known_files:
+            parts = parts[:idx]
+            break
+    if not parts:
+        return ".tino_memory"
+
+    memory_markers = {".tino_memory", "tino_memory"}
     collapsed: List[str] = []
     for part in parts:
-        if part == ".tino_memory" and collapsed and collapsed[-1] == ".tino_memory":
+        if part in memory_markers and collapsed and collapsed[-1] in memory_markers:
             continue
         collapsed.append(part)
     return "/".join(collapsed) or ".tino_memory"
@@ -308,11 +318,23 @@ def _memory_relative_name(path_or_name: str | Path) -> str:
     return "/".join(parts)
 
 
+def _remote_path_has_duplicated_root(remote_path: str, root: str) -> bool:
+    clean_path = str(remote_path or "").replace("\\", "/").strip("/")
+    clean_root = str(root or "").replace("\\", "/").strip("/")
+    if not clean_path or not clean_root:
+        return False
+    duplicated = f"{clean_root}/{clean_root}"
+    return clean_path == duplicated or clean_path.startswith(duplicated + "/")
+
+
 def _remote_path_for(local_path: str | Path) -> str:
     cfg = _remote_config()
     relative_name = _memory_relative_name(local_path)
-    root = str(cfg["memory_dir"]).strip("/")
-    return f"{root}/{relative_name}" if relative_name else root
+    root = _normalize_remote_memory_dir(cfg.get("memory_dir"))
+    remote_path = f"{root}/{relative_name}" if relative_name else root
+    if _remote_path_has_duplicated_root(remote_path, root):
+        raise ValueError(f"duplicated_remote_memory_root:{remote_path}")
+    return remote_path
 
 
 def _legacy_nested_remote_path_for(local_path: str | Path) -> str:
@@ -420,6 +442,9 @@ def _github_write_file(
     if read_err not in (None, "remote_missing"):
         return False, f"remote_prewrite_read_failed:{read_err}"
     remote_path = _remote_path_for(memory_name)
+    root = _normalize_remote_memory_dir(cfg.get("memory_dir"))
+    if _remote_path_has_duplicated_root(remote_path, root):
+        return False, f"remote_path_guard_blocked:{remote_path}"
     remote_path_q = quote(remote_path, safe="/")
     url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path_q}"
     blob = bytes(payload_bytes) if payload_bytes is not None else p.read_bytes()
