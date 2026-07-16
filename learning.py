@@ -46,6 +46,16 @@ except Exception:
         return {}
     def update_attribution_learning(current, attribution, **kwargs):
         return dict(current or {})
+try:
+    from learning_weight_engine import refresh_learning_weights
+except Exception:
+    def refresh_learning_weights(market=None, *, force=False):
+        return {
+            "status": "UNAVAILABLE",
+            "market": str(market or "ALL").upper(),
+            "decision_influence": False,
+            "error": "learning_weight_module_unavailable",
+        }
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 NY_TZ = ZoneInfo("America/New_York")
@@ -249,7 +259,7 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
         "truths": [getattr(x, "__dict__", {}) for x in forecast.data_truths],
         "trace": forecast.trace.to_rows() if forecast.trace else [],
         "prediction_dna": prediction_dna(forecast, direction, card),
-        "learning_schema": "RC4.5_DNA_V1",
+        "learning_schema": "V14_BOUNDED_WEIGHT_LEARNING_V1",
         "audited": False,
     }
 def log_prediction(forecast: FinalForecast, macro: str = "neutral", live_data: bool = True) -> Dict[str, Any]:
@@ -893,6 +903,19 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
                 approved[FOREIGN_FLOW_PROFILE_KEY] = approve_foreign_flow_learning()
             except Exception:
                 pass
+
+    # V14 trains once after the completed audit batch.  This avoids repeated
+    # JSON scans/remote commits inside each audit row and keeps reruns stable.
+    weight_learning = {"status": "SKIPPED", "reason": "no_new_verified_t1"}
+    if audited_t1:
+        try:
+            weight_learning = refresh_learning_weights(market_filter, force=False)
+        except Exception as exc:
+            weight_learning = {
+                "status": "SAFE_ERROR",
+                "error": f"{type(exc).__name__}: {exc}",
+                "decision_influence": False,
+            }
     return {
         "status": "done",
         "market_filter": str(market_filter or "ALL").upper(),
@@ -904,6 +927,7 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
         "actuals": actuals,
         "dashboard": prediction_audit_dashboard(limit),
         "approved_count": len(approved),
+        "v14_weight_learning": weight_learning,
     }
 def recent_learning_tables(limit: int = 80) -> Dict[str, List[Dict[str, Any]]]:
     return {
@@ -1063,6 +1087,14 @@ def two_click_close_audit(forecast: FinalForecast, actual_close: float, actual_f
         result["approved_profile"] = approve_profile_bias(forecast.ticker.resolved_symbol)
         if actual_foreign_billion is not None:
             result["approved_foreign_flow"] = approve_foreign_flow_learning()
+    try:
+        result["v14_weight_learning"] = refresh_learning_weights(forecast.ticker.market, force=False)
+    except Exception as exc:
+        result["v14_weight_learning"] = {
+            "status": "SAFE_ERROR",
+            "error": f"{type(exc).__name__}: {exc}",
+            "decision_influence": False,
+        }
     return result
 def prediction_audit_dashboard(limit: int = 300) -> Dict[str, Any]:
     audits = read_audit_log(limit)

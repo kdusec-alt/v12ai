@@ -40,6 +40,23 @@ except Exception:
             "applied_families": {},
             "gate": "learning_module_unavailable",
         }
+try:
+    from learning_weight_engine import get_learning_weight_state
+except Exception:
+    def get_learning_weight_state(market):
+        return {
+            "schema": "TINO_V14_LEARNING_WEIGHTS_UNAVAILABLE",
+            "market": str(market or "").upper(),
+            "status": "UNAVAILABLE",
+            "applied": False,
+            "multipliers": {},
+            "generation": 0,
+            "sample_count": 0,
+            "unique_tickers": 0,
+            "trained_through": None,
+            "gate": "learning_weight_module_unavailable",
+            "updated_at_tw": None,
+        }
 
 
 @dataclass(frozen=True)
@@ -524,6 +541,12 @@ def build_direction_forecast(
     fund_available = bool(candidates.get("fundamental_event", (0.0, 0.0, False))[2])
     geo_available = bool(candidates.get("geo_policy", (0.0, 0.0, False))[2])
 
+    # V14: market-level family weights are learned from verified T1 audits.
+    # Only a chronologically validated ACTIVE/FROZEN model can influence the
+    # normalized weights; all other states return neutral 1.0 multipliers.
+    learning_weight_state = get_learning_weight_state(market)
+    learned_family_multipliers = dict(learning_weight_state.get("multipliers") or {})
+
     valid: Dict[str, Tuple[float, float]] = {}
     for name, (score, base_weight, ok) in candidates.items():
         if not ok:
@@ -535,7 +558,8 @@ def build_direction_forecast(
             fundamental_event_available=fund_available,
             geo_available=geo_available,
         )
-        weight = float(base_weight) * float(multiplier)
+        learned_multiplier = _clamp(_num(learned_family_multipliers.get(name), 1.0), 0.94, 1.06)
+        weight = float(base_weight) * float(multiplier) * learned_multiplier
         if weight > 0:
             valid[name] = (score, weight)
 
@@ -549,6 +573,21 @@ def build_direction_forecast(
         price.ticker.resolved_symbol,
         raw_family_contributions,
     )
+    # Persist the exact V14 market-weight snapshot inside Prediction DNA so an
+    # audit can always reconstruct which learned model influenced the forecast.
+    learning_calibration = dict(learning_calibration or {})
+    learning_calibration["weight_engine"] = {
+        "schema": learning_weight_state.get("schema"),
+        "market": learning_weight_state.get("market"),
+        "status": learning_weight_state.get("status"),
+        "applied": bool(learning_weight_state.get("applied")),
+        "generation": learning_weight_state.get("generation"),
+        "sample_count": learning_weight_state.get("sample_count"),
+        "unique_tickers": learning_weight_state.get("unique_tickers"),
+        "trained_through": learning_weight_state.get("trained_through"),
+        "gate": learning_weight_state.get("gate"),
+        "multipliers": {k: round(_num(v, 1.0), 5) for k, v in learned_family_multipliers.items()},
+    }
     learning_delta_raw = _clamp(_num(learning_calibration.get("delta"), 0.0), -6.0, 6.0)
     unbounded_raw = base_score + interaction + learning_delta_raw
     raw_score = _clamp(unbounded_raw, -100.0, 100.0)

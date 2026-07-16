@@ -70,6 +70,7 @@ _MEMORY_FILES = [
     "prediction_log.jsonl",
     "audit_log.jsonl",
     "ticker_profiles.json",
+    "learning_weights.json",
     "tino_memory_ledger.json",
     # V13 Research sidecar memory.  These files are independent from the V12
     # Decision path, but they must survive Streamlit redeploy/container recycle.
@@ -491,6 +492,49 @@ def _merge_profile_docs(remote: Dict[str, Any], local: Dict[str, Any]) -> Dict[s
     return merged
 
 
+def _merge_learning_weights_docs(remote: Dict[str, Any], local: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge V14 weight models per market without losing a newer branch.
+
+    GitHub restore can race TW and US close batches.  A shallow JSON update
+    would let the last writer replace the other market's model.  Select each
+    market independently by audit coverage, generation and timestamp.
+    """
+    if not remote:
+        return copy.deepcopy(local or {})
+    if not local:
+        return copy.deepcopy(remote or {})
+
+    merged = copy.deepcopy(remote)
+    for key, value in local.items():
+        if key != "models":
+            merged[key] = copy.deepcopy(value)
+
+    remote_models = remote.get("models", {}) if isinstance(remote.get("models"), dict) else {}
+    local_models = local.get("models", {}) if isinstance(local.get("models"), dict) else {}
+    models: Dict[str, Any] = {}
+    for market in set(remote_models) | set(local_models):
+        r = remote_models.get(market) if isinstance(remote_models.get(market), dict) else {}
+        l = local_models.get(market) if isinstance(local_models.get(market), dict) else {}
+        def rank(row: Dict[str, Any]) -> Tuple[int, int, str]:
+            try:
+                count = int(float(row.get("last_audit_count") or row.get("sample_count") or 0))
+            except Exception:
+                count = 0
+            try:
+                generation = int(float(row.get("generation") or 0))
+            except Exception:
+                generation = 0
+            stamp = str(row.get("updated_at_tw") or "")
+            return count, generation, stamp
+        models[str(market)] = copy.deepcopy(l if rank(l) >= rank(r) else r)
+    merged["models"] = models
+    merged["updated_at_tw"] = max(
+        str(remote.get("updated_at_tw") or ""),
+        str(local.get("updated_at_tw") or ""),
+    ) or None
+    return merged
+
+
 def _merge_ledger_docs(remote: Dict[str, Any], local: Dict[str, Any]) -> Dict[str, Any]:
     merged: Dict[str, Any] = copy.deepcopy(remote or {})
     for key, value in (local or {}).items():
@@ -557,6 +601,8 @@ def _reconcile_local_with_remote(path: str | Path, remote_blob: bytes) -> Tuple[
                 merged_doc = _merge_ledger_docs(remote_doc, local_doc)
             elif p.name == "ticker_profiles.json":
                 merged_doc = _merge_profile_docs(remote_doc, local_doc)
+            elif p.name == "learning_weights.json":
+                merged_doc = _merge_learning_weights_docs(remote_doc, local_doc)
             else:
                 merged_doc = copy.deepcopy(remote_doc)
                 merged_doc.update(copy.deepcopy(local_doc))
@@ -617,6 +663,21 @@ def _write_local_backup(path: str | Path) -> None:
                 previous_doc = _json_dict_from_bytes(latest.read_bytes())
                 if len(previous_doc) > len(candidate_doc):
                     return
+            if p.name == "learning_weights.json" and latest.exists():
+                previous_doc = _json_dict_from_bytes(latest.read_bytes())
+                previous_models = previous_doc.get("models", {}) if isinstance(previous_doc.get("models"), dict) else {}
+                candidate_models = candidate_doc.get("models", {}) if isinstance(candidate_doc.get("models"), dict) else {}
+                for market, old_model in previous_models.items():
+                    if not isinstance(old_model, dict):
+                        continue
+                    new_model = candidate_models.get(market) if isinstance(candidate_models.get(market), dict) else {}
+                    try:
+                        old_count = int(float(old_model.get("last_audit_count") or old_model.get("sample_count") or 0))
+                        new_count = int(float(new_model.get("last_audit_count") or new_model.get("sample_count") or 0))
+                    except Exception:
+                        old_count, new_count = 0, 0
+                    if old_count > new_count:
+                        return
 
         _atomic_write_bytes(latest, payload)
         day = datetime.now(TW_TZ).strftime("%Y%m%d")
