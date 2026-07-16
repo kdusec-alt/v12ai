@@ -90,6 +90,7 @@ _LAST_REMOTE_REPORT: Dict[str, Any] = {
     "last_verified_at_tw": None,
     "restored_files": [],
     "synced_files": [],
+    "legacy_nested_recovered": [],
     "shrink_warnings": [],
     "remote_files": {},
     "error": None,
@@ -135,19 +136,42 @@ def _secret(name: str, default: Optional[str] = None) -> Optional[str]:
     return default
 
 
+def _normalize_remote_memory_dir(value: Any) -> str:
+    """Return one safe remote memory root.
+
+    A historical V14 path bug accepted ``.tino_memory/prediction_log.jsonl``
+    as if it were already relative to the memory root, then prefixed the root a
+    second time.  Normalizing the configured root here prevents an accidentally
+    duplicated ``.tino_memory/.tino_memory`` setting from perpetuating that
+    layout.
+    """
+    raw = str(value or ".tino_memory").strip().replace("\\", "/").strip("/")
+    parts = [part for part in raw.split("/") if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        return ".tino_memory"
+    collapsed: List[str] = []
+    for part in parts:
+        if part == ".tino_memory" and collapsed and collapsed[-1] == ".tino_memory":
+            continue
+        collapsed.append(part)
+    return "/".join(collapsed) or ".tino_memory"
+
+
 @lru_cache(maxsize=1)
 def _remote_config() -> Dict[str, Any]:
     token = _secret("TINO_GITHUB_TOKEN") or _secret("GITHUB_TOKEN")
     repo = _secret("TINO_GITHUB_REPO") or _secret("GITHUB_REPOSITORY")
     branch = _secret("TINO_GITHUB_BRANCH", "tino-memory") or "tino-memory"
-    memory_dir = (_secret("TINO_GITHUB_MEMORY_DIR", ".tino_memory") or ".tino_memory").strip("/")
+    memory_dir = _normalize_remote_memory_dir(
+        _secret("TINO_GITHUB_MEMORY_DIR", ".tino_memory") or ".tino_memory"
+    )
     configured = bool(token and repo and "/" in str(repo))
     return {
         "configured": configured,
         "backend": "github" if configured else "none",
         "token": token,
-        "repo": repo,
-        "branch": branch,
+        "repo": str(repo or "").strip().strip("/"),
+        "branch": str(branch or "tino-memory").strip() or "tino-memory",
         "memory_dir": memory_dir,
     }
 
@@ -235,29 +259,68 @@ def _ensure_remote_branch() -> Tuple[bool, Optional[str]]:
         return True, None
 
 def _memory_relative_name(path_or_name: str | Path) -> str:
-    """Return a stable path relative to ``.tino_memory``.
+    """Return a safe path relative to the single memory root.
 
-    Core memory files live at the memory root while V13 Research files live in
-    ``v13_research/``.  The old basename-only mapping flattened both layouts
-    and therefore prevented research files from being restored after a
-    redeploy.
+    Accepted inputs include an absolute local path, ``prediction_log.jsonl``,
+    ``v13_research/...`` and legacy prefixed forms such as
+    ``.tino_memory/prediction_log.jsonl``.  Repeated memory-root prefixes are
+    stripped until only the true relative file name remains.
     """
     raw = str(path_or_name or "").strip().replace("\\", "/")
     if not raw:
         return ""
+
     candidate = Path(raw)
-    if not candidate.is_absolute():
-        return raw.strip("/")
-    try:
-        return candidate.resolve().relative_to(Path(_TINO_MEMORY_DIR).resolve()).as_posix()
-    except Exception:
-        return candidate.name
+    if candidate.is_absolute():
+        try:
+            raw = candidate.resolve().relative_to(Path(_TINO_MEMORY_DIR).resolve()).as_posix()
+        except Exception:
+            raw = candidate.name
+
+    raw = raw.strip().lstrip("./").strip("/")
+    configured_root = _normalize_remote_memory_dir(
+        _secret("TINO_GITHUB_MEMORY_DIR", ".tino_memory") or ".tino_memory"
+    )
+    prefixes = [
+        configured_root.strip("/"),
+        ".tino_memory",
+        "tino_memory",
+    ]
+    changed = True
+    while raw and changed:
+        changed = False
+        for prefix in prefixes:
+            if not prefix:
+                continue
+            if raw == prefix:
+                raw = ""
+                changed = True
+                break
+            marker = prefix + "/"
+            if raw.startswith(marker):
+                raw = raw[len(marker):].lstrip("/")
+                changed = True
+                break
+
+    parts = [part for part in raw.split("/") if part not in ("", ".")]
+    if not parts or any(part == ".." for part in parts):
+        return candidate.name if candidate.name not in ("", ".", "..") else ""
+    return "/".join(parts)
 
 
 def _remote_path_for(local_path: str | Path) -> str:
     cfg = _remote_config()
     relative_name = _memory_relative_name(local_path)
-    return f"{cfg['memory_dir'].strip('/')}/{relative_name}"
+    root = str(cfg["memory_dir"]).strip("/")
+    return f"{root}/{relative_name}" if relative_name else root
+
+
+def _legacy_nested_remote_path_for(local_path: str | Path) -> str:
+    """Return the one historical double-root path used only for recovery."""
+    cfg = _remote_config()
+    relative_name = _memory_relative_name(local_path)
+    root = str(cfg["memory_dir"]).strip("/")
+    return f"{root}/{root}/{relative_name}" if relative_name else f"{root}/{root}"
 
 
 def _record_remote_file(name: str, blob: bytes, sha: Optional[str], verified: bool) -> None:
@@ -272,17 +335,23 @@ def _record_remote_file(name: str, blob: bytes, sha: Optional[str], verified: bo
     _LAST_REMOTE_REPORT["remote_files"] = files
 
 
-def _github_read_file(file_name: str) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str]]:
+def _github_read_remote_path(
+    remote_path: str,
+    *,
+    record_name: Optional[str] = None,
+) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str]]:
+    """Read one exact repository path without applying another prefix."""
     cfg = _remote_config()
-    memory_name = _memory_relative_name(file_name)
     if not cfg["configured"]:
         return False, None, None, "remote_not_configured"
     branch_ok, branch_err = _ensure_remote_branch()
     if not branch_ok:
         return False, None, None, branch_err
 
-    remote_path = f"{cfg['memory_dir'].strip('/')}/{memory_name}"
-    remote_path_q = quote(remote_path, safe="/")
+    clean_path = str(remote_path or "").replace("\\", "/").strip("/")
+    if not clean_path or ".." in clean_path.split("/"):
+        return False, None, None, "invalid_remote_path"
+    remote_path_q = quote(clean_path, safe="/")
     url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path_q}?ref={quote(str(cfg['branch']), safe='')}"
     status, obj = _gh_request("GET", url, cfg["token"])
     if status == 404:
@@ -295,9 +364,6 @@ def _github_read_file(file_name: str) -> Tuple[bool, Optional[bytes], Optional[s
         if encoded:
             content = base64.b64decode(encoded.encode("ascii"))
         elif sha:
-            # GitHub Contents API omits inline content for larger files.  The
-            # Git Blob endpoint still returns base64 content up to GitHub's
-            # normal repository object limit.
             blob_url = f"https://api.github.com/repos/{cfg['repo']}/git/blobs/{sha}"
             blob_status, blob_obj = _gh_request("GET", blob_url, cfg["token"])
             if blob_status >= 300:
@@ -306,10 +372,27 @@ def _github_read_file(file_name: str) -> Tuple[bool, Optional[bytes], Optional[s
             content = base64.b64decode(blob_encoded.encode("ascii")) if blob_encoded else b""
         else:
             content = b""
-        _record_remote_file(memory_name, content, sha, verified=False)
+        if record_name:
+            _record_remote_file(record_name, content, sha, verified=False)
         return True, content, sha, None
     except Exception as exc:
         return False, None, None, f"github_decode_failed:{type(exc).__name__}:{exc}"
+
+
+def _github_read_file(file_name: str) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str]]:
+    memory_name = _memory_relative_name(file_name)
+    return _github_read_remote_path(
+        _remote_path_for(memory_name),
+        record_name=memory_name,
+    )
+
+
+def _github_read_legacy_nested_file(
+    file_name: str,
+) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str]]:
+    """Read the V14 double-root location without ever writing back to it."""
+    memory_name = _memory_relative_name(file_name)
+    return _github_read_remote_path(_legacy_nested_remote_path_for(memory_name))
 
 
 def _github_write_file(
@@ -534,6 +617,42 @@ def _merge_ledger_docs(remote: Dict[str, Any], local: Dict[str, Any]) -> Dict[st
     return merged
 
 
+def _merge_remote_candidate_blobs(
+    memory_name: str,
+    canonical_blob: bytes,
+    legacy_blob: bytes,
+) -> bytes:
+    """Merge canonical and historical double-root snapshots in memory.
+
+    The canonical snapshot is treated as the older base and the legacy nested
+    snapshot as the newer candidate.  Stable IDs prevent duplicates while all
+    recoverable Prediction DNA, Audit and Research history is retained.
+    """
+    name = _memory_relative_name(memory_name)
+    if name.endswith(".jsonl"):
+        canonical_rows = _decode_jsonl_bytes(canonical_blob)
+        legacy_rows = _decode_jsonl_bytes(legacy_blob)
+        return _encode_jsonl_rows(_merge_jsonl_rows(canonical_rows, legacy_rows))
+
+    canonical_doc = _json_dict_from_bytes(canonical_blob)
+    legacy_doc = _json_dict_from_bytes(legacy_blob)
+    if name == "tino_memory_ledger.json":
+        merged_doc = _merge_ledger_docs(canonical_doc, legacy_doc)
+    elif name == "ticker_profiles.json":
+        merged_doc = _merge_profile_docs(canonical_doc, legacy_doc)
+    elif name.endswith("close_recheck_state.json"):
+        canonical_stamp = str(canonical_doc.get("last_run_time_tw") or "")
+        legacy_stamp = str(legacy_doc.get("last_run_time_tw") or "")
+        merged_doc = copy.deepcopy(legacy_doc if legacy_stamp >= canonical_stamp else canonical_doc)
+    else:
+        merged_doc = copy.deepcopy(canonical_doc)
+        merged_doc.update(copy.deepcopy(legacy_doc))
+    return (
+        json.dumps(merged_doc, ensure_ascii=False, indent=2, sort_keys=True, default=str)
+        + "\n"
+    ).encode("utf-8")
+
+
 def _reconcile_local_with_remote(path: str | Path, remote_blob: bytes) -> Tuple[bool, Dict[str, Any], Optional[str]]:
     """Merge remote and local without allowing either side to erase history."""
     p = Path(path)
@@ -681,11 +800,12 @@ def _local_path_for_memory_file(file_name: str) -> Path:
 
 
 def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
-    """Restore and reconcile GitHub memory before local initialization.
+    """Restore GitHub memory and migrate the historical double-root layout.
 
-    Remote and local JSONL are merged by stable row identity.  Equal row counts
-    are never treated as proof that the files are identical, which prevents a
-    recycled runtime from overwriting a different remote history.
+    Both the canonical ``.tino_memory/<file>`` snapshot and the one known
+    legacy ``.tino_memory/.tino_memory/<file>`` snapshot are read.  They are
+    merged by stable ID, reconciled with local memory, and only the canonical
+    path is written back.  The legacy path is never used for new writes.
     """
     cfg = _remote_config()
     report: Dict[str, Any] = {
@@ -696,6 +816,7 @@ def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
         "restored_files": [],
         "synced_files": [],
         "missing_files": [],
+        "legacy_nested_recovered": [],
         "reconciled": {},
         "shrink_warnings": [],
         "error": None,
@@ -716,46 +837,68 @@ def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
     for name in _MEMORY_FILES:
         local = _local_path_for_memory_file(name)
         try:
-            exists, blob, sha, err = _github_read_file(name)
-            if not exists or blob is None:
-                if err == "remote_missing":
-                    report["missing_files"].append(name)
-                elif err is not None:
-                    report["status"] = "WARN"
-                    report["shrink_warnings"].append(f"{name}:{err}")
+            canonical_exists, canonical_blob, canonical_sha, canonical_err = _github_read_file(name)
+            legacy_exists, legacy_blob, _legacy_sha, legacy_err = _github_read_legacy_nested_file(name)
+
+            canonical_bytes = canonical_blob if canonical_exists and canonical_blob is not None else b""
+            legacy_bytes = legacy_blob if legacy_exists and legacy_blob is not None else b""
+            if not canonical_exists and canonical_err not in (None, "remote_missing"):
+                report["status"] = "WARN"
+                report["shrink_warnings"].append(f"{name}:{canonical_err}")
+            if not legacy_exists and legacy_err not in (None, "remote_missing"):
+                report["status"] = "WARN"
+                report["shrink_warnings"].append(f"legacy_{name}:{legacy_err}")
+
+            if not canonical_bytes and not legacy_bytes:
+                report["missing_files"].append(name)
                 continue
+
+            remote_blob = _merge_remote_candidate_blobs(name, canonical_bytes, legacy_bytes)
+            if legacy_bytes:
+                report["legacy_nested_recovered"].append(name)
+
             before = local.read_bytes() if local.exists() and local.is_file() else b""
-            ok, info, reconcile_err = _reconcile_local_with_remote(local, blob)
+            ok, info, reconcile_err = _reconcile_local_with_remote(local, remote_blob)
+            info["canonical_remote_bytes"] = len(canonical_bytes)
+            info["legacy_nested_bytes"] = len(legacy_bytes)
             report["reconciled"][name] = info
             if not ok:
                 report["status"] = "WARN"
                 report["shrink_warnings"].append(f"{name}:{reconcile_err}")
                 continue
+
             after = local.read_bytes() if local.exists() and local.is_file() else b""
             if force or after != before:
                 report["restored_files"].append(name)
             _write_local_backup(local)
-            if after != blob:
-                # Local may contain a prediction completed just before a prior
-                # outage.  Because reconciliation already includes the full
-                # remote history, uploading the merged file cannot shrink it.
+
+            # Canonical remote must receive the recovered union even when local
+            # already matched it.  This completes the one-way migration.
+            needs_canonical_sync = (
+                force
+                or not canonical_exists
+                or after != canonical_bytes
+            )
+            if needs_canonical_sync:
                 sync_ok, sync_err = _sync_file_to_remote(local, shrink_guard=True)
                 if sync_ok:
                     report["synced_files"].append(name)
                 else:
                     report["status"] = "WARN"
                     report["shrink_warnings"].append(f"restore_sync_{name}:{sync_err}")
-                    _record_remote_file(name, blob, sha, verified=False)
+                    _record_remote_file(name, remote_blob, canonical_sha, verified=False)
             else:
-                _record_remote_file(name, blob, sha, verified=True)
+                _record_remote_file(name, canonical_bytes, canonical_sha, verified=True)
         except Exception as exc:
             report["status"] = "WARN"
             report["error"] = f"restore_{name}:{type(exc).__name__}:{exc}"
+
     if report["status"] == "PASS" and len(report.get("missing_files") or []) == len(_MEMORY_FILES):
         report["status"] = "EMPTY_REMOTE"
     _LAST_REMOTE_REPORT.update(report)
     _LAST_REMOTE_REPORT["last_verified_at_tw"] = now_tw_iso()
     return report
+
 
 def _sync_file_to_remote_unlocked(path: str | Path, shrink_guard: bool = True) -> Tuple[bool, Optional[str]]:
     """Reconcile, upload and read-back verify one changed memory file.
