@@ -43,7 +43,6 @@ MEMORY_DIR = _default_memory_dir()
 PREDICTION_LOG = MEMORY_DIR / "prediction_log.jsonl"
 AUDIT_LOG = MEMORY_DIR / "audit_log.jsonl"
 TICKER_PROFILE = MEMORY_DIR / "ticker_profiles.json"
-LEARNING_WEIGHTS = MEMORY_DIR / "learning_weights.json"
 
 
 def _post_memory_write(path: Path, row: Optional[Dict[str, Any]] = None) -> None:
