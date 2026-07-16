@@ -1,0 +1,25 @@
+TINO AI V14.0.1｜UI Semantic + Audit Status Hotfix
+Date: 2026-07-16
+Type: UPDATE ONLY
+
+更新檔案（放到 repository 根目錄並覆蓋同名檔）：
+1. learning.py
+2. trend_engine.py
+3. ui_v9_battle_panel.py
+
+修正內容：
+- 「尚未寫入」改為精確區分：預測快照已寫入，但正式收盤稽核尚待完成。
+- 修正 UI 標題重複：不再出現「今日預測VS實際：今日預測VS實際預覽：」。
+- 單日漲跌改顯示「今日 ±x.xx%」；連續 2 天以上才顯示「連漲/連跌 N 天」。
+- MA20 / MA60 改為「均線值｜距離 ±x.xx%」，避免誤解成均線本身漲跌。
+- 標題顏色只依今日/連續漲跌判斷，不再被後方 MA 距離正負號干擾。
+
+不變範圍：
+- 不修改預測公式、權重、T1、方向引擎與 Decision。
+- 不修改 Prediction/Audit/Memory/V13 Research 資料。
+- 不修改 V9 前台版型、欄位結構與三層資訊流。
+
+驗證：
+- Python syntax compile passed.
+- UI helper semantic tests passed.
+- Trend one-day/two-day display tests passed.

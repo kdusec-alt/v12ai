@@ -205,6 +205,9 @@ def trend_tag(price: PriceFrame) -> str:
     direction, days, streak_ret, suffix = _display_streak(price)
     if days <= 0 or streak_ret is None:
         return f"{direction}{suffix}"
+    # 一個交易日只是「今日漲跌」，尚未構成可讀性良好的連續趨勢。
+    if days == 1:
+        return f"今日 {_fmt_pct(streak_ret)}{suffix}"
     return f"{direction}{days}天 {_fmt_pct(streak_ret)}{suffix}"
 
 

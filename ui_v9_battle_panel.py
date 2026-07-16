@@ -30,8 +30,16 @@ def _ma_title_piece(label: str, value, gap) -> str:
         g = float(gap)
     except Exception:
         return f"{label}資料不足"
-    arrow = "▲" if g >= 0 else "▼"
-    return f"{label}{arrow}{_title_price(value)}({_title_pct(g)})"
+    # gap 是「現價相對均線的距離」，不是均線本身的漲跌方向。
+    return f"{label} {_title_price(value)}｜距離 {_title_pct(g)}"
+
+
+def _strip_compare_prefix(text: object, *prefixes: str) -> str:
+    value = str(text or "").strip()
+    for prefix in prefixes:
+        if value.startswith(prefix):
+            return value[len(prefix):].strip()
+    return value
 
 
 def _header_trend_line(forecast) -> str:
@@ -74,10 +82,10 @@ def render_battle_panel(st, forecast):
         try:
             from learning import t1_prediction_vs_actual, today_prediction_vs_actual
             cmp = t1_prediction_vs_actual(p, d.get('現價'))
-            text = str(cmp.get('display', '')).replace('昨測今收：', '')
+            text = _strip_compare_prefix(cmp.get('display', ''), '昨測今收：', '昨測今收預覽：')
             if not text or '尚無昨日' in text:
                 alt_cmp = today_prediction_vs_actual(p, d.get('現價'))
-                text = str(alt_cmp.get('display', '')).replace('今日預測VS實際：', '')
+                text = _strip_compare_prefix(alt_cmp.get('display', ''), '今日預測VS實際：', '今日預測VS實際預覽：')
                 compare_line = f"<br><span class='label'>今日預測VS實際：</span>{safe(text)}"
             else:
                 compare_line = f"<br><span class='label'>昨測今收：</span>{safe(text)}"
@@ -90,13 +98,14 @@ def render_battle_panel(st, forecast):
     persona_badge = safe(p.radar.get('US Persona', '') or '')
     persona_html = f"<div class='persona'>{persona_badge}</div>" if persona_badge else ""
     header_trend = _header_trend_line(p)
+    header_streak_positive = '+' in header_trend.split('│', 1)[0]
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei',Arial,sans-serif;color:#edf7ff}}
     .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:552px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow:hidden}}
     .head{{border-bottom:1px solid rgba(55,230,255,.22);padding-bottom:6px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,318px);gap:8px;align-items:start}}
-    h1{{margin:0;color:#fff;font-size:20px;font-weight:900;letter-spacing:.01em}}.streak{{margin-top:1px;color:{'#6dffb1' if '+' in header_trend else '#ff6f8e'};font-weight:800;font-size:11.2px}}
+    h1{{margin:0;color:#fff;font-size:20px;font-weight:900;letter-spacing:.01em}}.streak{{margin-top:1px;color:{'#6dffb1' if header_streak_positive else '#ff6f8e'};font-weight:800;font-size:11.2px}}
     .fvleft{{border:1px solid rgba(45,212,191,.28);background:linear-gradient(135deg,rgba(6,78,59,.18),rgba(2,18,30,.55));border-radius:12px;padding:6px 8px;color:#ecfeff;font-size:10.5px;line-height:1.16;font-weight:650}}
     .fvleft b{{display:block;color:#a7f3d0;font-size:9.4px;letter-spacing:.35px;margin-bottom:2px;font-weight:800}}
     .fvnote{{display:block;color:#93c5fd;font-size:9px;margin-top:1px}}
