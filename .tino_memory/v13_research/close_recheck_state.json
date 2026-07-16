@@ -2,20 +2,22 @@
   "completed_tickers": [
     "00631L.TW",
     "2337.TW",
+    "2408.TW",
     "2454.TW",
+    "5469.TW",
     "6486.TWO"
   ],
   "context_updated": 0,
   "error_tickers": [],
   "errors": 0,
-  "formal_written": 4,
-  "last_run_time_tw": "2026-07-16T17:04:12+08:00",
-  "remaining": 4,
+  "formal_written": 6,
+  "last_run_time_tw": "2026-07-16T17:04:47+08:00",
+  "remaining": 2,
   "status": "partial",
   "today_tickers": 11,
   "trade_date": "2026-07-16",
   "unchanged": 0,
-  "updated": 4,
+  "updated": 6,
   "waiting_institution": 0,
   "waiting_tickers": []
 }
