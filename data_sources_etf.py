@@ -13,6 +13,6 @@ def fetch_etf_price(ticker: TickerInfo) -> PriceFrame:
     return price
 
 
-def fetch_etf_news(ticker: TickerInfo) -> List[NewsItem]:
-    rows = fetch_tw_news(ticker)
+def fetch_etf_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsItem]:
+    rows = fetch_tw_news(ticker, force_refresh=force_refresh)
     return rows[:3]

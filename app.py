@@ -56,6 +56,8 @@ os.environ.setdefault("TINO_INLINE_REMOTE_SYNC", "1")
 os.environ.setdefault("TINO_INLINE_MEMORY_MIRROR", "0")
 os.environ.setdefault("TINO_V13_RESEARCH", "1")
 os.environ.setdefault("TINO_V13_CLOSE_RECHECK", "1")
+os.environ.setdefault("TINO_EVENT_REASSESSMENT", "1")
+os.environ.setdefault("TINO_EVENT_POLL_INTERVAL", "5m")
 
 st.set_page_config(page_title="系統化分析", layout="wide", initial_sidebar_state="collapsed")
 _boot_print("page_config_done", streamlit=getattr(st, "__version__", "unknown"))
@@ -212,6 +214,10 @@ def _run_close_recheck_degraded(*args, **kwargs):
     return {"status": "disabled", "reason": "close_recheck_module_unavailable"}
 
 
+def _assess_event_delta_degraded(*args, **kwargs):
+    return {"status": "disabled", "needs_reassessment": False, "reason": "event_reassessment_module_unavailable"}
+
+
 try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
     orchestrate = _load_required("orchestrator", "orchestrate")
@@ -249,6 +255,9 @@ try:
     run_login_close_recheck = _load_optional(
         "v13_research.close_recheck", ("run_login_close_recheck",), _run_close_recheck_degraded
     )
+    assess_event_delta = _load_optional(
+        "event_reassessment", ("assess_event_delta",), _assess_event_delta_degraded
+    )
 except Exception as exc:
     trace = _log_exception("project_import_failed", exc)
     _theme()
@@ -283,6 +292,80 @@ def run_analysis(symbol: str, macro: str, live_data: bool):
     # Manual analysis is already guarded by the Analyze button/session state.
     # Do not retain a second forecast copy in st.cache_data.
     return _analysis_once(symbol.strip(), macro, live_data)
+
+
+def _event_reassessment_enabled() -> bool:
+    return str(os.environ.get("TINO_EVENT_REASSESSMENT", "1") or "1").strip().lower() not in {
+        "0", "false", "off", "disabled", "no",
+    }
+
+
+def _event_watch_body() -> None:
+    """Poll only the active forecast and request a full, traceable rebuild.
+
+    The fragment never mutates the current forecast or writes Memory.  It only
+    compares headline identities, stores a bounded plan in session_state and
+    asks the normal V12 analysis path to run again.
+    """
+    if not _event_reassessment_enabled():
+        return
+    if str(st.session_state.get("main_view") or "analysis") != "analysis":
+        return
+    forecast = st.session_state.get("forecast")
+    if forecast is None or bool(getattr(forecast, "stopped", False)):
+        return
+    if st.session_state.get("event_reassessment_queue"):
+        return
+    symbol = str(getattr(getattr(forecast, "ticker", None), "resolved_symbol", "") or "").strip().upper()
+    market = str(getattr(getattr(forecast, "ticker", None), "market", "") or "").strip().upper()
+    if not symbol:
+        return
+    previous_news = st.session_state.get("event_news_baseline")
+    if not isinstance(previous_news, list):
+        st.session_state["event_news_baseline"] = list(getattr(forecast, "news_items", []) or [])
+        st.session_state["event_baseline_created_at"] = time.time()
+        return
+    try:
+        latest_news = fetch_news(symbol, force_refresh=True)
+        plan = assess_event_delta(
+            previous_news,
+            latest_news,
+            ticker=symbol,
+            market=market,
+            revision_of=str(
+                st.session_state.get("last_logged_prediction_id")
+                or prediction_signature(forecast)
+                or ""
+            ),
+            not_before_epoch=float(st.session_state.get("event_baseline_created_at") or time.time()),
+        )
+        st.session_state["event_news_baseline"] = list(latest_news or [])
+        st.session_state["last_event_watch_report"] = dict(plan or {})
+        if bool((plan or {}).get("needs_reassessment")):
+            st.session_state["event_reassessment_queue"] = dict(plan)
+            st.session_state["event_reassessment_notice"] = (
+                f"重大事件重新評估｜{(plan or {}).get('event_title') or (plan or {}).get('reassessment_reason')}"
+            )
+            st.rerun()
+    except Exception as exc:
+        # News polling is optional.  A network/parser failure must never clear
+        # or mutate the last valid V12 forecast.
+        st.session_state["last_event_watch_report"] = {
+            "status": "degraded",
+            "needs_reassessment": False,
+            "reason": f"{type(exc).__name__}: {exc}",
+        }
+
+
+if hasattr(st, "fragment"):
+    _event_watch_fragment = st.fragment(
+        run_every=str(os.environ.get("TINO_EVENT_POLL_INTERVAL", "5m") or "5m")
+    )(_event_watch_body)
+else:
+    def _event_watch_fragment() -> None:
+        # Streamlit < fragment support: safe no-op. Manual analysis remains
+        # fully functional and still uses the improved event/news retrieval.
+        return
 
 
 def _render_forecast(forecast):
@@ -457,7 +540,16 @@ def main():
         st.session_state.symbol = ""
         st.session_state.suppress_auto_once = True
         st.session_state.input_was_cleared = True
+        st.session_state.pop("event_reassessment_queue", None)
+        st.session_state.pop("event_news_baseline", None)
+        st.session_state.pop("event_baseline_created_at", None)
+        st.session_state.pop("event_reassessment_notice", None)
         st.rerun()
+
+    # Active-session watcher. It is isolated in a Streamlit fragment and only
+    # schedules the normal analysis path when a genuinely new material event
+    # appears after the current forecast.
+    _event_watch_fragment()
 
     watch_autorun_symbol = str(st.session_state.pop("watch_autorun_symbol", "") or "").strip().upper()
     suppress_auto_once = bool(st.session_state.pop("suppress_auto_once", False))
@@ -465,7 +557,15 @@ def main():
     typing_changed = bool(st.session_state.get("typing_changed", False))
     auto_ready = bool(auto and not suppress_auto_once and not typing_changed and st.session_state.forecast is None and symbol and active_symbol == symbol)
     watch_ready = bool(watch_autorun_symbol and symbol and watch_autorun_symbol == symbol)
-    should_run = bool((analyze and symbol) or auto_ready or watch_ready)
+    event_revision_meta = dict(st.session_state.get("event_reassessment_queue") or {})
+    event_ready = bool(
+        event_revision_meta
+        and symbol
+        and str(event_revision_meta.get("ticker") or "").upper() == str(symbol).upper()
+    )
+    if analyze and not event_ready:
+        st.session_state.pop("event_reassessment_notice", None)
+    should_run = bool((analyze and symbol) or auto_ready or watch_ready or event_ready)
     if should_run:
         try:
             with st.status("分析中：價格 / 法人 / 資券 / 模型", expanded=False):
@@ -494,9 +594,16 @@ def main():
                     and not bool(getattr(st.session_state.forecast, "stopped", False))
                 ):
                     sig = prediction_signature(st.session_state.forecast)
-                    if sig and st.session_state.get("last_logged_prediction_sig") != sig:
-                        logged_row = log_prediction(st.session_state.forecast, macro=macro, live_data=live)
+                    if sig and (st.session_state.get("last_logged_prediction_sig") != sig or event_ready):
+                        logged_row = log_prediction(
+                            st.session_state.forecast,
+                            macro=macro,
+                            live_data=live,
+                            revision_meta=event_revision_meta if event_ready else None,
+                        )
                         st.session_state.last_logged_prediction_sig = sig
+                        if isinstance(logged_row, dict) and not bool(logged_row.get("skipped")):
+                            st.session_state["last_logged_prediction_id"] = str(logged_row.get("id") or "")
                         mark_runtime_stage("prediction_log_done", symbol=symbol)
                         # V13 Phase 0 sidecar: consume only the already-persisted
                         # formal V12 row.  This hook is disabled by default and
@@ -514,6 +621,12 @@ def main():
                                 "status": "degraded",
                                 "reason": f"{type(_research_exc).__name__}: {_research_exc}",
                             }
+                st.session_state["event_news_baseline"] = list(
+                    getattr(st.session_state.forecast, "news_items", []) or []
+                )
+                st.session_state["event_baseline_created_at"] = time.time()
+                if event_ready:
+                    st.session_state.pop("event_reassessment_queue", None)
                 st.session_state.last_error = ""
         except Exception as exc:
             st.session_state.forecast = None
@@ -526,6 +639,9 @@ def main():
 
     forecast = st.session_state.forecast
     if forecast:
+        event_notice = str(st.session_state.get("event_reassessment_notice") or "").strip()
+        if event_notice:
+            st.info(event_notice)
         mark_runtime_stage("render_forecast_start", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))
         _render_forecast(forecast)
         mark_runtime_stage("render_forecast_done", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))

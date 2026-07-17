@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo
 import hashlib
 import re
@@ -194,7 +194,12 @@ def prediction_signature(forecast: FinalForecast) -> str:
         str(forecast.reality_anchor),
     ])
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
-def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data: bool = True) -> Dict[str, Any]:
+def forecast_snapshot(
+    forecast: FinalForecast,
+    macro: str = "neutral",
+    live_data: bool = True,
+    revision_meta: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     card = forecast.decision_card or {}
     direction = card.get("_direction_engine") if isinstance(card.get("_direction_engine"), dict) else {}
     anchor = _safe_float(card.get("現價"), 0.0)
@@ -203,8 +208,16 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
     predicted_direction = str(direction.get("label") or "")
     if predicted_direction not in {"UP", "DOWN", "NEUTRAL"}:
         predicted_direction = "UP" if predicted_return_pct > 0.30 else "DOWN" if predicted_return_pct < -0.30 else "NEUTRAL"
-    return {
-        "id": prediction_signature(forecast),
+    revision = dict(revision_meta or {})
+    base_prediction_id = prediction_signature(forecast)
+    event_bundle_id = str(revision.get("event_bundle_id") or revision.get("event_fingerprint") or "").strip()
+    prediction_id = base_prediction_id
+    if event_bundle_id:
+        prediction_id = hashlib.sha1(
+            f"{base_prediction_id}|event_revision|{event_bundle_id}".encode("utf-8")
+        ).hexdigest()[:16]
+    row = {
+        "id": prediction_id,
         "run_time_tw": _now(),
         "run_date_tw": _run_date_tw(),
         "target_trade_date": target_trade_date_for_forecast(forecast),
@@ -262,7 +275,30 @@ def forecast_snapshot(forecast: FinalForecast, macro: str = "neutral", live_data
         "learning_schema": "V14_BOUNDED_WEIGHT_LEARNING_V1",
         "audited": False,
     }
-def log_prediction(forecast: FinalForecast, macro: str = "neutral", live_data: bool = True) -> Dict[str, Any]:
+    if event_bundle_id:
+        row.update({
+            "revision_type": str(revision.get("revision_type") or "EVENT_REASSESSMENT"),
+            "revision_of": str(revision.get("revision_of") or ""),
+            "base_prediction_id": base_prediction_id,
+            "event_bundle_id": event_bundle_id,
+            "event_fingerprint": str(revision.get("event_fingerprint") or ""),
+            "event_published_at": str(revision.get("event_published_at") or ""),
+            "event_detected_at": str(revision.get("event_detected_at") or ""),
+            "event_severity": int(revision.get("event_severity") or 0),
+            "event_category": str(revision.get("event_category") or ""),
+            "event_title": str(revision.get("event_title") or ""),
+            "reassessment_reason": str(revision.get("reassessment_reason") or ""),
+            "event_revision": True,
+        })
+    return row
+
+
+def log_prediction(
+    forecast: FinalForecast,
+    macro: str = "neutral",
+    live_data: bool = True,
+    revision_meta: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     """Write one prediction snapshot per signature.
     Streamlit reruns often; this guard prevents the Auto-Learning panel from
     duplicating the same forecast every time the sidebar is opened.
@@ -291,7 +327,7 @@ def log_prediction(forecast: FinalForecast, macro: str = "neutral", live_data: b
             "reason": "price_not_verified_for_official_learning",
             "ticker": getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""),
         }
-    row = forecast_snapshot(forecast, macro, live_data)
+    row = forecast_snapshot(forecast, macro, live_data, revision_meta=revision_meta)
     limited_mode = bool(price_meta.get("limited_price_mode"))
     price_verified = bool(price_meta.get("price_verified", not limited_mode))
     row["valid_price_sample"] = True
