@@ -6,6 +6,8 @@ import traceback
 import time
 import gc
 import importlib
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import streamlit as st
 
 
@@ -218,6 +220,10 @@ def _assess_event_delta_degraded(*args, **kwargs):
     return {"status": "disabled", "needs_reassessment": False, "reason": "event_reassessment_module_unavailable"}
 
 
+def _event_watch_display_degraded(*args, **kwargs):
+    return {"level": "warning", "text": "事件監測模組暫時無法載入"}
+
+
 try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
     orchestrate = _load_required("orchestrator", "orchestrate")
@@ -255,8 +261,10 @@ try:
     run_login_close_recheck = _load_optional(
         "v13_research.close_recheck", ("run_login_close_recheck",), _run_close_recheck_degraded
     )
-    assess_event_delta = _load_optional(
-        "event_reassessment", ("assess_event_delta",), _assess_event_delta_degraded
+    assess_event_delta, event_watch_display = _load_optional(
+        "event_reassessment",
+        ("assess_event_delta", "event_watch_display"),
+        (_assess_event_delta_degraded, _event_watch_display_degraded),
     )
 except Exception as exc:
     trace = _log_exception("project_import_failed", exc)
@@ -300,6 +308,27 @@ def _event_reassessment_enabled() -> bool:
     }
 
 
+_EVENT_WATCH_SESSION_KEYS = (
+    "event_reassessment_queue",
+    "event_news_baseline",
+    "event_baseline_created_at",
+    "event_reassessment_notice",
+    "last_event_watch_report",
+)
+
+
+def _clear_event_watch_state() -> None:
+    for key in _EVENT_WATCH_SESSION_KEYS:
+        st.session_state.pop(key, None)
+
+
+def _event_checked_at_tw() -> str:
+    try:
+        return datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return ""
+
+
 def _event_watch_body() -> None:
     """Poll only the active forecast and request a full, traceable rebuild.
 
@@ -307,6 +336,10 @@ def _event_watch_body() -> None:
     compares headline identities, stores a bounded plan in session_state and
     asks the normal V12 analysis path to run again.
     """
+    # Defence in depth: the poller is an Admin operational feature.  Public or
+    # logged-out sessions must never spend news/API capacity or queue a rebuild.
+    if not bool(st.session_state.get("admin_authenticated", False)):
+        return
     if not _event_reassessment_enabled():
         return
     if str(st.session_state.get("main_view") or "analysis") != "analysis":
@@ -324,6 +357,11 @@ def _event_watch_body() -> None:
     if not isinstance(previous_news, list):
         st.session_state["event_news_baseline"] = list(getattr(forecast, "news_items", []) or [])
         st.session_state["event_baseline_created_at"] = time.time()
+        st.session_state["last_event_watch_report"] = {
+            "status": "baseline",
+            "ticker": symbol,
+            "checked_at_tw": "",
+        }
         return
     try:
         latest_news = fetch_news(symbol, force_refresh=True)
@@ -340,7 +378,9 @@ def _event_watch_body() -> None:
             not_before_epoch=float(st.session_state.get("event_baseline_created_at") or time.time()),
         )
         st.session_state["event_news_baseline"] = list(latest_news or [])
-        st.session_state["last_event_watch_report"] = dict(plan or {})
+        report = dict(plan or {})
+        report["checked_at_tw"] = _event_checked_at_tw()
+        st.session_state["last_event_watch_report"] = report
         if bool((plan or {}).get("needs_reassessment")):
             st.session_state["event_reassessment_queue"] = dict(plan)
             st.session_state["event_reassessment_notice"] = (
@@ -354,7 +394,37 @@ def _event_watch_body() -> None:
             "status": "degraded",
             "needs_reassessment": False,
             "reason": f"{type(exc).__name__}: {exc}",
+            "ticker": symbol,
+            "checked_at_tw": _event_checked_at_tw(),
         }
+
+
+def _render_event_watch_status(forecast) -> None:
+    """Show Admin-only liveness and a severity-coloured reassessment alert."""
+    if not bool(st.session_state.get("admin_authenticated", False)):
+        return
+    if not _event_reassessment_enabled():
+        st.caption("⚪ Admin 事件監測已停用")
+        return
+    symbol = str(getattr(getattr(forecast, "ticker", None), "resolved_symbol", "") or "").strip().upper()
+    payload = event_watch_display(
+        st.session_state.get("last_event_watch_report"),
+        notice=str(st.session_state.get("event_reassessment_notice") or ""),
+        ticker=symbol,
+        interval_label=str(os.environ.get("TINO_EVENT_POLL_INTERVAL", "5m") or "5m"),
+    )
+    level = str((payload or {}).get("level") or "caption")
+    message = str((payload or {}).get("text") or "").strip()
+    if not message:
+        return
+    if level == "error":
+        st.error(message)
+    elif level == "warning":
+        st.warning(message)
+    elif level == "info":
+        st.info(message)
+    else:
+        st.caption(message)
 
 
 if hasattr(st, "fragment"):
@@ -540,16 +610,16 @@ def main():
         st.session_state.symbol = ""
         st.session_state.suppress_auto_once = True
         st.session_state.input_was_cleared = True
-        st.session_state.pop("event_reassessment_queue", None)
-        st.session_state.pop("event_news_baseline", None)
-        st.session_state.pop("event_baseline_created_at", None)
-        st.session_state.pop("event_reassessment_notice", None)
+        _clear_event_watch_state()
         st.rerun()
 
     # Active-session watcher. It is isolated in a Streamlit fragment and only
     # schedules the normal analysis path when a genuinely new material event
     # appears after the current forecast.
-    _event_watch_fragment()
+    if bool(st.session_state.get("admin_authenticated", False)):
+        _event_watch_fragment()
+    else:
+        _clear_event_watch_state()
 
     watch_autorun_symbol = str(st.session_state.pop("watch_autorun_symbol", "") or "").strip().upper()
     suppress_auto_once = bool(st.session_state.pop("suppress_auto_once", False))
@@ -627,6 +697,12 @@ def main():
                 st.session_state["event_baseline_created_at"] = time.time()
                 if event_ready:
                     st.session_state.pop("event_reassessment_queue", None)
+                else:
+                    st.session_state["last_event_watch_report"] = {
+                        "status": "baseline",
+                        "ticker": str(symbol).upper(),
+                        "checked_at_tw": "",
+                    }
                 st.session_state.last_error = ""
         except Exception as exc:
             st.session_state.forecast = None
@@ -639,9 +715,7 @@ def main():
 
     forecast = st.session_state.forecast
     if forecast:
-        event_notice = str(st.session_state.get("event_reassessment_notice") or "").strip()
-        if event_notice:
-            st.info(event_notice)
+        _render_event_watch_status(forecast)
         mark_runtime_stage("render_forecast_start", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))
         _render_forecast(forecast)
         mark_runtime_stage("render_forecast_done", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))

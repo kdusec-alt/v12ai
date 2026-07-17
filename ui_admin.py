@@ -12,6 +12,21 @@ from debug_trace import trace_to_text
 from memory_store import MEMORY_DIR, PREDICTION_LOG, AUDIT_LOG, TICKER_PROFILE
 
 
+_EVENT_WATCH_SESSION_KEYS = (
+    "event_reassessment_queue",
+    "event_news_baseline",
+    "event_baseline_created_at",
+    "event_reassessment_notice",
+    "last_event_watch_report",
+)
+
+
+def _clear_event_watch_session(st) -> None:
+    """Remove all event-watch state when the Admin session is closed."""
+    for key in _EVENT_WATCH_SESSION_KEYS:
+        st.session_state.pop(key, None)
+
+
 def _secret_value(st, key: str) -> str:
     try:
         val = st.secrets.get(key, "")
@@ -38,6 +53,7 @@ def _admin_gate(st) -> bool:
         if st.sidebar.button("登出 Admin", key="tino_admin_logout"):
             st.session_state.admin_authenticated = False
             st.session_state.pop("tino_admin_password", None)
+            _clear_event_watch_session(st)
             return False
         return True
 

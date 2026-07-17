@@ -55,6 +55,48 @@ _DEESCALATION = (
 )
 
 
+def event_watch_display(
+    report: Mapping[str, Any] | None,
+    *,
+    notice: str = "",
+    ticker: str = "",
+    interval_label: str = "5m",
+) -> Dict[str, str]:
+    """Build a small, testable UI message without importing Streamlit."""
+    row = dict(report or {})
+    symbol = _clean_text(ticker or row.get("ticker") or "目前標的").upper()
+    checked = _clean_text(row.get("checked_at_tw") or "等待首次檢查")
+    status = _clean_text(row.get("status") or "baseline").lower()
+    severity = int(row.get("event_severity") or 0)
+    headline = _clean_text(notice or row.get("event_title") or row.get("reassessment_reason"))
+
+    if notice:
+        if severity >= 3:
+            return {
+                "level": "error",
+                "text": f"🚨 重大事件重新評估｜Severity {severity}｜{headline}",
+            }
+        if severity >= 2:
+            return {
+                "level": "warning",
+                "text": f"⚠️ 事件重新評估｜Severity {severity}｜{headline}",
+            }
+        return {"level": "info", "text": f"事件重新評估｜{headline}"}
+
+    if status == "degraded":
+        reason = _clean_text(row.get("reason") or "新聞來源暫時無法更新")
+        return {
+            "level": "warning",
+            "text": f"🟠 事件監測降級｜{symbol}｜上次檢查 {checked}｜{reason}",
+        }
+
+    result = "等待首次輪詢" if status == "baseline" else "無新重大事件"
+    return {
+        "level": "caption",
+        "text": f"🟢 Admin 事件監測｜{symbol}｜每 {interval_label}｜上次檢查 {checked}｜{result}",
+    }
+
+
 def _value(item: Any, name: str, default: Any = "") -> Any:
     if isinstance(item, Mapping):
         return item.get(name, default)
