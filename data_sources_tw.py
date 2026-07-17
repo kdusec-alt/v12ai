@@ -51,8 +51,12 @@ except Exception:
     def classify_analyst_headline(value):
         return "", ""
 TW_SAMPLE = {"6770.TW": dict(open=83.20, high=85.20, low=78.10, last=78.30, previous_close=83.20, volume=86000, vwap=80.53, atr14=5.99), "6586.TWO": dict(open=123.50, high=130.50, low=114.00, last=126.00, previous_close=120.50, volume=4200, vwap=123.50, atr14=9.50), "2454.TW": dict(open=4055.0, high=4145.0, low=4025.0, last=4055.0, previous_close=4100.0, volume=6800, vwap=4075.0, atr14=145.0), "2337.TW": dict(open=158.0, high=161.5, low=154.5, last=156.0, previous_close=159.0, volume=15000, vwap=157.8, atr14=7.3), "2308.TW": dict(open=1815.0, high=1855.0, low=1785.0, last=1810.0, previous_close=1835.0, volume=12200, vwap=1816.7, atr14=65.0), "00919.TW": dict(open=23.25, high=23.35, low=23.10, last=23.18, previous_close=23.22, volume=50000, vwap=23.21, atr14=0.24), "5469.TW": dict(open=90.8, high=94.0, low=90.0, last=91.8, previous_close=87.4, volume=19000, vwap=91.93, atr14=4.2)}
-BULL = ["獲利", "成長", "EPS", "營收", "買超", "創高", "法說", "AI", "訂單", "擴產", "回補", "強勢", "漲"]
-BEAR = ["虧損", "減損", "賣超", "下修", "衰退", "跌", "處置", "警示", "庫存", "法說虧損", "利空"]
+BULL = ["獲利", "成長", "EPS", "營收", "買超", "創高", "法說", "AI", "訂單", "擴產", "回補", "強勢", "漲", "優於預期", "上修財測", "上調展望"]
+BEAR = [
+    "虧損", "減損", "賣超", "下修", "衰退", "跌", "處置", "警示", "庫存", "法說虧損", "利空",
+    "低於預期", "未達預期", "財測下修", "展望下修", "降評", "目標價下修", "減碼", "賣出評等",
+    "訂單取消", "延後拉貨", "需求放緩", "季減", "毛利率下滑", "監管調查", "現金增資", "稀釋",
+]
 
 _TW_GLOBAL_NEWS_CACHE: tuple[float, List[NewsItem]] | None = None
 _TW_GLOBAL_NEWS_CACHE_TTL_SEC = 15 * 60
@@ -1631,10 +1635,22 @@ def _score_news(title: str) -> Tuple[float, str]:
     pos = sum(1 for k in BULL if k.lower() in t)
     neg = sum(1 for k in BEAR if k.lower() in t)
     score = round((pos - neg) * 0.06, 3)
+    # Forward guidance is more useful to T1 than a backward-looking earnings
+    # beat.  A mixed headline such as "EPS beat but next-quarter guidance cut"
+    # must retain the forward-risk sign instead of cancelling to neutral.
+    forward_neg_terms = [
+        "財測下修", "展望下修", "下修展望", "下季季減", "下一季季減", "需求放緩",
+        "訂單取消", "延後拉貨", "毛利率下滑", "低於預期", "未達預期",
+    ]
+    forward_neg = sum(1 for k in forward_neg_terms if k in t)
+    if forward_neg:
+        score -= min(0.18, 0.08 * forward_neg)
     if any(k.lower() in t for k in ["ai", "hbm", "pcb", "半導體", "伺服器", "輝達", "nvda"]):
         score += 0.035
     if any(k.lower() in t for k in ["處置", "警示", "下修", "虧損", "跌停"]):
         score -= 0.035
+    if forward_neg:
+        score = min(score, -0.08)
     score = max(-0.24, min(0.24, round(score, 3)))
     macro_terms = ("cpi", "ppi", "pce", "fomc", "非農", "nfp", "fed", "通膨", "利率決議")
     geo_terms = (
@@ -1754,7 +1770,7 @@ def _fallback_news(ticker: TickerInfo) -> List[NewsItem]:
     ]
 
 
-def _global_tw_macro_geo_news() -> List[NewsItem]:
+def _global_tw_macro_geo_news(force_refresh: bool = False) -> List[NewsItem]:
     """Fetch shared market-wide macro/geo headlines once per cache window.
 
     Company-specific queries alone can miss CPI or geopolitical risk.  These
@@ -1763,7 +1779,7 @@ def _global_tw_macro_geo_news() -> List[NewsItem]:
     """
     global _TW_GLOBAL_NEWS_CACHE
     now_ts = time_module.time()
-    if _TW_GLOBAL_NEWS_CACHE and now_ts - _TW_GLOBAL_NEWS_CACHE[0] < _TW_GLOBAL_NEWS_CACHE_TTL_SEC:
+    if not force_refresh and _TW_GLOBAL_NEWS_CACHE and now_ts - _TW_GLOBAL_NEWS_CACHE[0] < _TW_GLOBAL_NEWS_CACHE_TTL_SEC:
         return list(_TW_GLOBAL_NEWS_CACHE[1])
 
     queries = (
@@ -1785,7 +1801,7 @@ def _global_tw_macro_geo_news() -> List[NewsItem]:
     return list(out[:8])
 
 
-def fetch_tw_news(ticker: TickerInfo) -> List[NewsItem]:
+def fetch_tw_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsItem]:
     if os.environ.get("TINO_OFFLINE_TEST") == "1":
         return _fallback_news(ticker)
 
@@ -1799,10 +1815,15 @@ def fetch_tw_news(ticker: TickerInfo) -> List[NewsItem]:
             out.append(item)
 
     # Reserve shared Macro/Policy/Geo evidence before company headlines.
-    for item in _global_tw_macro_geo_news()[:6]:
+    for item in _global_tw_macro_geo_news(force_refresh=force_refresh)[:6]:
         _add(item)
 
-    queries = [f"{ticker.name} {_code(ticker.resolved_symbol)} 股票", f"{ticker.name} 法說 EPS 營收", f"{ticker.name} (大摩 OR 小摩 OR 摩根士丹利 OR 摩根大通 OR 目標價 OR 升評)"]
+    queries = [
+        f"{ticker.name} {_code(ticker.resolved_symbol)} 股票",
+        f"{ticker.name} (財測下修 OR 展望下修 OR 降評 OR 下修目標價 OR 減碼 OR 賣出 OR 訂單取消 OR 延後拉貨 OR 需求放緩 OR 增資 OR 監管調查)",
+        f"{ticker.name} 法說 EPS 營收 下一季 展望 毛利率",
+        f"{ticker.name} (大摩 OR 小摩 OR 摩根士丹利 OR 摩根大通 OR 目標價 OR 升評 OR 降評)",
+    ]
     for query in queries:
         for item in _google_news(query, 8):
             _add(item)

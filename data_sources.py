@@ -75,11 +75,11 @@ def fetch_price(raw_ticker: str) -> PriceFrame:
     return primary
 
 
-def fetch_news(raw_ticker: str) -> List[NewsItem]:
+def fetch_news(raw_ticker: str, force_refresh: bool = False) -> List[NewsItem]:
     key = _cache_key(raw_ticker)
     ticker = _RESOLVED_ROUTE_CACHE.get(key) or resolve_ticker(raw_ticker)
     if ticker.market == "TW" and ticker.asset_type == "etf":
-        return fetch_etf_news(ticker)
+        return fetch_etf_news(ticker, force_refresh=force_refresh)
     if ticker.market == "TW":
-        return fetch_tw_news(ticker)
-    return fetch_us_news(ticker)
+        return fetch_tw_news(ticker, force_refresh=force_refresh)
+    return fetch_us_news(ticker, force_refresh=force_refresh)

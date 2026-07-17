@@ -608,7 +608,8 @@ def _us_news_profile_queries(ticker: TickerInfo) -> List[Tuple[str, str, int]]:
     company = list(prof.get("company") or [f"{base} earnings", f"{base} stock", f"{base} guidance"])
     industry = prof.get("industry") or []
     peers = prof.get("peers") or []
-    analyst_query = f"{base} price target Morgan Stanley JPMorgan analyst rating"
+    analyst_query = f"{base} downgrade price target cut Morgan Stanley JPMorgan analyst rating"
+    forward_risk_query = f"{base} guidance cut weak outlook demand slowdown margin decline offering investigation"
     # Keep only three company calls for speed: two operating/company routes plus
     # one dedicated analyst route so target changes cannot be starved.
     company_queries = company[:2]
@@ -616,6 +617,9 @@ def _us_news_profile_queries(ticker: TickerInfo) -> List[Tuple[str, str, int]]:
         company_queries.append(analyst_query)
     else:
         company_queries.extend(company[2:3])
+    # Negative/forward route goes first so it cannot be starved by the global
+    # 14-row cap on a busy symbol such as NVDA/MU.
+    queries.append((forward_risk_query, "company", 3))
     for q in company_queries[:3]:
         queries.append((q, "company", 3))
     for q in industry[:2]:
@@ -697,10 +701,23 @@ def _score_us_news(title: str, bucket: str = "company") -> Tuple[float, str]:
     # Direct company / industry evidence.
     score += min(0.22, pos * 0.075)
     score -= min(0.22, neg * 0.075)
+    forward_negative = (
+        "guidance cut", "cuts guidance", "lowered guidance", "lower outlook", "weak outlook",
+        "below estimates", "misses estimates", "demand slowdown", "order cancellation",
+        "demand slows", "inventory build", "margin decline", "price target cut", "downgrade",
+        "offering", "dilution", "investigation", "probe",
+    )
+    forward_hits = sum(1 for term in forward_negative if term in text)
+    if forward_hits:
+        score -= min(0.18, 0.075 * forward_hits)
     if ai_semi and bucket in {"company", "industry"}:
         score += min(0.07, ai_semi * 0.018)
     if earnings and bucket == "company":
         score += 0.025 if score >= 0 else 0.0
+    if forward_hits:
+        # Forward risk wins over a backward-looking beat in the headline.  It
+        # triggers reassessment; price/flow confirmation still decides Direction.
+        score = min(score, -0.08)
 
     # Market weather is less directional; use it to flag risk / context.
     if bucket == "daily":
@@ -770,12 +787,12 @@ def _google_news_us(query: str, bucket: str, limit: int = 4) -> List[NewsItem]:
     return items
 
 
-def fetch_us_news(ticker: TickerInfo) -> List[NewsItem]:
+def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsItem]:
     sym = str(ticker.resolved_symbol or ticker.symbol or "").upper()
     cache_key = f"rc24_us_news_v3_score_time:{sym}:{date.today().isoformat()}"
     now_ts = time.time()
     cached = _US_NEWS_CACHE.get(cache_key)
-    if cached and now_ts - cached[0] < _US_NEWS_CACHE_TTL_SEC:
+    if not force_refresh and cached and now_ts - cached[0] < _US_NEWS_CACHE_TTL_SEC:
         return list(cached[1])
 
     base = _us_company_base_name(ticker)
