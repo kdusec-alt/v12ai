@@ -313,6 +313,7 @@ _EVENT_WATCH_SESSION_KEYS = (
     "event_news_baseline",
     "event_baseline_created_at",
     "event_reassessment_notice",
+    "event_reassessment_notice_severity",
     "last_event_watch_report",
 )
 
@@ -386,6 +387,9 @@ def _event_watch_body() -> None:
             st.session_state["event_reassessment_notice"] = (
                 f"重大事件重新評估｜{(plan or {}).get('event_title') or (plan or {}).get('reassessment_reason')}"
             )
+            st.session_state["event_reassessment_notice_severity"] = int(
+                (plan or {}).get("event_severity") or 0
+            )
             st.rerun()
     except Exception as exc:
         # News polling is optional.  A network/parser failure must never clear
@@ -407,9 +411,17 @@ def _render_event_watch_status(forecast) -> None:
         st.caption("⚪ Admin 事件監測已停用")
         return
     symbol = str(getattr(getattr(forecast, "ticker", None), "resolved_symbol", "") or "").strip().upper()
+    notice = str(st.session_state.get("event_reassessment_notice") or "")
+    report = dict(st.session_state.get("last_event_watch_report") or {})
+    if notice:
+        report["event_severity"] = int(
+            st.session_state.get("event_reassessment_notice_severity")
+            or report.get("event_severity")
+            or 0
+        )
     payload = event_watch_display(
-        st.session_state.get("last_event_watch_report"),
-        notice=str(st.session_state.get("event_reassessment_notice") or ""),
+        report,
+        notice=notice,
         ticker=symbol,
         interval_label=str(os.environ.get("TINO_EVENT_POLL_INTERVAL", "5m") or "5m"),
     )
@@ -427,15 +439,24 @@ def _render_event_watch_status(forecast) -> None:
         st.caption(message)
 
 
+def _event_watch_fragment_body() -> None:
+    """Poll and render inside the same fragment so liveness is never stale."""
+    _event_watch_body()
+    forecast = st.session_state.get("forecast")
+    if forecast is not None and not bool(getattr(forecast, "stopped", False)):
+        _render_event_watch_status(forecast)
+
+
 if hasattr(st, "fragment"):
     _event_watch_fragment = st.fragment(
         run_every=str(os.environ.get("TINO_EVENT_POLL_INTERVAL", "5m") or "5m")
-    )(_event_watch_body)
+    )(_event_watch_fragment_body)
 else:
     def _event_watch_fragment() -> None:
-        # Streamlit < fragment support: safe no-op. Manual analysis remains
-        # fully functional and still uses the improved event/news retrieval.
-        return
+        # Streamlit < fragment support: no timer, but keep Admin status honest.
+        forecast = st.session_state.get("forecast")
+        if forecast is not None and not bool(getattr(forecast, "stopped", False)):
+            _render_event_watch_status(forecast)
 
 
 def _render_forecast(forecast):
@@ -613,12 +634,8 @@ def main():
         _clear_event_watch_state()
         st.rerun()
 
-    # Active-session watcher. It is isolated in a Streamlit fragment and only
-    # schedules the normal analysis path when a genuinely new material event
-    # appears after the current forecast.
-    if bool(st.session_state.get("admin_authenticated", False)):
-        _event_watch_fragment()
-    else:
+    # Logged-out sessions must discard any stale event state before analysis.
+    if not bool(st.session_state.get("admin_authenticated", False)):
         _clear_event_watch_state()
 
     watch_autorun_symbol = str(st.session_state.pop("watch_autorun_symbol", "") or "").strip().upper()
@@ -635,6 +652,7 @@ def main():
     )
     if analyze and not event_ready:
         st.session_state.pop("event_reassessment_notice", None)
+        st.session_state.pop("event_reassessment_notice_severity", None)
     should_run = bool((analyze and symbol) or auto_ready or watch_ready or event_ready)
     if should_run:
         try:
@@ -715,7 +733,10 @@ def main():
 
     forecast = st.session_state.forecast
     if forecast:
-        _render_event_watch_status(forecast)
+        # The fragment owns both polling and its status UI.  Fragment reruns
+        # therefore refresh the timestamp without forcing a full-app rerun.
+        if bool(st.session_state.get("admin_authenticated", False)):
+            _event_watch_fragment()
         mark_runtime_stage("render_forecast_start", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))
         _render_forecast(forecast)
         mark_runtime_stage("render_forecast_done", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))

@@ -17,6 +17,7 @@ _EVENT_WATCH_SESSION_KEYS = (
     "event_news_baseline",
     "event_baseline_created_at",
     "event_reassessment_notice",
+    "event_reassessment_notice_severity",
     "last_event_watch_report",
 )
 
