@@ -1,6 +1,8 @@
 {
   "00631L.TW": {
     "active_family_count": 0,
+    "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
+    "approved_at_tw": "2026-07-17T14:12:17+08:00",
     "approved_bias": 0.0,
     "audit_count": 2,
     "avg_abs_error_pct": 8.6159,
