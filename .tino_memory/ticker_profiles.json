@@ -1167,15 +1167,15 @@
   "2330.TW": {
     "active_family_count": 0,
     "approved_bias": 0.0,
-    "audit_count": 1,
-    "avg_abs_error_pct": 7.2874,
+    "audit_count": 2,
+    "avg_abs_error_pct": 5.1267,
     "avg_direction_brier": 0.414662,
     "avg_downside_tail_breach_pct": 6.1475,
     "close_range_hit_rate": 0.0,
     "direction_audit_count": 1,
     "direction_hit_rate": 0.0,
     "error_type_counts": {
-      "over_prediction": 1
+      "over_prediction": 2
     },
     "factor_learning": {
       "MU": {
@@ -1546,13 +1546,13 @@
       }
     },
     "last_actual_direction": "DOWN",
-    "last_close_in_predicted_range": false,
+    "last_close_in_predicted_range": null,
     "last_defense_stop_touched": true,
     "last_direction_hit": false,
     "last_dominant_force": "趨勢",
-    "last_dominant_force_hit": false,
-    "last_downside_tail_breach_pct": -6.1475,
-    "last_error_pct": -7.2874,
+    "last_dominant_force_hit": null,
+    "last_downside_tail_breach_pct": 0.0,
+    "last_error_pct": -2.9661,
     "last_error_type": "over_prediction",
     "last_predicted_direction": "NEUTRAL",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
@@ -1561,7 +1561,7 @@
     "range_audit_count": 1,
     "suggested_bias": 0.0,
     "ticker": "2330.TW",
-    "updated_at_tw": "2026-07-17T19:07:07+08:00"
+    "updated_at_tw": "2026-07-17T19:07:12+08:00"
   },
   "2337.TW": {
     "active_family_count": 0,
