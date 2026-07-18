@@ -10,7 +10,8 @@ from typing import Any, Dict, Mapping
 
 from .genome_engine import GENE_LABELS, GENE_ORDER
 from .repository import load_research_dashboard
-from .service import recover_research_history_from_prediction_log
+from .service import recover_research_history_from_prediction_log, recover_shadow_fitness_from_audit_log
+from .shadow_genetics import ENVIRONMENT_GENE_LABELS, ENVIRONMENT_GENE_ORDER
 
 _MUTATION_ZH = {
     "baseline": "基準建立",
@@ -74,11 +75,17 @@ def render_research_lab(st) -> None:
 
     recovery_report = recover_research_history_from_prediction_log(limit=600)
     st.session_state["last_v13_recovery_report"] = recovery_report
+    fitness_recovery = recover_shadow_fitness_from_audit_log(limit=1200)
+    st.session_state["last_v13_fitness_recovery_report"] = fitness_recovery
     dashboard = load_research_dashboard(genome_limit=600, detection_limit=600)
     genomes = list(dashboard.get("genomes") or [])
     detections = list(dashboard.get("detections") or [])
     latest_by_ticker = dict(dashboard.get("latest_by_ticker") or {})
     macro_events = list(dashboard.get("macro_events") or [])
+    phenotypes = list(dashboard.get("shadow_phenotypes") or [])
+    fitness_rows = list(dashboard.get("shadow_fitness") or [])
+    evolution_gates = list(dashboard.get("evolution_gates") or [])
+    latest_phenotype_by_ticker = dict(dashboard.get("latest_phenotype_by_ticker") or {})
 
     last_report = st.session_state.get("last_v13_research_report") or {}
     if str(last_report.get("status") or "") == "degraded":
@@ -90,13 +97,14 @@ def render_research_lab(st) -> None:
         sum(_number(row.get("calc_ms")) for row in genomes) / len(genomes)
         if genomes else 0.0
     )
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     c1.metric("Genome 快照", len(genomes))
     c2.metric("研究標的", len(latest_by_ticker))
     c3.metric("重大／結構突變", critical)
     c4.metric("資料品質警報", quality_alerts)
     c5.metric("Genome 平均耗時", f"{avg_calc:.3f} ms")
     c6.metric("Macro Events", len(macro_events))
+    c7.metric("Shadow Fitness", sum(1 for row in fitness_rows if row.get("sample_eligible")))
 
     if not latest_by_ticker:
         st.info("目前尚無 Genome 快照。請在個股分析完成一次正式 Prediction Log 後再回到本頁。")
@@ -126,8 +134,8 @@ def render_research_lab(st) -> None:
         f"｜ 資料時間：{latest.get('run_time_tw', '')}"
     )
 
-    overview_tab, detection_tab, history_tab, macro_tab, status_tab = st.tabs([
-        "🧬 Genome", "🚨 Detection", "🕒 Evolution", "🌐 Macro Event", "⚙️ Research Status"
+    overview_tab, shadow_tab, detection_tab, history_tab, macro_tab, status_tab = st.tabs([
+        "🧬 Genome", "🧬 Shadow Genetics", "🚨 Detection", "🕒 Evolution", "🌐 Macro Event", "⚙️ Research Status"
     ])
     with overview_tab:
         _render_gene_panel(st, latest)
@@ -136,6 +144,76 @@ def render_research_lab(st) -> None:
             st.success("顯性基因：" + "、".join(GENE_LABELS.get(name, name) for name in dominant))
         else:
             st.info("目前尚未形成明確顯性基因。")
+
+    with shadow_tab:
+        phenotype = dict(latest_phenotype_by_ticker.get(selected) or {})
+        ticker_genome = dict((dashboard.get("latest_ticker_genome_by_ticker") or {}).get(selected) or {})
+        environments = dict(dashboard.get("environments_by_id") or {})
+        environment = dict(environments.get(str(phenotype.get("environment_id") or "")) or {})
+        gate = dict(evolution_gates[-1]) if evolution_gates else {}
+        if not phenotype or not ticker_genome or not environment:
+            st.info("此標的尚未建立完整 Shadow Genetics。重新完成一次正式分析後會自動補齊；V12 不受影響。")
+        else:
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("共同 Environment", str(environment.get("environment_id") or "")[-10:])
+            s2.metric("Shadow Bias", f"{_number(phenotype.get('shadow_bias')):+.2f}")
+            s3.metric("Shadow Direction", str(phenotype.get("shadow_direction") or "NEUTRAL"))
+            s4.metric("Evolution Gate", str(gate.get("status") or "collecting"))
+            st.caption(
+                f"官方 Champion：{phenotype.get('official_direction', '')} / "
+                f"Score {_number(phenotype.get('official_direction_score')):+.2f}｜"
+                f"選中 Challenger：{phenotype.get('selected_candidate_id', '')}｜"
+                "Shadow 只做反事實研究，不改 Direction、T1、Confidence 或決策卡。"
+            )
+
+            environment_genes = environment.get("genes") if isinstance(environment.get("genes"), Mapping) else {}
+            sensitivities = ticker_genome.get("sensitivities") if isinstance(ticker_genome.get("sensitivities"), Mapping) else {}
+            contributions = phenotype.get("gene_contributions") if isinstance(phenotype.get("gene_contributions"), Mapping) else {}
+            gene_rows = [
+                {
+                    "共同環境基因": ENVIRONMENT_GENE_LABELS.get(name, name),
+                    "Environment [-1,+1]": round(_number(environment_genes.get(name)), 3),
+                    "Ticker Sensitivity": round(_number(sensitivities.get(name)), 3),
+                    "Phenotype Contribution": round(_number(contributions.get(name)), 4),
+                }
+                for name in ENVIRONMENT_GENE_ORDER
+            ]
+            st.dataframe(gene_rows, use_container_width=True, hide_index=True)
+            evidence = list(environment.get("evidence") or [])
+            traits = ticker_genome.get("traits") if isinstance(ticker_genome.get("traits"), Mapping) else {}
+            st.caption(
+                f"Environment Bucket：{environment.get('bucket_tw', '')}｜"
+                f"Evidence：{', '.join(evidence) if evidence else 'neutral/no material common event'}｜"
+                f"Ticker Lineage：{ticker_genome.get('lineage_id', '')}｜Traits："
+                + ", ".join(name for name, value in traits.items() if value is True)
+            )
+
+            outcomes = phenotype.get("candidate_outcomes") if isinstance(phenotype.get("candidate_outcomes"), list) else []
+            if outcomes:
+                st.markdown("**Candidate Population / 候選族群**")
+                st.dataframe([
+                    {
+                        "Candidate": row.get("candidate_id"),
+                        "Generation": row.get("generation"),
+                        "Mutation": row.get("mutation"),
+                        "Shadow Bias": row.get("shadow_bias"),
+                        "Adjusted Score": row.get("adjusted_score"),
+                        "Direction": row.get("direction"),
+                    }
+                    for row in outcomes if isinstance(row, Mapping)
+                ], use_container_width=True, hide_index=True)
+
+            if gate:
+                g1, g2, g3, g4 = st.columns(4)
+                g1.metric("Eligible Samples", int(_number(gate.get("eligible_samples"))))
+                g2.metric("Tickers / Markets", f"{int(_number(gate.get('ticker_count')))} / {int(_number(gate.get('market_count')))}")
+                g3.metric("Baseline Hit", f"{_number(gate.get('baseline_hit_rate')) * 100:.1f}%")
+                g4.metric("Challenger Uplift", f"{_number(gate.get('uplift')) * 100:+.1f}pp")
+                blockers = list(gate.get("blockers") or [])
+                if blockers:
+                    st.warning("尚不可晉級：" + "｜".join(blockers))
+                else:
+                    st.success("已達人工審查門檻；系統仍不會自動晉級或改寫 V12。")
 
     with detection_tab:
         if not latest_detection:
@@ -283,6 +361,10 @@ def render_research_lab(st) -> None:
         if isinstance(recovery, Mapping) and recovery:
             with st.expander("V13 長期記憶／自動重建狀態", expanded=False):
                 st.json(recovery)
+        fitness_recovery = st.session_state.get("last_v13_fitness_recovery_report") or {}
+        if isinstance(fitness_recovery, Mapping) and fitness_recovery:
+            with st.expander("Shadow Fitness 長期記憶／自動重建狀態", expanded=False):
+                st.json(fitness_recovery)
         if report:
             with st.expander("最近一次 Scheduler Report", expanded=False):
                 st.json(report)
