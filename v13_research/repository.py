@@ -26,6 +26,11 @@ DETECTION_EVENT_LOG = RESEARCH_DIR / "detection_event.jsonl"
 CLOSE_RECHECK_LOG = RESEARCH_DIR / "close_recheck.jsonl"
 CLOSE_RECHECK_STATE = RESEARCH_DIR / "close_recheck_state.json"
 MACRO_EVENT_LOG = RESEARCH_DIR / "macro_event.jsonl"
+ENVIRONMENT_GENOME_LOG = RESEARCH_DIR / "environment_genome.jsonl"
+TICKER_GENOME_LOG = RESEARCH_DIR / "ticker_genome.jsonl"
+SHADOW_PHENOTYPE_LOG = RESEARCH_DIR / "shadow_phenotype.jsonl"
+SHADOW_FITNESS_LOG = RESEARCH_DIR / "shadow_fitness.jsonl"
+EVOLUTION_GATE_LOG = RESEARCH_DIR / "evolution_gate.jsonl"
 
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _ID_CACHE: Dict[Tuple[str, str], Tuple[int, int, set[str]]] = {}
@@ -251,8 +256,58 @@ def append_macro_event(row: Dict[str, Any]) -> Dict[str, Any]:
     return _append_once(MACRO_EVENT_LOG, row, "event_id")
 
 
+def append_environment_genome(row: Dict[str, Any]) -> Dict[str, Any]:
+    return _append_once(ENVIRONMENT_GENOME_LOG, row, "environment_id")
+
+
+def append_ticker_genome(row: Dict[str, Any]) -> Dict[str, Any]:
+    return _append_once(TICKER_GENOME_LOG, row, "snapshot_id")
+
+
+def append_shadow_phenotype(row: Dict[str, Any]) -> Dict[str, Any]:
+    return _append_once(SHADOW_PHENOTYPE_LOG, row, "phenotype_id")
+
+
+def append_shadow_fitness(row: Dict[str, Any]) -> Dict[str, Any]:
+    return _append_once(SHADOW_FITNESS_LOG, row, "fitness_id")
+
+
+def append_evolution_gate(row: Dict[str, Any]) -> Dict[str, Any]:
+    return _append_once(EVOLUTION_GATE_LOG, row, "status_id")
+
+
 def load_recent_macro_events(limit: int = 200) -> List[Dict[str, Any]]:
     return _read_recent_rows(MACRO_EVENT_LOG, limit)
+
+
+def load_recent_environment_genomes(limit: int = 500) -> List[Dict[str, Any]]:
+    return _read_recent_rows(ENVIRONMENT_GENOME_LOG, limit)
+
+
+def load_recent_ticker_genomes(limit: int = 500) -> List[Dict[str, Any]]:
+    return _read_recent_rows(TICKER_GENOME_LOG, limit)
+
+
+def load_recent_shadow_phenotypes(limit: int = 800) -> List[Dict[str, Any]]:
+    return _read_recent_rows(SHADOW_PHENOTYPE_LOG, limit)
+
+
+def load_recent_shadow_fitness(limit: int = 2000) -> List[Dict[str, Any]]:
+    return _read_recent_rows(SHADOW_FITNESS_LOG, limit)
+
+
+def load_recent_evolution_gates(limit: int = 100) -> List[Dict[str, Any]]:
+    return _read_recent_rows(EVOLUTION_GATE_LOG, limit)
+
+
+def get_shadow_phenotype_for_prediction(prediction_id: str, limit: int = 1200) -> Dict[str, Any]:
+    wanted = str(prediction_id or "").strip()
+    if not wanted:
+        return {}
+    for row in reversed(load_recent_shadow_phenotypes(limit)):
+        if str(row.get("prediction_id") or "") == wanted:
+            return row
+    return {}
 
 
 def load_recent_close_rechecks(limit: int = 200) -> List[Dict[str, Any]]:
@@ -350,6 +405,11 @@ def research_storage_status() -> Dict[str, Any]:
         "close_recheck": _one(CLOSE_RECHECK_LOG),
         "close_recheck_state": _one(CLOSE_RECHECK_STATE),
         "macro_event": _one(MACRO_EVENT_LOG),
+        "environment_genome": _one(ENVIRONMENT_GENOME_LOG),
+        "ticker_genome": _one(TICKER_GENOME_LOG),
+        "shadow_phenotype": _one(SHADOW_PHENOTYPE_LOG),
+        "shadow_fitness": _one(SHADOW_FITNESS_LOG),
+        "evolution_gate": _one(EVOLUTION_GATE_LOG),
         "long_term_registered": True,
     }
     try:
@@ -372,16 +432,43 @@ def load_research_dashboard(genome_limit: int = 500, detection_limit: int = 500)
     detections = load_recent_detections(detection_limit)
     close_rechecks = load_recent_close_rechecks(200)
     macro_events = load_recent_macro_events(200)
+    environments = load_recent_environment_genomes(500)
+    ticker_genomes = load_recent_ticker_genomes(800)
+    phenotypes = load_recent_shadow_phenotypes(1000)
+    fitness = load_recent_shadow_fitness(2000)
+    evolution_gates = load_recent_evolution_gates(100)
     latest_by_ticker: Dict[str, Dict[str, Any]] = {}
     for row in genomes:
         ticker = str(row.get("ticker") or "").strip().upper()
         if ticker:
             latest_by_ticker[ticker] = row
+    latest_ticker_genome_by_ticker: Dict[str, Dict[str, Any]] = {}
+    for row in ticker_genomes:
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if ticker:
+            latest_ticker_genome_by_ticker[ticker] = row
+    latest_phenotype_by_ticker: Dict[str, Dict[str, Any]] = {}
+    for row in phenotypes:
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if ticker:
+            latest_phenotype_by_ticker[ticker] = row
+    environments_by_id = {
+        str(row.get("environment_id") or ""): row
+        for row in environments if row.get("environment_id")
+    }
     return {
         "genomes": genomes,
         "detections": detections,
         "close_rechecks": close_rechecks,
         "macro_events": macro_events,
+        "environment_genomes": environments,
+        "ticker_genomes": ticker_genomes,
+        "shadow_phenotypes": phenotypes,
+        "shadow_fitness": fitness,
+        "evolution_gates": evolution_gates,
+        "latest_ticker_genome_by_ticker": latest_ticker_genome_by_ticker,
+        "latest_phenotype_by_ticker": latest_phenotype_by_ticker,
+        "environments_by_id": environments_by_id,
         "close_recheck_state": load_close_recheck_state(),
         "latest_by_ticker": latest_by_ticker,
         "storage": research_storage_status(),
