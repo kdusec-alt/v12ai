@@ -156,7 +156,7 @@ def test_company_event_remains_ticker_scoped(tmp_path):
     assert view["dominant"]["event_key"].startswith("ticker:MRVL:")
 
 
-def test_quiet_time_causes_conservative_downgrade_then_resolution(tmp_path):
+def test_quiet_time_causes_conservative_downgrade_then_three_trade_day_resolution(tmp_path):
     path = tmp_path / "events.json"
     update_global_event_state(
         _plan(_event("shock-1", "流動性危機引發市場恐慌", severity=4, category="systemic_market_shock")),
@@ -167,7 +167,48 @@ def test_quiet_time_causes_conservative_downgrade_then_resolution(tmp_path):
     yellow = get_global_event_view(now=1000 + 13 * 3600, path=path)
     assert yellow["dominant"]["status"] == "cooling"
     assert yellow["dominant"]["severity"] == 2
-    resolved = get_global_event_view(now=1000 + 49 * 3600, path=path)
+    # 1970-01-01 was Thursday: Friday, Monday and Tuesday are the three
+    # trading-day boundaries; the weekend does not consume the alert TTL.
+    monday = get_global_event_view(now=1000 + 4 * 24 * 3600, path=path)
+    assert monday["dominant"] is not None
+    resolved = get_global_event_view(now=1000 + 5 * 24 * 3600, path=path)
+    assert resolved["dominant"] is None
+    assert resolved["recent"][0]["status"] == "resolved"
+
+
+def test_two_independent_counter_headlines_resolve_before_ttl(tmp_path):
+    path = tmp_path / "events.json"
+    update_global_event_state(
+        _plan(_event("iran-war", "美伊戰爭升級")), ticker="MU", now=1000, path=path
+    )
+    update_global_event_state(
+        _plan(
+            _event(
+                "iran-peace-1",
+                "美伊宣布停火",
+                severity=2,
+                category="geo_deescalation",
+                risk_sign=1,
+            )
+        ),
+        ticker="MU",
+        now=1100,
+        path=path,
+    )
+    resolved = update_global_event_state(
+        _plan(
+            _event(
+                "iran-peace-2",
+                "停火協議正式生效",
+                severity=2,
+                category="geo_deescalation",
+                risk_sign=1,
+            )
+        ),
+        ticker="2454.TW",
+        now=1200,
+        path=path,
+    )
     assert resolved["dominant"] is None
     assert resolved["recent"][0]["status"] == "resolved"
 
@@ -191,8 +232,8 @@ def test_state_is_bounded_and_resolved_rows_expire(tmp_path):
     stored = json.loads(path.read_text(encoding="utf-8"))
     assert len(stored["events"]) == MAX_EVENT_ROWS
 
-    # All company yellow rows resolve after 36h, and resolved rows are
+    # All yellow rows resolve after three trading days, and resolved rows are
     # removed three days later instead of growing an operational archive.
-    get_global_event_view(now=1000 + 37 * 3600, path=path)
-    final = get_global_event_view(now=1000 + 37 * 3600 + 3 * 24 * 3600 + 1, path=path)
+    get_global_event_view(now=1000 + 5 * 24 * 3600, path=path)
+    final = get_global_event_view(now=1000 + 5 * 24 * 3600 + 3 * 24 * 3600 + 1, path=path)
     assert final["recent"] == []

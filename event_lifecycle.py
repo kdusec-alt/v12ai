@@ -10,13 +10,14 @@ learning datasets.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
 import re
 import threading
 from typing import Any, Dict, Iterable, Mapping
+from zoneinfo import ZoneInfo
 
 from memory_store import EVENT_ALERT_STATE, write_json
 
@@ -25,17 +26,19 @@ STATE_SCHEMA = "TINO_EVENT_ALERT_STATE_V1"
 STATE_PATH = EVENT_ALERT_STATE
 MAX_EVENT_ROWS = 20
 MAX_RELATED_FINGERPRINTS = 8
+MAX_ACTIVE_TRADING_DAYS = 3
 RESOLVED_RETENTION_SECONDS = 3 * 24 * 60 * 60
+_TAIPEI = ZoneInfo("Asia/Taipei")
 
 _LOCK = threading.RLock()
 
 # Absence of another headline is weak evidence.  Decay is intentionally slow,
 # while an explicit counter-event (for example a ceasefire) acts immediately.
-_DECAY_SECONDS = {
-    "geopolitical": (18 * 60 * 60, 72 * 60 * 60),
-    "systemic_market": (12 * 60 * 60, 48 * 60 * 60),
-    "company": (8 * 60 * 60, 36 * 60 * 60),
-    "high_impact": (6 * 60 * 60, 24 * 60 * 60),
+_YELLOW_AFTER_SECONDS = {
+    "geopolitical": 18 * 60 * 60,
+    "systemic_market": 12 * 60 * 60,
+    "company": 8 * 60 * 60,
+    "high_impact": 6 * 60 * 60,
 }
 
 
@@ -139,21 +142,37 @@ def _is_open(row: Mapping[str, Any]) -> bool:
     return _clean(row.get("status")) in {"active_red", "active_yellow", "cooling"}
 
 
+def _trading_days_elapsed(start_epoch: float, end_epoch: float) -> int:
+    """Count weekday boundaries after evidence time (holiday-neutral fallback)."""
+    start = datetime.fromtimestamp(float(start_epoch), _TAIPEI).date()
+    end = datetime.fromtimestamp(float(end_epoch), _TAIPEI).date()
+    count = 0
+    cursor: date = start
+    while cursor < end:
+        cursor += timedelta(days=1)
+        if cursor.weekday() < 5:
+            count += 1
+    return count
+
+
 def _advance_time(state: Dict[str, Any], now_epoch: float) -> None:
     for row in state.get("events") or []:
         if not _is_open(row):
             continue
         family = _clean(row.get("family")) or "high_impact"
-        red_after, resolve_after = _DECAY_SECONDS.get(family, _DECAY_SECONDS["high_impact"])
+        yellow_after = _YELLOW_AFTER_SECONDS.get(family, _YELLOW_AFTER_SECONDS["high_impact"])
         last_evidence = float(row.get("last_evidence_epoch") or row.get("last_seen_epoch") or now_epoch)
         quiet_for = max(0.0, now_epoch - last_evidence)
         status = _clean(row.get("status"))
-        if status == "active_red" and quiet_for >= red_after:
+        if status == "active_red" and quiet_for >= yellow_after:
             row["status"] = "cooling"
             row["severity"] = 2
             row["last_transition_at"] = _iso(now_epoch)
             row["transition_reason"] = "長時間無新增風險證據，自動降為黃燈觀察"
-        if row.get("status") in {"active_yellow", "cooling"} and quiet_for >= resolve_after:
+        # Quiet time alone may soften a red alert, but it does not erase it
+        # before three trading days.  Weekends therefore cannot prematurely
+        # make a Friday event disappear on Monday morning.
+        if _trading_days_elapsed(last_evidence, now_epoch) >= MAX_ACTIVE_TRADING_DAYS:
             row["status"] = "resolved"
             row["severity"] = 1
             row["resolved_at"] = _iso(now_epoch)
@@ -207,6 +226,15 @@ def _ingest_event(state: Dict[str, Any], event: Mapping[str, Any], ticker: str, 
             return
 
     current = _matching_open(rows, key)
+    if current is None and category == "geo_deescalation":
+        # Follow-up wires often shorten "US/Iran ceasefire" to just
+        # "ceasefire takes effect".  Attach that generic counter-headline only
+        # when exactly one geopolitical lifecycle is open; ambiguity must
+        # create a separate observation instead of closing the wrong crisis.
+        open_geo = [row for row in rows if row.get("family") == "geopolitical" and _is_open(row)]
+        if len(open_geo) == 1:
+            current = open_geo[0]
+            key = _clean(current.get("event_key")) or key
     risk_sign = int(event.get("risk_sign") or 0)
     is_counter_event = category == "geo_deescalation" or (
         current is not None
@@ -265,7 +293,14 @@ def _ingest_event(state: Dict[str, Any], event: Mapping[str, Any], ticker: str, 
         current["status"] = "cooling"
         current["severity"] = 2
         current["cooling_count"] = int(current.get("cooling_count") or 0) + 1
-        current["transition_reason"] = "偵測到同一事件的反向／降溫證據，降為黃燈觀察"
+        if int(current.get("cooling_count") or 0) >= 2:
+            current["status"] = "resolved"
+            current["severity"] = 1
+            current["resolved_at"] = _iso(now_epoch)
+            current["resolved_epoch"] = now_epoch
+            current["transition_reason"] = "連續偵測到同一事件的降溫證據，自動解除"
+        else:
+            current["transition_reason"] = "偵測到同一事件的反向／降溫證據，降為黃燈觀察"
     else:
         current["severity"] = severity
         current["peak_severity"] = max(int(current.get("peak_severity") or 0), severity)
