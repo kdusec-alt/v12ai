@@ -19,6 +19,8 @@ _EVENT_WATCH_SESSION_KEYS = (
     "event_reassessment_notice",
     "event_reassessment_notice_severity",
     "last_event_watch_report",
+    "global_event_view",
+    "global_event_lifecycle_error",
 )
 
 

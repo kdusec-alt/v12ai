@@ -224,6 +224,18 @@ def _event_watch_display_degraded(*args, **kwargs):
     return {"level": "warning", "text": "事件監測模組暫時無法載入"}
 
 
+def _global_event_update_degraded(*args, **kwargs):
+    return {"dominant": None, "active_count": 0, "recent": []}
+
+
+def _global_event_ack_degraded(*args, **kwargs):
+    return False
+
+
+def _global_event_display_degraded(*args, **kwargs):
+    return {"level": "caption", "text": ""}
+
+
 try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
     orchestrate = _load_required("orchestrator", "orchestrate")
@@ -265,6 +277,26 @@ try:
         "event_reassessment",
         ("assess_event_delta", "event_watch_display"),
         (_assess_event_delta_degraded, _event_watch_display_degraded),
+    )
+    (
+        update_global_event_state,
+        get_global_event_view,
+        acknowledge_global_event,
+        global_event_display,
+    ) = _load_optional(
+        "event_lifecycle",
+        (
+            "update_global_event_state",
+            "get_global_event_view",
+            "acknowledge_global_event",
+            "global_event_display",
+        ),
+        (
+            _global_event_update_degraded,
+            _global_event_update_degraded,
+            _global_event_ack_degraded,
+            _global_event_display_degraded,
+        ),
     )
 except Exception as exc:
     trace = _log_exception("project_import_failed", exc)
@@ -315,6 +347,8 @@ _EVENT_WATCH_SESSION_KEYS = (
     "event_reassessment_notice",
     "event_reassessment_notice_severity",
     "last_event_watch_report",
+    "global_event_view",
+    "global_event_lifecycle_error",
 )
 
 
@@ -382,6 +416,18 @@ def _event_watch_body() -> None:
         report = dict(plan or {})
         report["checked_at_tw"] = _event_checked_at_tw()
         st.session_state["last_event_watch_report"] = report
+        # Yellow/red operational state is compact and cross-ticker.  It is not
+        # Prediction Memory and cannot influence V12/V13 decisions directly.
+        try:
+            st.session_state["global_event_view"] = update_global_event_state(
+                plan,
+                ticker=symbol,
+                market=market,
+            )
+        except Exception as lifecycle_exc:
+            st.session_state["global_event_lifecycle_error"] = (
+                f"{type(lifecycle_exc).__name__}: {lifecycle_exc}"
+            )
         if bool((plan or {}).get("needs_reassessment")):
             st.session_state["event_reassessment_queue"] = dict(plan)
             st.session_state["event_reassessment_notice"] = (
@@ -411,9 +457,41 @@ def _render_event_watch_status(forecast) -> None:
         st.caption("⚪ Admin 事件監測已停用")
         return
     symbol = str(getattr(getattr(forecast, "ticker", None), "resolved_symbol", "") or "").strip().upper()
+    try:
+        global_view = get_global_event_view()
+        st.session_state["global_event_view"] = global_view
+    except Exception as lifecycle_exc:
+        global_view = dict(st.session_state.get("global_event_view") or {})
+        st.session_state["global_event_lifecycle_error"] = (
+            f"{type(lifecycle_exc).__name__}: {lifecycle_exc}"
+        )
+    dominant = dict((global_view or {}).get("dominant") or {})
+    if dominant:
+        global_payload = global_event_display(dominant)
+        global_level = str((global_payload or {}).get("level") or "warning")
+        global_message = str((global_payload or {}).get("text") or "").strip()
+        if global_message:
+            if global_level == "error":
+                st.error(global_message)
+            else:
+                st.warning(global_message)
+        event_id = str(dominant.get("event_id") or "")
+        if event_id and st.button(
+            "Admin 已讀並關閉此警示",
+            key=f"ack_global_event_{event_id}",
+            type="secondary",
+        ):
+            if acknowledge_global_event(event_id):
+                st.session_state.pop("event_reassessment_notice", None)
+                st.session_state.pop("event_reassessment_notice_severity", None)
+                st.rerun()
+
     notice = str(st.session_state.get("event_reassessment_notice") or "")
     report = dict(st.session_state.get("last_event_watch_report") or {})
-    if notice:
+    # The compact global lifecycle owns the persistent banner.  Session notice
+    # remains a compatibility fallback when that module is unavailable.
+    local_notice = "" if dominant else notice
+    if local_notice:
         report["event_severity"] = int(
             st.session_state.get("event_reassessment_notice_severity")
             or report.get("event_severity")
@@ -421,7 +499,7 @@ def _render_event_watch_status(forecast) -> None:
         )
     payload = event_watch_display(
         report,
-        notice=notice,
+        notice=local_notice,
         ticker=symbol,
         interval_label=str(os.environ.get("TINO_EVENT_POLL_INTERVAL", "5m") or "5m"),
     )
@@ -437,6 +515,21 @@ def _render_event_watch_status(forecast) -> None:
         st.info(message)
     else:
         st.caption(message)
+
+    recent = list((global_view or {}).get("recent") or [])[:5]
+    if recent:
+        with st.expander("近期黃／紅事件（最多 5 筆）", expanded=False):
+            for row in recent:
+                severity = int(row.get("severity") or 0)
+                status = str(row.get("status") or "")
+                marker = "🔴" if severity >= 3 else "🟡" if status != "resolved" else "⚪"
+                scope = "全市場" if str(row.get("scope") or "") == "global" else "/".join(
+                    str(value) for value in (row.get("source_tickers") or [])[-2:]
+                )
+                st.caption(
+                    f"{marker} {scope or '個股'}｜Severity {severity}｜"
+                    f"{str(row.get('title') or row.get('transition_reason') or '')}"
+                )
 
 
 def _event_watch_fragment_body() -> None:
