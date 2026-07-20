@@ -57,6 +57,8 @@ class EventWatchControlsTests(unittest.TestCase):
             "event_reassessment_notice",
             "event_reassessment_notice_severity",
             "last_event_watch_report",
+            "global_event_view",
+            "global_event_lifecycle_error",
         ):
             fake.session_state[key] = "value"
         fake.session_state["forecast"] = "preserved"

@@ -120,6 +120,18 @@ def test_official_baseline_uses_persisted_direction_label():
     assert baseline["shadow_bias"] == 0.0
 
 
+def test_zero_shadow_bias_cannot_manufacture_a_challenger_direction():
+    row = _row("SMR", "NuScale Power", "p-zero-shadow")
+    row["predicted_direction"] = "NEUTRAL"
+    row["direction_score"] = -22.34
+    # No common environment evidence: every phenotype contribution and every
+    # candidate Shadow Bias must be exactly zero.
+    row["macro_bias"] = "neutral/no material common event"
+    _, _, phenotype = build_shadow_bundle(row, {})
+    assert all(float(outcome["shadow_bias"]) == 0.0 for outcome in phenotype.candidate_outcomes)
+    assert all(outcome["direction"] == "NEUTRAL" for outcome in phenotype.candidate_outcomes)
+
+
 def test_historical_recovery_rejects_future_macro_evidence(monkeypatch):
     from v13_research import scheduler
 

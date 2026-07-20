@@ -373,6 +373,12 @@ def build_shadow_phenotype(
             outcome["adjusted_score"] = round(official_score, 4)
             outcome["direction"] = official_direction
             outcome["gene_contributions"] = {name: 0.0 for name in ENVIRONMENT_GENE_ORDER}
+        elif abs(_finite(outcome.get("shadow_bias"), 0.0)) < 1e-9:
+            # With no common-environment contribution there is no genetic
+            # evidence for a counterfactual direction.  Re-thresholding the
+            # raw official score could otherwise manufacture DOWN/UP while the
+            # UI correctly shows Shadow Bias = 0.
+            outcome["direction"] = official_direction
     selected = next(row for row in outcomes if row["candidate_id"] == SELECTED_CHALLENGER_ID)
     contributions = dict(selected.get("gene_contributions") or {})
     ranked = sorted(contributions.items(), key=lambda item: abs(item[1]), reverse=True)

@@ -79,6 +79,9 @@ _MEMORY_FILES = [
     "v13_research/close_recheck.jsonl",
     "v13_research/close_recheck_state.json",
     "v13_research/macro_event.jsonl",
+    # Compact operational state only: max 20 yellow/red lifecycle rows.  It is
+    # isolated from Prediction/Audit JSONL and survives ordinary redeploys.
+    "event_alert_state.json",
 ]
 _LAST_REMOTE_REPORT: Dict[str, Any] = {
     "configured": False,
