@@ -236,8 +236,10 @@ def _ingest_event(state: Dict[str, Any], event: Mapping[str, Any], ticker: str, 
             current = open_geo[0]
             key = _clean(current.get("event_key")) or key
     risk_sign = int(event.get("risk_sign") or 0)
+    current_is_cooling = bool(current is not None and _clean(current.get("status")) == "cooling")
     is_counter_event = category == "geo_deescalation" or (
         current is not None
+        and not current_is_cooling
         and int(current.get("risk_sign") or 0) != 0
         and risk_sign != 0
         and int(current.get("risk_sign") or 0) != risk_sign
@@ -306,6 +308,10 @@ def _ingest_event(state: Dict[str, Any], event: Mapping[str, Any], ticker: str, 
         current["peak_severity"] = max(int(current.get("peak_severity") or 0), severity)
         current["status"] = _status_for(severity)
         current["reinforcement_count"] = int(current.get("reinforcement_count") or 0) + 1
+        # A renewed adverse event after a cooling headline starts a fresh risk
+        # confirmation sequence.  Keeping the old counter count would let the
+        # next benign headline close a newly re-escalated crisis too early.
+        current["cooling_count"] = 0
         current["transition_reason"] = _clean(event.get("reason"))
     # A genuinely new material update reopens a previously acknowledged story.
     current["acknowledged"] = False
@@ -388,7 +394,11 @@ def global_event_display(event: Mapping[str, Any] | None) -> Dict[str, str]:
     if not row:
         return {"level": "caption", "text": ""}
     severity = int(row.get("severity") or 0)
-    scope = "全市場" if _clean(row.get("scope")) == "global" else "個股"
+    if _clean(row.get("scope")) == "global":
+        scope = "全市場"
+    else:
+        tickers = [_clean(value).upper() for value in (row.get("source_tickers") or []) if _clean(value)]
+        scope = f"個股 {tickers[-1]}" if tickers else "個股"
     status = "風險降溫觀察" if _clean(row.get("status")) == "cooling" else "重大事件持續監測"
     title = _clean(row.get("title") or row.get("transition_reason"))
     if severity >= 3:

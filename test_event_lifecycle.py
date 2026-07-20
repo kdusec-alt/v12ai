@@ -154,6 +154,7 @@ def test_company_event_remains_ticker_scoped(tmp_path):
     )
     assert view["dominant"]["scope"] == "ticker"
     assert view["dominant"]["event_key"].startswith("ticker:MRVL:")
+    assert "個股 MRVL" in global_event_display(view["dominant"])["text"]
 
 
 def test_quiet_time_causes_conservative_downgrade_then_three_trade_day_resolution(tmp_path):
@@ -211,6 +212,51 @@ def test_two_independent_counter_headlines_resolve_before_ttl(tmp_path):
     )
     assert resolved["dominant"] is None
     assert resolved["recent"][0]["status"] == "resolved"
+
+
+def test_renewed_attack_after_cooling_reopens_red_and_resets_counter(tmp_path):
+    path = tmp_path / "events.json"
+    first = update_global_event_state(
+        _plan(_event("iran-war", "美伊戰爭升級")), ticker="MU", now=1000, path=path
+    )
+    event_id = first["dominant"]["event_id"]
+    cooling = update_global_event_state(
+        _plan(
+            _event(
+                "iran-peace",
+                "美伊宣布停火",
+                severity=2,
+                category="geo_deescalation",
+                risk_sign=1,
+            )
+        ),
+        ticker="MU",
+        now=1100,
+        path=path,
+    )
+    assert cooling["dominant"]["status"] == "cooling"
+    assert cooling["dominant"]["cooling_count"] == 1
+
+    renewed = update_global_event_state(
+        _plan(
+            _event(
+                "iran-attack-again",
+                "伊朗再遭飛彈攻擊",
+                severity=3,
+                category="geo_policy_escalation",
+                risk_sign=-1,
+            )
+        ),
+        ticker="MRVL",
+        now=1200,
+        path=path,
+    )
+    assert renewed["dominant"]["event_id"] == event_id
+    assert renewed["dominant"]["status"] == "active_red"
+    assert renewed["dominant"]["severity"] == 3
+    assert renewed["dominant"]["cooling_count"] == 0
+    assert renewed["dominant"]["title"] == "伊朗再遭飛彈攻擊"
+    assert global_event_display(renewed["dominant"])["level"] == "error"
 
 
 def test_state_is_bounded_and_resolved_rows_expire(tmp_path):
