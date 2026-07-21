@@ -1,37 +1,38 @@
 {
-  "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-20T17:49:06+00:00",
   "events": [
     {
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-21T01:57:08+00:00",
+      "category": "geo_policy_escalation",
+      "cooling_count": 0,
       "event_id": "EV-E9A7C1106068A0",
       "event_key": "global:geopolitical:iran_middle_east",
-      "scope": "global",
       "family": "geopolitical",
-      "category": "geo_policy_escalation",
       "fingerprint": "a451b84e9a0ec363",
-      "related_fingerprints": [],
-      "title": "Petrol prices climb as US–Iran tensions disrupt markets - Al Jazeera",
-      "source": "GoogleNewsUS",
-      "risk_sign": -1,
-      "severity": 3,
-      "peak_severity": 3,
-      "status": "active_red",
       "first_seen_at": "2026-07-20T17:49:06+00:00",
       "first_seen_epoch": 1784569746.949222,
+      "last_evidence_epoch": 1784569746.949222,
       "last_seen_at": "2026-07-20T17:49:06+00:00",
       "last_seen_epoch": 1784569746.949222,
-      "last_evidence_epoch": 1784569746.949222,
-      "last_transition_at": "2026-07-20T17:49:06+00:00",
-      "transition_reason": "政策／地緣事件升級，需要跨市場重新仲裁",
-      "source_tickers": [
-        "TSLA"
-      ],
+      "last_transition_at": "2026-07-21T01:57:08+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 1,
+      "related_fingerprints": [],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 3,
+      "source": "GoogleNewsUS",
       "source_markets": [
         "US"
       ],
-      "reinforcement_count": 1,
-      "cooling_count": 0,
-      "acknowledged": false
+      "source_tickers": [
+        "TSLA"
+      ],
+      "status": "active_red",
+      "title": "Petrol prices climb as US–Iran tensions disrupt markets - Al Jazeera",
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     }
-  ]
+  ],
+  "schema": "TINO_EVENT_ALERT_STATE_V1",
+  "updated_at": "2026-07-21T01:57:08+00:00"
 }
