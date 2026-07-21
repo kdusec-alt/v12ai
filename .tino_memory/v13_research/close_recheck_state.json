@@ -5,19 +5,20 @@
     "2330.TW",
     "2337.TW",
     "3017.TW",
-    "5469.TW"
+    "5469.TW",
+    "6586.TWO"
   ],
   "context_updated": 0,
   "error_tickers": [],
   "errors": 0,
-  "formal_written": 6,
-  "last_run_time_tw": "2026-07-21T17:13:33+08:00",
-  "remaining": 3,
+  "formal_written": 7,
+  "last_run_time_tw": "2026-07-21T17:14:25+08:00",
+  "remaining": 2,
   "status": "partial",
   "today_tickers": 9,
   "trade_date": "2026-07-21",
   "unchanged": 0,
-  "updated": 6,
+  "updated": 7,
   "waiting_institution": 0,
   "waiting_tickers": []
 }
