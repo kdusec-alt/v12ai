@@ -1,7 +1,8 @@
 {
   "events": [
     {
-      "acknowledged": false,
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-21T13:33:36+00:00",
       "category": "geo_policy_escalation",
       "cooling_count": 0,
       "event_id": "EV-71931A499F6929",
@@ -13,7 +14,7 @@
       "last_evidence_epoch": 1784632028.407816,
       "last_seen_at": "2026-07-21T11:07:08+00:00",
       "last_seen_epoch": 1784632028.407816,
-      "last_transition_at": "2026-07-21T11:07:08+00:00",
+      "last_transition_at": "2026-07-21T13:33:36+00:00",
       "peak_severity": 3,
       "reinforcement_count": 1,
       "related_fingerprints": [],
@@ -29,7 +30,7 @@
       ],
       "status": "active_red",
       "title": "[Big read] How China weaponised its rare earth monopoly - ThinkChina",
-      "transition_reason": "政策／地緣事件升級，需要跨市場重新仲裁"
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
       "acknowledged": true,
@@ -65,5 +66,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-21T11:53:08+00:00"
+  "updated_at": "2026-07-21T13:33:36+00:00"
 }
