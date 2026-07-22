@@ -28,6 +28,10 @@ from truth_guard import truth_to_main_label
 from data_sources_market_heat import fetch_tw_market_heat, market_heat_radar_line
 from bubble_radar import assess_bubble_risk, bubble_radar_line
 try:
+    from decision_narrative import build_ai_decision_narrative
+except Exception:
+    build_ai_decision_narrative = None
+try:
     from macro_event_calendar import macro_calendar_guard_text
 except Exception:
     def macro_calendar_guard_text(*args, **kwargs):
@@ -395,6 +399,22 @@ def _news_summary(news_items: List[NewsItem]) -> Dict[str, object]:
     top = accepted[0].title if accepted else (news_items[0].title if news_items else "新聞待同步")
     bias = max(min(score * 0.08, 0.04), -0.04)
     return {"count": len(news_items), "accepted": len(accepted), "ignored": ignored, "score": score, "tags": tags, "top": top, "bias": bias}
+
+
+def _directional_company_news(news_items: List[NewsItem]) -> List[NewsItem]:
+    """Keep company/industry evidence out of the shared Policy/Geo bucket.
+
+    Daily/Policy/Macro rows are already represented by Quantum Macro with time
+    decay and overseas confirmation.  Sending them through generic News again
+    would double count the same event family.
+    """
+    out: List[NewsItem] = []
+    for item in news_items or []:
+        tag = str(getattr(item, "tag", "") or "").lower()
+        if any(token in tag for token in ("daily_headline", "tw_daily_", "policy_geo", "macro_event")):
+            continue
+        out.append(item)
+    return out
 def _parse_streak_days(text: object) -> tuple[str, int]:
     s = str(text or "")
     m = re.search(r"連([買賣])(\d+)天", s)
@@ -599,7 +619,7 @@ def _price_regime_line(price: PriceFrame, raw: RawForecast) -> str:
         bias = "偏強"
         action = "站穩續觀察"
     return f"{bias}｜{vtxt}｜{action}"
-def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: float, final_low: float, direction: DirectionResult | None = None, bubble: Dict[str, object] | None = None) -> Dict[str, object]:
+def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: float, final_low: float, direction: DirectionResult | None = None, bubble: Dict[str, object] | None = None, news_items: List[NewsItem] | None = None) -> Dict[str, object]:
     last, vwap, atr = float(price.last), float(price.vwap or price.last), max(float(price.atr14), 0.01)
     low1 = min(raw.raw_low_entry, final_t1 - atr * 0.08)
     low2 = min(final_low, low1 - atr * 0.28)
@@ -655,7 +675,40 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         head = "AI進場決策卡｜攻擊卡｜極限低接｜只做試單｜破防守停"
         one = f"{prefix}：不是不能買，是不能亂買；殺到 {low1:.2f} 附近只試小單，{low2:.2f} 才第二批，破 {stop:.2f} 收不回停。"
         axis = "保守低接｜破防守停"
-    if pause_second:
+
+    # RC4.8 narrative intelligence is explanation-only.  Direction, prices,
+    # confidence, Trace and Prediction DNA have already been finalized above;
+    # this layer only turns those facts into a non-generic, auditable entry
+    # narrative.  The legacy wording remains a fail-safe if the optional module
+    # cannot load.
+    narrative: Dict[str, object] = {}
+    if build_ai_decision_narrative is not None and direction is not None:
+        try:
+            narrative = build_ai_decision_narrative(
+                price,
+                direction,
+                news_items or [],
+                session_prefix=prefix,
+                low1=low1,
+                low2=low2,
+                attack=attack,
+                stop=stop,
+                no_chase=no_chase,
+                hard_defense=hard_defense,
+                event_caution=event_caution,
+                event_name=event_name,
+                pause_second=pause_second,
+            )
+            head = str(narrative.get("title") or head)
+            one = str(narrative.get("message") or one)
+            axis = str(narrative.get("axis") or axis)
+        except Exception as exc:
+            narrative = {
+                "state": "legacy_fallback",
+                "narrative_only": True,
+                "error": type(exc).__name__,
+            }
+    if pause_second and not narrative:
         one = one.replace(f"{low2:.2f} 才第二批", "融資降溫前暫停第二批")
         axis = axis + "｜第二批暫停"
     if overlay_note:
@@ -672,10 +725,10 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
     price_meta = ((price.context or {}).get("price_meta") or {})
     card = {
         "標題": head, "主訊息": one, "低接第一批": round(low1, 2), "低接第二批": "暫停" if pause_second else round(low2, 2),
-        "攻擊": ("事件前縮小試單" if event_caution else (f"站穩 {attack:.2f} 可攻" if bullish and not hard_defense else ("等待海外/融資止穩" if hard_defense or pause_second else f"{low1:.2f} 試單｜{low2:.2f} 再接"))),
-        "轉強": f"突破 {turn:.2f} 加碼", "防守": round(stop, 2), "不追": round(no_chase, 2),
+        "攻擊": str(narrative.get("attack_text") or ("事件前縮小試單" if event_caution else (f"站穩 {attack:.2f} 可攻" if bullish and not hard_defense else ("等待海外/融資止穩" if hard_defense or pause_second else f"{low1:.2f} 試單｜{low2:.2f} 再接")))),
+        "轉強": str(narrative.get("turn_text") or f"突破 {turn:.2f} 加碼"), "防守": round(stop, 2), "不追": round(no_chase, 2),
         "一句話": one.split("：", 1)[-1], "操作主軸": axis, "決策分": round(displayed_score, 2),
-        "模型原因": overlay_note,
+        "模型原因": overlay_note, "證據鏈": str(narrative.get("evidence_line") or ""),
         "資料標題": words["info"], "開盤": round(float(price.open), 2), "現價": round(last, 2),
         "最高": round(float(price.high), 2), "最低": round(float(price.low), 2),
         "漲跌": round(chg, 2), "漲跌幅": round(chgp, 2), "VWAP位置": _ssot_vwap_state(price),
@@ -688,6 +741,7 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "_tv_pressure": (price.context or {}).get("tv_pressure", {}),
         "_direction_engine": direction.to_dict() if direction is not None else {},
         "_quantum_overlay": overlay,
+        "_decision_narrative": narrative,
         "_bubble_radar": bubble,
     }
     if bool(price_meta.get("decision_blocked")):
@@ -928,6 +982,36 @@ def _us_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None =
         tone = '偏多事件' if pos > neg else ('偏空/風險事件' if neg > pos else '事件觀察')
         return f"Company News｜{price.ticker.resolved_symbol}｜{level}｜英文新聞 {len(use)}則｜{themes}｜{tone}｜{top}"
     return f"Company News｜{price.ticker.resolved_symbol}｜英文新聞查詢中｜先看 Macro Core / VWAP / 財報"
+
+
+def _tw_daily_headline_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
+    items = _us_news_filter(news_items, ('tw_daily_',))
+    level, _score, pos, neg = _us_news_strength(items)
+    top = _us_news_top_text(items, 2)
+    if top:
+        direction = '風險偏高' if neg > pos else ('環境支撐' if pos > neg else '市場天氣觀察')
+        return f"Daily Headline｜{level}｜繁中近端頭條 {len(items)}則｜{direction}｜{top}"
+    return "Daily Headline｜低｜近端共同市場頭條觀察中"
+
+
+def _tw_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
+    assess = _quantum_macro_policy_assessment(
+        news_items,
+        price.context.get('macro', {}) if price else {},
+        getattr(getattr(price, 'ticker', None), 'market', ''),
+    )
+    line = str(assess.get('line') or 'Policy/Geo｜觀察｜近端事件未形成方向')
+    return line.replace('事件觀察，不硬改價', '事件觀察，等待價格與海外確認')
+
+
+def _tw_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
+    items = _us_news_filter(news_items, ('tw_company_',))
+    top = _us_news_top_text(items, 2)
+    if top:
+        level, _score, pos, neg = _us_news_strength(items)
+        tone = '偏多事件' if pos > neg else ('偏空/風險事件' if neg > pos else '事件待價格確認')
+        return f"Company News｜{price.ticker.resolved_symbol}｜{level}｜個股新聞 {len(items)}則｜{tone}｜{top}"
+    return f"Company News｜{price.ticker.resolved_symbol}｜個股實體關聯新聞觀察中"
 def _us_fundamental_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
     if str(getattr(price.ticker, 'asset_type', 'stock') or 'stock').lower() == 'etf':
         return "ETF Mode｜不套單一公司 EPS / PE｜泡沫雷達改看價格熱度、事件預期與市場風險"
@@ -1085,6 +1169,9 @@ def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       '市場風控':market_line,
       '事件/Macro':_macro_line(macro, price, raw, news_items),
       'Quantum 貢獻':_quantum_contribution_line(direction),
+      'Daily Headline':_tw_daily_headline_line(price, news_items),
+      'Policy/Geo':_tw_policy_geo_line(price, news_items),
+      'Company News':_tw_company_news_line(price, news_items),
       '外資期貨':_futures_line(futures, price),
       '市場熱度':_market_heat_line_for_price(price),
       '基本面': (etf_note or _fundamental_line(fundamental, '', price, news_items)) + "\n" + bubble_radar_line((price.context or {}).get('bubble_radar')),
@@ -1141,8 +1228,11 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
     raw = build_raw_forecast(price)
     signals = collect_signals(price, manual_macro)
     ns = _news_summary(news_items)
-    if news_items:
-        signals.append(SignalPacket("News", f"新聞採納 {ns['accepted']}/{ns['count']}｜情緒 {ns['score']:+.2f}", ns["score"] * 10, 0.0, 2.0, ns["bias"], f"採納 {ns['accepted']}｜忽略 {ns['ignored']}｜{ns['top']}", "GoogleNewsTW", price.price_date, True))
+    directional_news_items = _directional_company_news(news_items)
+    directional_ns = _news_summary(directional_news_items)
+    if directional_news_items:
+        news_source = "GoogleNewsUS" if price.ticker.market == "US" else "GoogleNewsTW"
+        signals.append(SignalPacket("News", f"個股/產業新聞採納 {directional_ns['accepted']}/{directional_ns['count']}｜情緒 {directional_ns['score']:+.2f}", directional_ns["score"] * 10, 0.0, 2.0, directional_ns["bias"], f"採納 {directional_ns['accepted']}｜忽略 {directional_ns['ignored']}｜{directional_ns['top']}", news_source, price.price_date, True))
     qmacro = _quantum_macro_policy_assessment(news_items, (price.context or {}).get("macro", {}) if isinstance((price.context or {}), dict) else {}, price.ticker.market)
     if qmacro.get("level") not in ("待同步", "觀察") or qmacro.get("score") or qmacro.get("risk"):
         signals.append(SignalPacket(
@@ -1153,7 +1243,7 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
             float(qmacro.get("risk") or 0.0),
             float(qmacro.get("bias") or 0.0),
             str(qmacro.get("reason") or "macro policy geo assessment"),
-            "GoogleNewsTW+MacroCalendar",
+            "GlobalEventCore+MacroCalendar",
             price.price_date,
             True,
         ))
@@ -1243,7 +1333,7 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
         steps.append(TraceStep('V9 Path Guard', 'TW/US market route price guard', round(final_t1 - recon, 4), 0.0, True, 'V9 前台路徑守門；避免台股權值被高Beta/美股風險打成假崩跌', 'orchestrator', price.truth.date))
 
     final_t0 = apply_market_bounds(raw.raw_t0 + (final_t1 - raw.raw_t1) * 0.20, price.previous_close, price.ticker.market, price.ticker.price_limit_pct)
-    decision = _decision_card(price, raw, score, final_t1, final_low, direction, bubble)
+    decision = _decision_card(price, raw, score, final_t1, final_low, direction, bubble, news_items)
     decision["_direction_ensemble_weight"] = ensemble_weight
     radar = _radar(price, raw, signals, confidence, news_items, direction)
     trace = PredictionTrace(price.ticker.resolved_symbol, raw.raw_t1, steps, final_t1)

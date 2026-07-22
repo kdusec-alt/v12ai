@@ -1770,6 +1770,36 @@ def _fallback_news(ticker: TickerInfo) -> List[NewsItem]:
     ]
 
 
+_TW_COMPANY_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "2308": ("台達電", "delta electronics"),
+    "2330": ("台積電", "tsmc", "taiwan semiconductor"),
+    "2337": ("旺宏", "macronix"),
+    "2454": ("聯發科", "mediatek"),
+    "2327": ("國巨", "yageo"),
+    "6770": ("力積電", "psmc"),
+    "6586": ("醣基", "glycan"),
+}
+
+
+def _tw_company_news_relevant(ticker: TickerInfo, item: NewsItem) -> bool:
+    title = re.sub(r"\s+", " ", str(item.title or "")).strip().lower()
+    if not title:
+        return False
+    code = _code(ticker.resolved_symbol).lower()
+    name = re.sub(r"\s+", "", str(ticker.name or "")).lower()
+    aliases = list(_TW_COMPANY_ALIASES.get(code, ()))
+    if name:
+        aliases.append(name)
+    if code and re.search(rf"(?<!\d){re.escape(code)}(?!\d)", title):
+        return True
+    return any(str(alias).lower() in title for alias in aliases if len(str(alias).strip()) >= 2)
+
+
+def _retag_tw_news(item: NewsItem, prefix: str) -> NewsItem:
+    tag = str(item.tag or "headline_neutral")
+    return NewsItem(item.source, item.time, item.score, f"{prefix}{tag}", item.title, item.link)
+
+
 def _global_tw_macro_geo_news(force_refresh: bool = False) -> List[NewsItem]:
     """Fetch shared market-wide macro/geo headlines once per cache window.
 
@@ -1794,7 +1824,7 @@ def _global_tw_macro_geo_news(force_refresh: bool = False) -> List[NewsItem]:
             key = re.sub(r"\s+", " ", item.title).strip().lower()
             if key and key not in seen:
                 seen.add(key)
-                out.append(item)
+                out.append(_retag_tw_news(item, "tw_daily_"))
         if len(out) >= 8:
             break
     _TW_GLOBAL_NEWS_CACHE = (now_ts, out[:8])
@@ -1826,11 +1856,12 @@ def fetch_tw_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
     ]
     for query in queries:
         for item in _google_news(query, 8):
-            _add(item)
+            if _tw_company_news_relevant(ticker, item):
+                _add(_retag_tw_news(item, "tw_company_"))
         if len(out) >= 16:
             break
 
-    reserved = [item for item in out if str(item.tag) in {"macro_event", "policy_geo"}][:5]
+    reserved = [item for item in out if "tw_daily_" in str(item.tag)][:5]
     reserved_keys = {re.sub(r"\s+", " ", item.title).strip().lower() for item in reserved}
     company = [
         item for item in out

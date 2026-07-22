@@ -597,6 +597,97 @@ def _us_company_base_name(ticker: TickerInfo) -> str:
     return fallback or name or sym
 
 
+_US_ENTITY_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "AAPL": ("apple", "aapl", "iphone", "ipad", "ios"),
+    "MU": ("micron", "micron technology", "nasdaq mu"),
+    "MRVL": ("marvell", "marvell technology", "mrvl"),
+    "NVDA": ("nvidia", "nvda", "blackwell", "rubin"),
+    "AMD": ("advanced micro devices", "amd", "mi350", "mi400"),
+    "AVGO": ("broadcom", "avgo", "vmware"),
+    "TSM": ("tsmc", "taiwan semiconductor", "nyse tsm"),
+    "MSFT": ("microsoft", "msft"),
+    "AMZN": ("amazon", "amzn", "aws"),
+    "GOOGL": ("alphabet", "google", "googl"),
+    "META": ("meta platforms", "facebook", "meta"),
+    "ONDS": ("ondas", "ondas holdings", "onds", "airobotics"),
+}
+
+_US_INDUSTRY_TERMS: Dict[str, Tuple[str, ...]] = {
+    "AAPL": ("iphone", "ipad", "ios", "smartphone", "consumer electronics", "app store"),
+    "MU": ("hbm", "dram", "nand", "memory pricing", "memory chip"),
+    "MRVL": ("custom silicon", "optical dsp", "data center interconnect", "ai asic", "ethernet"),
+    "NVDA": ("gpu", "ai accelerator", "blackwell", "rubin", "cuda"),
+    "AMD": ("gpu", "ai accelerator", "mi350", "mi400", "epyc"),
+    "AVGO": ("custom silicon", "ai networking", "vmware", "asic"),
+    "TSM": ("foundry", "cowoS", "advanced packaging", "wafer", "2nm"),
+    "ONDS": ("drone", "uav", "autonomous systems", "defense procurement"),
+}
+
+
+def _us_entity_aliases(ticker: TickerInfo) -> Tuple[str, ...]:
+    sym = str(ticker.resolved_symbol or "").upper()
+    base = _us_company_base_name(ticker).lower().strip()
+    values = [alias.lower().strip() for alias in _US_ENTITY_ALIASES.get(sym, ())]
+    if len(base) >= 3:
+        values.append(base)
+        root = re.sub(r"\b(incorporated|inc|corporation|corp|holdings|plc|limited|ltd)\b", "", base)
+        root = re.sub(r"\s+", " ", root).strip()
+        if len(root) >= 4:
+            values.append(root)
+    values.append(sym.lower())
+    return tuple(dict.fromkeys(value for value in values if value))
+
+
+def _contains_alias(text: str, alias: str) -> bool:
+    alias = str(alias or "").strip().lower()
+    if not alias:
+        return False
+    if re.fullmatch(r"[a-z0-9.\-]+", alias):
+        return re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", text) is not None
+    return alias in text
+
+
+def _us_news_relevant_to_ticker(
+    ticker: TickerInfo,
+    item: NewsItem,
+    bucket: str,
+) -> bool:
+    """Reject search-bucket pollution before it can affect Company News.
+
+    Google can return a BMW or other unrelated headline for an Apple query
+    because both mention tariffs/China.  A company row must name the entity;
+    an industry row must name the entity or a ticker-specific sector product.
+    Daily market weather is intentionally shared and always retained.
+    """
+    if bucket == "daily":
+        return True
+    text = re.sub(r"\s+", " ", str(getattr(item, "title", "") or "").lower()).strip()
+    if not text:
+        return False
+    if any(_contains_alias(text, alias) for alias in _us_entity_aliases(ticker)):
+        return True
+    if bucket != "industry":
+        return False
+    sym = str(ticker.resolved_symbol or "").upper()
+    terms = _US_INDUSTRY_TERMS.get(sym, ())
+    return any(term.lower() in text for term in terms)
+
+
+def _filter_us_news_for_ticker(ticker: TickerInfo, items: List[NewsItem]) -> List[NewsItem]:
+    out: List[NewsItem] = []
+    for item in items or []:
+        tag = str(item.tag or "").lower()
+        if "daily_headline" in tag:
+            bucket = "daily"
+        elif "us_industry" in tag:
+            bucket = "industry"
+        else:
+            bucket = "company"
+        if _us_news_relevant_to_ticker(ticker, item, bucket):
+            out.append(item)
+    return out
+
+
 def _us_news_profile_queries(ticker: TickerInfo) -> List[Tuple[str, str, int]]:
     sym = str(ticker.resolved_symbol or ticker.symbol or "").upper()
     base = _us_company_base_name(ticker)
@@ -793,7 +884,9 @@ def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
     now_ts = time.time()
     cached = _US_NEWS_CACHE.get(cache_key)
     if not force_refresh and cached and now_ts - cached[0] < _US_NEWS_CACHE_TTL_SEC:
-        return list(cached[1])
+        # Revalidate old in-process cache entries after a code deploy; the
+        # search route alone is never proof that a title belongs to the stock.
+        return _filter_us_news_for_ticker(ticker, list(cached[1]))
 
     base = _us_company_base_name(ticker)
     if os.environ.get("TINO_OFFLINE_TEST") == "1":
@@ -821,11 +914,13 @@ def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
         # Two rows per route keeps latency/bandwidth bounded while guaranteeing
         # Macro, Geo and Policy each receive a reserved search attempt.
         for item in _google_news_us(query, "daily", limit=2):
-            _add(item)
+            if _us_news_relevant_to_ticker(ticker, item, "daily"):
+                _add(item)
 
     for query, bucket, limit in _us_news_profile_queries(ticker):
         for item in _google_news_us(query, bucket, limit=limit):
-            _add(item)
+            if _us_news_relevant_to_ticker(ticker, item, bucket):
+                _add(item)
         if len(out) >= 14:
             break
 
