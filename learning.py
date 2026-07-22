@@ -157,6 +157,48 @@ def _latest_audit_for_prediction(prediction_id: str, target: str = "today") -> O
         if row.get("audit_id") == audit_id:
             return row
     return None
+
+
+def _confirmed_t1_audit_row(row: Dict[str, Any], ticker: str, target_date: str) -> bool:
+    """Strict read-only eligibility for the front-stage close comparison.
+
+    Auto Audit may confirm an earlier official snapshot while a later event
+    revision becomes the newest prediction id.  The front stage therefore
+    reads by Ticker + target session, but still requires a verified actual
+    close and a valid prediction anchor.  Nothing in this helper writes Memory.
+    """
+    if not isinstance(row, dict) or str(row.get("target") or "").lower() != "next":
+        return False
+    if _canonical(str(row.get("ticker") or "")) != _canonical(ticker):
+        return False
+    if str(row.get("target_trade_date") or "")[:10] != str(target_date or "")[:10]:
+        return False
+    if row.get("actual_valid") is not True:
+        return False
+    if _safe_float(row.get("predicted_close"), 0.0) <= 0:
+        return False
+    if _safe_float(row.get("actual_close"), 0.0) <= 0:
+        return False
+    if _safe_float(row.get("anchor_close"), 0.0) <= 0:
+        return False
+    return True
+
+
+def _latest_confirmed_t1_audit(
+    ticker: str,
+    target_date: Optional[str] = None,
+    limit: int = 1600,
+) -> Optional[Dict[str, Any]]:
+    target = str(target_date or _run_date_tw())[:10]
+    rows = [
+        dict(row)
+        for row in read_audit_log(limit)
+        if _confirmed_t1_audit_row(row, ticker, target)
+    ]
+    if not rows:
+        return None
+    rows.sort(key=lambda row: str(row.get("audit_time_tw") or row.get("audit_date_tw") or ""))
+    return rows[-1]
 def _same_day_predictions(ticker: str, limit: int = 500, market: Optional[str] = None) -> List[Dict[str, Any]]:
     key = _canonical(ticker)
     audit_date = _audit_trade_date(market)
@@ -558,7 +600,8 @@ def _format_close_audit_display(audit: Dict[str, Any], label: str) -> Dict[str, 
     if label == "昨測今收":
         direction = "昨日低估，今日收盤強於預期" if err > 0 else "昨日高估，今日收盤弱於預期" if err < 0 else "命中今日收盤"
         run_date = str(audit.get("prediction_run_date_tw") or "前一交易日")
-        audit["display"] = f"昨測今收：{run_date} 預估 {pred:.2f}｜今日收盤 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜{direction}"
+        target_date = str(audit.get("target_trade_date") or "今日")
+        audit["display"] = f"昨測今收：{run_date} 預估 {pred:.2f}｜{target_date} 收盤 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜{direction}"
     else:
         direction = "低估收盤，模型偏保守" if err > 0 else "高估收盤，模型偏樂觀" if err < 0 else "命中收盤"
         audit["display"] = f"今日預測VS實際：預估 {pred:.2f}｜實際 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜{direction}"
@@ -574,7 +617,16 @@ def t1_prediction_vs_actual(forecast: FinalForecast, actual_close: Optional[floa
             return _format_close_audit_display(audit, "昨測今收")
         audit["display"] = "昨測今收：尚無昨日 T1 預測快照"
         return audit
-    candidate = _latest_t1_candidate(key, _audit_trade_date(forecast.ticker.market), 1200)
+    target_date = _audit_trade_date(forecast.ticker.market)
+    # Read a completed official audit by ticker/session before looking up the
+    # newest prediction id.  Event revisions and same-session reruns can have a
+    # different id from the snapshot that Auto Audit confirmed.
+    confirmed = _latest_confirmed_t1_audit(key, target_date, 1600)
+    if confirmed:
+        confirmed["status"] = "audited"
+        confirmed["readonly"] = True
+        return _format_close_audit_display(confirmed, "昨測今收")
+    candidate = _latest_t1_candidate(key, target_date, 1600)
     if not candidate:
         return {"status": "no_t1_prediction", "ticker": key, "display": "昨測今收：尚無昨日 T1 預測快照"}
     old = _latest_audit_for_prediction(str(candidate.get("id") or ""), "next")

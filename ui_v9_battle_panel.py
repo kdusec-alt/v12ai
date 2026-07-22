@@ -76,23 +76,27 @@ def render_battle_panel(st, forecast):
     data_title = str(d.get('資料標題', ''))
     is_intraday = data_title.startswith('盤中')
     is_closed = data_title.startswith('收盤')
+    close_reference = is_closed or data_title.startswith('盤後') or data_title.startswith('休市')
     t0_line = f"<br><span class='label'>今日收盤預估：</span>{fmt(p.final_t0)}" if is_intraday else ""
     compare_line = ""
-    if is_closed:
+    if close_reference:
         try:
             from learning import t1_prediction_vs_actual, today_prediction_vs_actual
             cmp = t1_prediction_vs_actual(p, d.get('現價'))
             text = _strip_compare_prefix(cmp.get('display', ''), '昨測今收：', '昨測今收預覽：')
-            if not text or '尚無昨日' in text:
+            if cmp.get('status') in {'audited', 'preview'} and text and '尚無昨日' not in text:
+                compare_line = f"<br><span class='label'>昨測今收：</span>{safe(text)}"
+            elif is_closed:
                 alt_cmp = today_prediction_vs_actual(p, d.get('現價'))
                 text = _strip_compare_prefix(alt_cmp.get('display', ''), '今日預測VS實際：', '今日預測VS實際預覽：')
-                compare_line = f"<br><span class='label'>今日預測VS實際：</span>{safe(text)}"
-            else:
-                compare_line = f"<br><span class='label'>昨測今收：</span>{safe(text)}"
+                if alt_cmp.get('status') in {'audited', 'preview'} and text and '尚無' not in text:
+                    compare_line = f"<br><span class='label'>今日預測VS實際：</span>{safe(text)}"
         except Exception as exc:
             compare_line = f"<br><span class='label'>昨測今收：</span>暫無可用比對（{safe(type(exc).__name__)}）"
     t1_title = "下一交易日參考預測"
     t1_prefix = "下一交易日"
+    evidence = safe(d.get('證據鏈', ''))
+    evidence_line = f"<b class='blue'>AI證據鏈：</b>{evidence}<br>" if evidence else ""
     tags = "｜".join([safe(x) for x in p.tags[:4]])
     fair = safe(p.radar.get('Fair Value', ''))
     persona_badge = safe(p.radar.get('US Persona', '') or '')
@@ -114,7 +118,7 @@ def render_battle_panel(st, forecast):
     .info{{margin-top:6px;border:1px solid rgba(85,200,255,.22);border-radius:11px;background:#071727;padding:6px 9px;font-weight:650;line-height:1.16;font-size:11.8px}}.ptime{{display:block;margin-top:2px;color:#a7f3d0;font-size:9.6px;font-weight:750}}.label{{color:#9bdcff;font-weight:800}}
     .decision{{margin-top:6px;border:1px solid rgba(255,211,78,.48);border-radius:13px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:6px 8px}}
     .dt{{font-size:11.4px;font-weight:850;color:#fff;margin-bottom:5px}}.blue{{color:#8fd7ff}}.main{{background:rgba(0,0,0,.26);border-radius:9px;color:#fff9c9;font-size:12.4px;line-height:1.12;font-weight:850;padding:6px 9px;margin-bottom:6px}}
-    .risk{{border-left:3px solid #ff6f8e;padding-left:8px;color:#dff2ff;font-size:10.4px;font-weight:650;line-height:1.12;margin-bottom:5px;max-height:54px;overflow:hidden}}
+    .risk{{border-left:3px solid #ff6f8e;padding-left:8px;color:#dff2ff;font-size:9.8px;font-weight:650;line-height:1.13;margin-bottom:5px;max-height:70px;overflow:hidden}}
     .grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}}.mini{{border:1px solid rgba(85,170,255,.31);background:#071727;border-radius:9px;padding:5px 7px;min-height:36px}}
     .mini b{{display:block;color:#9bdcff;font-size:10.8px;margin-bottom:2px;font-weight:800}}.mini span{{font-size:10.8px;font-weight:750;color:#fff;line-height:1.12}}
     .chips{{margin-top:5px;font-size:10.9px;color:#e6f5ff;font-weight:650;line-height:1.12;max-height:24px;overflow:hidden}}.bottom{{margin-top:6px;background:rgba(0,0,0,.25);border-radius:9px;padding:6px 9px;color:#fff5bc;font-weight:800;font-size:11.4px;line-height:1.12}}
@@ -125,7 +129,7 @@ def render_battle_panel(st, forecast):
       <div class='decision'>
         <div class='dt'>{safe(d.get('標題'))}</div>
         <div class='main'>{safe(d.get('主訊息'))}</div>
-        <div class='risk'><b class='blue'>市場：</b>{safe(p.radar.get('市場風控'))}<br><b class='blue'>{'Short' if t.market == 'US' else '籌碼'}：</b>{safe(p.radar.get('左側籌碼摘要'))}</div>
+        <div class='risk'>{evidence_line}<b class='blue'>市場：</b>{safe(p.radar.get('市場風控'))}<br><b class='blue'>{'Short' if t.market == 'US' else '籌碼'}：</b>{safe(p.radar.get('左側籌碼摘要'))}</div>
         <div class='grid'>
           <div class='mini'><b>低接計畫</b><span>{fmt(d.get('低接第一批'))} 第一批｜{fmt(d.get('低接第二批'))} 第二批</span></div>
           <div class='mini'><b>攻擊</b><span>{safe(d.get('攻擊'))}</span></div>

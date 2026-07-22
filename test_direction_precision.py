@@ -5,7 +5,9 @@ from models import DataTruth, PriceFrame, SignalPacket, TickerInfo
 from direction_engine import build_direction_forecast
 from arbitration import signal_price_adjustment
 from orchestrator import orchestrate
+import orchestrator
 import learning
+from models import NewsItem
 
 
 def _frame(*, market: str, rising: bool, vwap_atr: float = 0.0, context=None) -> PriceFrame:
@@ -150,6 +152,46 @@ def test_learning_audits_direction_separately_from_price_error():
         learning.save_profiles = old_save
 
 
+def test_narrative_layer_cannot_change_formal_forecast_or_trace():
+    frame = _frame(market="TW", rising=True, vwap_atr=-0.20, context={
+        "macro": {"accepted": True, "source": "US_MARKET", "sox": -1.8, "nq": -1.1},
+        "inst": {
+            "accepted": True, "source": "OFFICIAL", "foreign": -1200,
+            "foreign_3": -3000, "foreign_5": -5000, "foreign_10": -9000,
+            "trust": -200, "dealer": -100,
+        },
+    })
+    news = [NewsItem("GoogleNewsTW", "2026-07-10 12:00", -0.12, "tw_company_bearish_event", "Unit 下修展望", "")]
+    enriched = orchestrate(frame, news_items=news)
+    original_builder = orchestrator.build_ai_decision_narrative
+    try:
+        orchestrator.build_ai_decision_narrative = None
+        legacy = orchestrate(frame, news_items=news)
+    finally:
+        orchestrator.build_ai_decision_narrative = original_builder
+    assert enriched.final_t0 == legacy.final_t0
+    assert enriched.final_t1 == legacy.final_t1
+    assert enriched.final_t1_high == legacy.final_t1_high
+    assert enriched.final_t1_low == legacy.final_t1_low
+    assert enriched.confidence == legacy.confidence
+    assert enriched.decision_card["_direction_engine"] == legacy.decision_card["_direction_engine"]
+    assert enriched.trace.to_rows() == legacy.trace.to_rows()
+    assert enriched.decision_card["_decision_narrative"]["narrative_only"] is True
+
+
+def test_tw_radar_exposes_same_news_evidence_rows_as_us():
+    frame = _frame(market="TW", rising=True, context={
+        "macro": {"accepted": True, "source": "US_MARKET", "sox": 1.2, "nq": 0.8},
+    })
+    news = [
+        NewsItem("GoogleNewsTW", "2026-07-10 08:00", -0.08, "tw_daily_policy_geo", "中東油價風險升溫", ""),
+        NewsItem("GoogleNewsTW", "2026-07-10 09:00", 0.12, "tw_company_bullish_event", "Unit 上調展望", ""),
+    ]
+    forecast = orchestrate(frame, news_items=news)
+    for key in ("Daily Headline", "Policy/Geo", "Company News"):
+        assert key in forecast.radar and forecast.radar[key], (key, forecast.radar)
+
+
 if __name__ == "__main__":
     tests = [
         test_slight_vwap_conflict_does_not_flip_confirmed_trend,
@@ -159,6 +201,8 @@ if __name__ == "__main__":
         test_duplicate_vwap_family_is_price_neutral,
         test_orchestrator_abc_comes_from_direction_engine_and_trace_rebuilds,
         test_learning_audits_direction_separately_from_price_error,
+        test_narrative_layer_cannot_change_formal_forecast_or_trace,
+        test_tw_radar_exposes_same_news_evidence_rows_as_us,
     ]
     for test in tests:
         test()
