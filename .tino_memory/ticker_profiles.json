@@ -2470,8 +2470,8 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-07-20T19:04:29+08:00",
     "approved_bias": 0.0,
-    "audit_count": 12,
-    "avg_abs_error_pct": 1.6569,
+    "audit_count": 13,
+    "avg_abs_error_pct": 1.5689,
     "avg_direction_brier": 0.145682,
     "avg_downside_tail_breach_pct": 0.792,
     "close_range_hit_rate": 1.0,
@@ -2480,7 +2480,7 @@
     "error_type_counts": {
       "over_prediction": 3,
       "under_prediction": 5,
-      "within_tolerance": 4
+      "within_tolerance": 5
     },
     "factor_learning": {
       "MU": {
@@ -2876,14 +2876,14 @@
         "weighted_reliability": 1.0
       }
     },
-    "last_actual_direction": "UP",
-    "last_close_in_predicted_range": true,
+    "last_actual_direction": "DOWN",
+    "last_close_in_predicted_range": null,
     "last_defense_stop_touched": false,
     "last_direction_hit": false,
-    "last_dominant_force": "費半",
-    "last_dominant_force_hit": true,
+    "last_dominant_force": "價格結構",
+    "last_dominant_force_hit": null,
     "last_downside_tail_breach_pct": 0.0,
-    "last_error_pct": 0.6494,
+    "last_error_pct": -0.5135,
     "last_error_type": "within_tolerance",
     "last_predicted_direction": "NEUTRAL",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
@@ -2892,7 +2892,7 @@
     "range_audit_count": 8,
     "suggested_bias": 0.0,
     "ticker": "2454.TW",
-    "updated_at_tw": "2026-07-23T20:25:20+08:00"
+    "updated_at_tw": "2026-07-23T20:25:30+08:00"
   },
   "3661.TW": {
     "active_family_count": 0,
