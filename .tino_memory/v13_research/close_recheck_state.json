@@ -1,25 +1,20 @@
 {
   "completed_tickers": [
-    "2308.TW",
     "2330.TW",
-    "2337.TW",
-    "2408.TW",
-    "2454.TW",
-    "3702.TW",
-    "6586.TWO",
-    "6770.TW"
+    "2344.TW",
+    "5469.TW"
   ],
   "context_updated": 0,
   "error_tickers": [],
   "errors": 0,
-  "formal_written": 8,
-  "last_run_time_tw": "2026-07-22T17:14:53+08:00",
-  "remaining": 0,
-  "status": "complete",
-  "today_tickers": 8,
-  "trade_date": "2026-07-22",
+  "formal_written": 3,
+  "last_run_time_tw": "2026-07-23T20:25:42+08:00",
+  "remaining": 2,
+  "status": "partial",
+  "today_tickers": 10,
+  "trade_date": "2026-07-23",
   "unchanged": 0,
-  "updated": 8,
+  "updated": 3,
   "waiting_institution": 0,
   "waiting_tickers": []
 }
