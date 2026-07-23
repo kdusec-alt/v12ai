@@ -14,13 +14,15 @@
       "last_evidence_epoch": 1784632028.407816,
       "last_seen_at": "2026-07-21T11:07:08+00:00",
       "last_seen_epoch": 1784632028.407816,
-      "last_transition_at": "2026-07-22T06:59:44+00:00",
+      "last_transition_at": "2026-07-23T16:00:14+00:00",
       "peak_severity": 3,
       "reinforcement_count": 1,
       "related_fingerprints": [],
+      "resolved_at": "2026-07-23T16:00:14+00:00",
+      "resolved_epoch": 1784822414.678974,
       "risk_sign": -1,
       "scope": "global",
-      "severity": 2,
+      "severity": 1,
       "source": "GoogleNewsUS",
       "source_markets": [
         "US"
@@ -28,9 +30,9 @@
       "source_tickers": [
         "SKHY"
       ],
-      "status": "cooling",
+      "status": "resolved",
       "title": "[Big read] How China weaponised its rare earth monopoly - ThinkChina",
-      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
+      "transition_reason": "觀察期內未再出現風險證據，自動解除"
     },
     {
       "acknowledged": true,
@@ -46,13 +48,15 @@
       "last_evidence_epoch": 1784569746.949222,
       "last_seen_at": "2026-07-20T17:49:06+00:00",
       "last_seen_epoch": 1784569746.949222,
-      "last_transition_at": "2026-07-21T11:53:08+00:00",
+      "last_transition_at": "2026-07-23T16:00:14+00:00",
       "peak_severity": 3,
       "reinforcement_count": 1,
       "related_fingerprints": [],
+      "resolved_at": "2026-07-23T16:00:14+00:00",
+      "resolved_epoch": 1784822414.678974,
       "risk_sign": -1,
       "scope": "global",
-      "severity": 2,
+      "severity": 1,
       "source": "GoogleNewsUS",
       "source_markets": [
         "US"
@@ -60,11 +64,11 @@
       "source_tickers": [
         "TSLA"
       ],
-      "status": "cooling",
+      "status": "resolved",
       "title": "Petrol prices climb as US–Iran tensions disrupt markets - Al Jazeera",
-      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
+      "transition_reason": "觀察期內未再出現風險證據，自動解除"
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-22T06:59:44+00:00"
+  "updated_at": "2026-07-23T16:00:14+00:00"
 }
