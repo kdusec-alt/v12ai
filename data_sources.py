@@ -29,6 +29,12 @@ except Exception:
         return list(rows or [])
 
 try:
+    from market_shock_indicator import annotate_market_shock_news
+except Exception:
+    def annotate_market_shock_news(rows):
+        return list(rows or [])
+
+try:
     from event_intelligence_v1062 import install_event_intelligence_v1062
     install_event_intelligence_v1062()
 except Exception:
@@ -142,11 +148,12 @@ def fetch_news(raw_ticker: str, force_refresh: bool = False) -> List[NewsItem]:
         primary = fetch_us_news(ticker, force_refresh=force_refresh)
 
     # Independent route: the watcher sees oil/tariff/PMI even when the headline
-    # never names the active stock. V1062 then attaches ticker exposure DNA so
-    # airlines, energy, semiconductors and biotech do not receive one flat score.
+    # never names the active stock. V1062 attaches both ticker exposure DNA and
+    # a strong market-shock level so oil spikes/war outrank ordinary headlines.
     try:
         global_rows = fetch_global_event_news(force_refresh=force_refresh)
         global_rows = annotate_global_event_news(ticker, global_rows)
+        global_rows = annotate_market_shock_news(global_rows)
     except Exception:
         global_rows = []
     return _merge_news(list(primary or []), list(global_rows or []))
