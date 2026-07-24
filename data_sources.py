@@ -47,6 +47,12 @@ except Exception:
     pass
 
 try:
+    from decision_narrative_v1062 import install_decision_narrative_v1062
+    install_decision_narrative_v1062()
+except Exception:
+    pass
+
+try:
     from ui_event_status_v1062 import inject_event_status_css
 except Exception:
     def inject_event_status_css():
