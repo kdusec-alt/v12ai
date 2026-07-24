@@ -41,6 +41,12 @@ except Exception:
     pass
 
 try:
+    from event_reassessment_v1062 import install_event_reassessment_v1062
+    install_event_reassessment_v1062()
+except Exception:
+    pass
+
+try:
     from ui_event_status_v1062 import inject_event_status_css
 except Exception:
     def inject_event_status_css():
