@@ -25,8 +25,25 @@ def dominant_market_shock(news_items: Sequence[Any] | None) -> Dict[str, Any]:
     return max(rows, key=lambda row: (int(row.get("level") or 0), float(row.get("score") or 0.0)))
 
 
+def _concise_operation_line(message: str) -> str:
+    """Keep the bottom one-liner tactical; detailed shock evidence stays above."""
+    text = str(message or "").strip()
+    if "：" in text:
+        text = text.split("：", 1)[-1]
+    text = text.strip().rstrip("。")
+    return text + "。" if text else ""
+
+
 def build_ai_decision_narrative_v1062(*args, **kwargs) -> Dict[str, Any]:
     result = dict(_LEGACY_BUILD(*args, **kwargs) or {})
+
+    # The formal message remains a concise price/tactical conclusion.  Detailed
+    # L2-L5 transmission belongs to evidence_line / Policy-Geo / market_shock,
+    # otherwise Orchestrator's bottom 「一句話」 repeats the whole paragraph.
+    base_message = str(result.get("message") or "").strip()
+    result["message"] = base_message
+    result["one_liner"] = _concise_operation_line(base_message)
+
     news_items = args[2] if len(args) >= 3 else kwargs.get("news_items")
     shock = dominant_market_shock(news_items)
     shock_level = int(shock.get("level") or 0)
@@ -44,24 +61,6 @@ def build_ai_decision_narrative_v1062(*args, **kwargs) -> Dict[str, Any]:
 
     evidence = str(result.get("evidence_line") or "").strip()
     result["evidence_line"] = f"{evidence}；{shock_text}" if evidence else shock_text
-
-    state = str(result.get("state") or "")
-    price_strong_states = {
-        "bad_news_absorbed", "surge_divergence", "limit_breakout", "strong_continuation",
-    }
-    message = str(result.get("message") or "").rstrip("。")
-    if shock_level >= 4:
-        if state in price_strong_states:
-            message += (
-                f"。目前雖為{shock_text}，但價格仍在吸收；只要價格失守既定防守位，才確認衝擊轉為實質賣壓"
-            )
-        else:
-            message += (
-                f"。{shock_text}，已進入多層傳導；縮小部位並等待海外市場、籌碼與個股價格止穩"
-            )
-    elif shock_level >= 2:
-        message += f"。{shock_text}，提高風險警戒但不單獨決定方向"
-    result["message"] = message + "。"
 
     axis = str(result.get("axis") or "").strip("｜")
     result["axis"] = f"{axis}｜市場衝擊L{shock_level}" if axis else f"市場衝擊L{shock_level}"
