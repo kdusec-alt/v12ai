@@ -6,7 +6,14 @@ import unittest
 from zoneinfo import ZoneInfo
 
 from models import NewsItem
-from market_shock_indicator import assess_market_shock, annotate_market_shock_news
+from market_shock_levels_v1062 import (
+    assess_market_shock_v1062 as assess_market_shock,
+    annotate_market_shock_news_v1062 as annotate_market_shock_news,
+    install_market_shock_levels_v1062,
+)
+
+install_market_shock_levels_v1062()
+
 from event_reassessment_v1062 import (
     classify_event_v1062,
     assess_event_delta_v1062,
@@ -50,6 +57,17 @@ class MarketShockIndicatorTests(unittest.TestCase):
             assess_market_shock(airline)["score"],
             assess_market_shock(biotech)["score"],
         )
+        self.assertEqual(assess_market_shock(airline)["level"], 4)
+
+    def test_tariff_stays_cross_market_l3_not_systemic_l4(self):
+        row = self._row(
+            "Taiwan Section 301 tariff rate remains under review",
+            "global_event_core|family=trade_tariff|severity=3|tariff|ticker_profile=memory",
+            score=-0.16,
+        )
+        shock = assess_market_shock(row)
+        self.assertEqual(shock["level"], 3)
+        self.assertEqual(shock["label"], "跨市場衝擊")
 
     def test_falling_oil_is_not_mislabeled_as_spike(self):
         row = self._row(
