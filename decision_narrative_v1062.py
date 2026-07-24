@@ -25,8 +25,24 @@ def dominant_market_shock(news_items: Sequence[Any] | None) -> Dict[str, Any]:
     return max(rows, key=lambda row: (int(row.get("level") or 0), float(row.get("score") or 0.0)))
 
 
+def _concise_operation_line(message: str) -> str:
+    """Keep the bottom one-liner tactical; detailed shock evidence stays above."""
+    text = str(message or "").strip()
+    if "：" in text:
+        text = text.split("：", 1)[-1]
+    text = text.strip().rstrip("。")
+    return text + "。" if text else ""
+
+
 def build_ai_decision_narrative_v1062(*args, **kwargs) -> Dict[str, Any]:
     result = dict(_LEGACY_BUILD(*args, **kwargs) or {})
+
+    # Capture the original price/tactical conclusion before adding the detailed
+    # market-shock appendix.  Orchestrator uses this for the bottom 「一句話」,
+    # avoiding a verbatim repeat of L4/L5 transmission and Policy/Geo notes.
+    base_message = str(result.get("message") or "").strip()
+    result["one_liner"] = _concise_operation_line(base_message)
+
     news_items = args[2] if len(args) >= 3 else kwargs.get("news_items")
     shock = dominant_market_shock(news_items)
     shock_level = int(shock.get("level") or 0)
@@ -49,7 +65,7 @@ def build_ai_decision_narrative_v1062(*args, **kwargs) -> Dict[str, Any]:
     price_strong_states = {
         "bad_news_absorbed", "surge_divergence", "limit_breakout", "strong_continuation",
     }
-    message = str(result.get("message") or "").rstrip("。")
+    message = base_message.rstrip("。")
     if shock_level >= 4:
         if state in price_strong_states:
             message += (
