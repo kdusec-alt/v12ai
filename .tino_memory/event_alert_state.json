@@ -35,7 +35,8 @@
       ],
       "source_tickers": [
         "GLOBAL",
-        "SKHY"
+        "SKHY",
+        "MRVL"
       ],
       "status": "active_red",
       "title": "Global Event Core｜油價快速回落｜WTI -3.90%／Brent -4.37%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
@@ -176,5 +177,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-24T16:03:17+00:00"
+  "updated_at": "2026-07-24T16:03:19+00:00"
 }
