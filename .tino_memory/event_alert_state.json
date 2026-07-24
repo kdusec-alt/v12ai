@@ -2,34 +2,34 @@
   "events": [
     {
       "acknowledged": false,
-      "category": "geo_energy_escalation",
+      "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "c7010d39a0bf1561",
+      "fingerprint": "618f52e9f7626214",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1784908997.052125,
-      "last_seen_at": "2026-07-24T16:03:17+00:00",
-      "last_seen_epoch": 1784908997.052125,
-      "last_transition_at": "2026-07-24T16:03:17+00:00",
+      "last_evidence_epoch": 1784910523.235111,
+      "last_seen_at": "2026-07-24T16:28:43+00:00",
+      "last_seen_epoch": 1784910523.235111,
+      "last_transition_at": "2026-07-24T16:28:43+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 12,
+      "reinforcement_count": 13,
       "related_fingerprints": [
-        "c8ae2c7459240ffd",
         "4c0349f7ae1e9afe",
         "a9a31def44c3689b",
         "30d02e14801f9fed",
         "6f8da57e1ee3948c",
         "9423b1d4d67a0da5",
         "7a112bad7a057613",
-        "c8bbf2323f43d77c"
+        "c8bbf2323f43d77c",
+        "c7010d39a0bf1561"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "TINO_GlobalEventCore_YahooFinance",
+      "source": "GoogleNewsGlobal/Newsweek",
       "source_markets": [
         "GLOBAL"
       ],
@@ -39,8 +39,8 @@
         "MRVL"
       ],
       "status": "active_red",
-      "title": "Global Event Core｜油價快速回落｜WTI -3.90%／Brent -4.37%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
-      "transition_reason": "市場衝擊 L2 產業衝擊 0/100｜跨市場事件｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "title": "Full list: See which countries are affected as global allies hit out - Newsweek",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
       "acknowledged": false,
@@ -177,5 +177,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-24T16:03:19+00:00"
+  "updated_at": "2026-07-24T16:28:43+00:00"
 }
