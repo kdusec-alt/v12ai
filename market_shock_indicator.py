@@ -85,7 +85,7 @@ def assess_market_shock(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
     oil_spike = any(term in text for term in (
         "oil_price_up", "油價飆升", "油價大漲", "oil surge", "oil spike",
         "brent tops", "brent above", "wti jumps", "crude jumps",
-    ))
+    )) and "oil_price_down" not in text
     tariff = any(term in text for term in ("tariff", "section 301", "關稅", "trade war", "貿易戰"))
     chip_control = any(term in text for term in ("export control", "chip ban", "出口管制", "晶片禁售"))
     taiwan_strait = any(term in text for term in ("taiwan strait", "台海", "封鎖台灣", "台灣海峽"))
@@ -103,7 +103,7 @@ def assess_market_shock(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
         depth = max(depth, 5)
         drivers.append("荷姆茲航道")
         transmission.extend(["原油供給", "航運保險", "運價", "通膨", "全球風險溢價"])
-    if oil_spike or family == "energy":
+    if oil_spike:
         oil_level = 2 if severity <= 2 else 4 if severity == 3 else 5
         level = max(level, oil_level)
         score += {0: 0.0, 1: 8.0, 2: 16.0, 3: 28.0, 4: 40.0}.get(severity, 16.0)
@@ -152,6 +152,13 @@ def assess_market_shock(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
         level = max(level, 4)
     elif severity >= 2:
         level = max(level, 2)
+
+    # A falling-oil event may still carry severity for lifecycle tracking, but it
+    # is not an oil-spike systemic shock unless another war/Hormuz driver exists.
+    if "oil_price_down" in text and not any((war, hormuz, tariff, chip_control, taiwan_strait, pmi)):
+        level = min(level, 2)
+        score = min(score, 12.0)
+        drivers = [driver for driver in drivers if driver != "油價急升"]
 
     level = max(0, min(5, int(level)))
     score = max(0.0, min(100.0, float(score)))
