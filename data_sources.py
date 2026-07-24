@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import re
 from typing import Dict, List
 
 from ticker_resolver import (
@@ -12,6 +13,14 @@ from models import PriceFrame, NewsItem, TickerInfo
 from data_sources_tw import fetch_tw_price, fetch_tw_news
 from data_sources_us import fetch_us_price, fetch_us_news
 from data_sources_etf import fetch_etf_price, fetch_etf_news
+
+try:
+    from global_event_scanner import fetch_global_event_news, ensure_global_macro_calendar
+except Exception:
+    def fetch_global_event_news(*, force_refresh: bool = False):
+        return []
+    def ensure_global_macro_calendar():
+        return None
 
 # Process-local routing cache.  It contains only compact TickerInfo objects and
 # avoids probing both exchanges again during the subsequent fetch_news call.
@@ -48,6 +57,12 @@ def _fetch_by_ticker(ticker: TickerInfo) -> PriceFrame:
 
 
 def fetch_price(raw_ticker: str) -> PriceFrame:
+    # Ensure the shared macro calendar includes scheduled Global Event Core rows
+    # before any TW/US price context is built. Offline tests remain unchanged.
+    try:
+        ensure_global_macro_calendar()
+    except Exception:
+        pass
     key = _cache_key(raw_ticker)
     cached = _RESOLVED_ROUTE_CACHE.get(key)
     if cached is not None:
@@ -75,11 +90,39 @@ def fetch_price(raw_ticker: str) -> PriceFrame:
     return primary
 
 
+def _news_identity(item: NewsItem) -> str:
+    title = re.sub(r"\s+[-–—]\s+[^-–—]{2,60}$", "", str(getattr(item, "title", "") or "").lower())
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", " ", title).strip()
+
+
+def _merge_news(primary: List[NewsItem], global_rows: List[NewsItem], limit: int = 24) -> List[NewsItem]:
+    """Put market-wide events first without duplicating company/news routes."""
+    out: List[NewsItem] = []
+    seen: set[str] = set()
+    for item in [*(global_rows or []), *(primary or [])]:
+        key = _news_identity(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def fetch_news(raw_ticker: str, force_refresh: bool = False) -> List[NewsItem]:
     key = _cache_key(raw_ticker)
     ticker = _RESOLVED_ROUTE_CACHE.get(key) or resolve_ticker(raw_ticker)
     if ticker.market == "TW" and ticker.asset_type == "etf":
-        return fetch_etf_news(ticker, force_refresh=force_refresh)
-    if ticker.market == "TW":
-        return fetch_tw_news(ticker, force_refresh=force_refresh)
-    return fetch_us_news(ticker, force_refresh=force_refresh)
+        primary = fetch_etf_news(ticker, force_refresh=force_refresh)
+    elif ticker.market == "TW":
+        primary = fetch_tw_news(ticker, force_refresh=force_refresh)
+    else:
+        primary = fetch_us_news(ticker, force_refresh=force_refresh)
+    # Independent route: the five-minute watcher must see oil/tariff/PMI events
+    # even when the headline never mentions the currently analysed company.
+    try:
+        global_rows = fetch_global_event_news(force_refresh=force_refresh)
+    except Exception:
+        global_rows = []
+    return _merge_news(list(primary or []), list(global_rows or []))
