@@ -1,6 +1,106 @@
 {
   "events": [
     {
+      "acknowledged": false,
+      "category": "geo_energy_escalation",
+      "cooling_count": 0,
+      "event_id": "EV-8EF02DA37AF306",
+      "event_key": "global:geopolitical:iran_middle_east",
+      "family": "geopolitical",
+      "fingerprint": "fbb6c7b0167a431a",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1784902594.499664,
+      "last_seen_at": "2026-07-24T14:16:34+00:00",
+      "last_seen_epoch": 1784902594.499664,
+      "last_transition_at": "2026-07-24T14:16:34+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 2,
+      "related_fingerprints": [
+        "0995e33209be8893"
+      ],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/TradingView",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL"
+      ],
+      "status": "active_red",
+      "title": "USO, BATL, TPET Jump As Brent Tops $100 For First Time Since May: Gulf Nations Reportedly Racing To Build Pipelines Around Hormuz - TradingView",
+      "transition_reason": "油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+    },
+    {
+      "acknowledged": false,
+      "category": "geo_trade_controls",
+      "cooling_count": 0,
+      "event_id": "EV-FE4B47983D28AA",
+      "event_key": "global:geopolitical:general_geo",
+      "family": "geopolitical",
+      "fingerprint": "4c0349f7ae1e9afe",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1784902594.499664,
+      "last_seen_at": "2026-07-24T14:16:34+00:00",
+      "last_seen_epoch": 1784902594.499664,
+      "last_transition_at": "2026-07-24T14:16:34+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 5,
+      "related_fingerprints": [
+        "539ea86cc9f4cefe",
+        "9abb5c83e4507f26",
+        "e745764454665b06",
+        "c8ae2c7459240ffd"
+      ],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/Al Jazeera",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL"
+      ],
+      "status": "active_red",
+      "title": "Trump’s latest ‘forced labour tariffs’: Who’s been hit, how badly? - Al Jazeera",
+      "transition_reason": "關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
+    },
+    {
+      "acknowledged": false,
+      "category": "geo_trade_controls",
+      "cooling_count": 0,
+      "event_id": "EV-23640CEC3DF480",
+      "event_key": "global:geopolitical:taiwan_strait",
+      "family": "geopolitical",
+      "fingerprint": "55e127308085da11",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1784902594.499664,
+      "last_seen_at": "2026-07-24T14:16:34+00:00",
+      "last_seen_epoch": 1784902594.499664,
+      "last_transition_at": "2026-07-24T14:16:34+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 1,
+      "related_fingerprints": [],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/Focus Taiwan",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL"
+      ],
+      "status": "active_red",
+      "title": "Taiwan's Section 301 tariff rate not final: Cheng - Focus Taiwan",
+      "transition_reason": "關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
+    },
+    {
       "acknowledged": true,
       "acknowledged_at": "2026-07-21T13:33:36+00:00",
       "category": "geo_policy_escalation",
@@ -70,5 +170,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-23T16:00:14+00:00"
+  "updated_at": "2026-07-24T14:16:34+00:00"
 }
