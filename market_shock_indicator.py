@@ -11,7 +11,9 @@ It never overwrites price, T0/T1/High/Low, confidence, Prediction DNA or Audit.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Iterable, List, Mapping
+
+from models import NewsItem
 
 
 _LEVEL_LABELS = {
@@ -189,3 +191,20 @@ def shock_tag(item: Mapping[str, Any] | Any) -> str:
         f"shock_color={shock['color']}",
         f"shock_drivers={drivers}",
     ])
+
+
+def annotate_market_shock_news(rows: Iterable[NewsItem] | None) -> List[NewsItem]:
+    out: List[NewsItem] = []
+    for item in rows or []:
+        tag = str(getattr(item, "tag", "") or "")
+        if "global_event_core" in tag and "shock_level=" not in tag:
+            tag = f"{tag}|{shock_tag(item)}"
+        out.append(NewsItem(
+            str(getattr(item, "source", "") or ""),
+            str(getattr(item, "time", "") or ""),
+            float(getattr(item, "score", 0.0) or 0.0),
+            tag,
+            str(getattr(item, "title", "") or ""),
+            str(getattr(item, "link", "") or ""),
+        ))
+    return out
