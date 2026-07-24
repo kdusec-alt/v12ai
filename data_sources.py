@@ -29,10 +29,17 @@ except Exception:
         return list(rows or [])
 
 try:
-    from market_shock_indicator import annotate_market_shock_news
+    from market_shock_levels_v1062 import (
+        annotate_market_shock_news_v1062 as annotate_market_shock_news,
+        install_market_shock_levels_v1062,
+    )
+    install_market_shock_levels_v1062()
 except Exception:
-    def annotate_market_shock_news(rows):
-        return list(rows or [])
+    try:
+        from market_shock_indicator import annotate_market_shock_news
+    except Exception:
+        def annotate_market_shock_news(rows):
+            return list(rows or [])
 
 try:
     from event_intelligence_v1062 import install_event_intelligence_v1062
