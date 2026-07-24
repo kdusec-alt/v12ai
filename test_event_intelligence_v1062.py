@@ -6,6 +6,10 @@ import unittest
 from zoneinfo import ZoneInfo
 
 from models import NewsItem
+from market_shock_levels_v1062 import install_market_shock_levels_v1062
+
+install_market_shock_levels_v1062()
+
 from event_intelligence_v1062 import assess_policy_geo_v1062
 
 
@@ -35,6 +39,7 @@ class EventIntelligenceV1062Tests(unittest.TestCase):
         self.assertLess(memory["score"], biotech["score"])
         self.assertGreater(memory["risk"], biotech["risk"])
         self.assertIn("個股曝險", memory["line"])
+        self.assertIn("市場衝擊 L3", memory["line"])
 
     def test_airline_oil_risk_is_stronger_than_biotech(self):
         now = datetime(2026, 7, 24, 22, 0, tzinfo=ZoneInfo("Asia/Taipei"))
@@ -51,6 +56,7 @@ class EventIntelligenceV1062Tests(unittest.TestCase):
         )
         self.assertLess(airline["score"], biotech["score"])
         self.assertGreater(airline["risk"], biotech["risk"])
+        self.assertGreaterEqual(airline["market_shock_level"], 4)
 
     def test_energy_can_receive_positive_oil_direction_but_price_keeps_veto(self):
         now = datetime(2026, 7, 24, 22, 0, tzinfo=ZoneInfo("Asia/Taipei"))
@@ -62,6 +68,7 @@ class EventIntelligenceV1062Tests(unittest.TestCase):
         self.assertGreater(result["score"], 0)
         self.assertTrue(result["price_veto"])
         self.assertEqual(result["ticker_profile"], "energy")
+        self.assertGreaterEqual(result["market_shock_level"], 4)
 
 
 if __name__ == "__main__":
