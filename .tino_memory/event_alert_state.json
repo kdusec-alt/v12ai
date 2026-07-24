@@ -7,27 +7,28 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "30d02e14801f9fed",
+      "fingerprint": "6f8da57e1ee3948c",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1784904830.058837,
-      "last_seen_at": "2026-07-24T14:53:50+00:00",
-      "last_seen_epoch": 1784904830.058837,
-      "last_transition_at": "2026-07-24T14:53:50+00:00",
+      "last_evidence_epoch": 1784905130.275609,
+      "last_seen_at": "2026-07-24T14:58:50+00:00",
+      "last_seen_epoch": 1784905130.275609,
+      "last_transition_at": "2026-07-24T14:58:50+00:00",
       "peak_severity": 3,
-      "reinforcement_count": 7,
+      "reinforcement_count": 8,
       "related_fingerprints": [
         "539ea86cc9f4cefe",
         "9abb5c83e4507f26",
         "e745764454665b06",
         "c8ae2c7459240ffd",
         "4c0349f7ae1e9afe",
-        "a9a31def44c3689b"
+        "a9a31def44c3689b",
+        "30d02e14801f9fed"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "GoogleNewsGlobal/The Indian EYE",
+      "source": "GoogleNewsGlobal/The Korea Herald",
       "source_markets": [
         "GLOBAL"
       ],
@@ -36,7 +37,7 @@
         "SKHY"
       ],
       "status": "active_red",
-      "title": "India secures lower 10% US tariff under Section 301 - The Indian EYE",
+      "title": "US announces 12.5% tariffs on S. Korea, 59 others over forced labor concerns - The Korea Herald",
       "transition_reason": "關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
@@ -174,5 +175,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-24T14:53:50+00:00"
+  "updated_at": "2026-07-24T14:58:50+00:00"
 }
