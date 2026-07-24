@@ -3,8 +3,8 @@
 
 The original event_intelligence module remains the authoritative parser for
 headline age, source quality, event labels and cross-market confirmation. This
-wrapper applies ticker-specific exposure DNA after that parse so the same oil,
-tariff or war event does not affect every stock identically.
+wrapper applies ticker-specific exposure DNA and a strong market-shock indicator
+so the same oil, tariff or war event does not affect every stock identically.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import Any, Dict, Mapping, Sequence
 
 import event_intelligence as _legacy
 from ticker_event_exposure import exposure_for_profile
+from market_shock_indicator import assess_market_shock
 
 _LEGACY_ASSESS = _legacy.assess_policy_geo
 
@@ -82,6 +83,8 @@ def _confirmation_multiplier(base: Mapping[str, Any]) -> float:
 
 
 def _risk_level(risk: float) -> tuple[str, str]:
+    if risk >= 16.0:
+        return "極高", "市場衝擊已進入多層傳導，優先降部位並等待價格止穩"
     if risk >= 13.0:
         return "高", "個股事件曝險偏高，降低部位並等待價格止穩"
     if risk >= 8.0:
@@ -89,6 +92,16 @@ def _risk_level(risk: float) -> tuple[str, str]:
     if risk >= 4.0:
         return "中", "維持條件式進場，控制部位"
     return "觀察", "事件影響有限，仍由價格與籌碼裁決"
+
+
+def _dominant_shock(items: Sequence[Any]) -> Dict[str, Any]:
+    rows = [assess_market_shock(item) for item in items if "global_event_core" in _tag(item)]
+    if not rows:
+        return {
+            "level": 0, "label": "觀察", "score": 0.0, "depth": 1,
+            "drivers": [], "transmission": [], "color": "green", "price_veto": True,
+        }
+    return max(rows, key=lambda row: (int(row.get("level") or 0), float(row.get("score") or 0.0)))
 
 
 def assess_policy_geo_v1062(
@@ -103,6 +116,7 @@ def assess_policy_geo_v1062(
     items = list(news_items or [])
     resolved_profile = _profile_from_items(items, profile)
     exposure = exposure_for_profile(resolved_profile)
+    shock = _dominant_shock(items)
     legacy_profile = {
         "memory": "memory",
         "semiconductor": "semiconductor",
@@ -156,15 +170,25 @@ def assess_policy_geo_v1062(
         oil_scale = float(exposure.get("oil_direction_scale") or -1.0)
         score += (oil_scale + 1.0) * 4.4 * _confirmation_multiplier(base)
 
+    # Shock level strengthens uncertainty/risk much more than an ordinary
+    # headline. Direction still comes from ticker exposure and price validation.
+    shock_level = int(shock.get("level") or 0)
+    shock_score = float(shock.get("score") or 0.0)
+    shock_risk_boost = {0: 0.0, 1: 0.8, 2: 2.0, 3: 4.0, 4: 6.5, 5: 9.0}.get(shock_level, 0.0)
+
     score = _clamp(score, -52.0, 42.0)
     average_multiplier = sum(risk_weights) / len(risk_weights) if risk_weights else 1.0
     beta = float(exposure.get("market_beta") or 1.0)
     risk_scale = _clamp(average_multiplier * (0.86 + beta * 0.14), 0.50, 1.70)
-    risk = _clamp(float(base.get("risk") or 0.0) * risk_scale, 0.0, 22.0)
-    uncertainty = _clamp(risk / 150.0, 0.0, 0.145)
+    risk = _clamp(float(base.get("risk") or 0.0) * risk_scale + shock_risk_boost, 0.0, 24.0)
+    uncertainty = _clamp(risk / 150.0, 0.0, 0.16)
     level, strategy = _risk_level(risk)
 
-    if score >= 7.0:
+    if shock_level >= 5:
+        strategy = "極端市場衝擊，先防守；事件方向仍由個股價格與籌碼否決或確認"
+    elif shock_level >= 4:
+        strategy = "系統性壓力升高，縮小部位並等待海外與價格止穩"
+    elif score >= 7.0:
         strategy = "事件結構相對受惠，但仍須由價格與籌碼確認"
     elif score <= -12.0:
         strategy = "個股事件曝險偏空，縮小部位並等待跨市場止穩"
@@ -178,8 +202,13 @@ def assess_policy_geo_v1062(
     path_text = "→".join(channels[:3]) or "等待市場傳導確認"
     confirm = str(base.get("confirmation") or "等待跨市場確認")
     profile_label = str(exposure.get("label") or "大盤/一般產業")
+    shock_drivers = "+".join(shock.get("drivers") or []) or "事件觀察"
+    shock_text = (
+        f"市場衝擊 L{shock_level} {shock.get('label') or '觀察'} "
+        f"{shock_score:.0f}/100｜傳導深度 {int(shock.get('depth') or 1)}層｜{shock_drivers}"
+    )
     line = (
-        f"Policy/Geo｜{level}｜個股曝險 {profile_label}｜{label_text}｜"
+        f"Policy/Geo｜{level}｜{shock_text}｜個股曝險 {profile_label}｜{label_text}｜"
         f"{path_text}｜影響 {impact_text or f'{score:+.1f}'}｜{strategy}｜{confirm}"
     )
 
@@ -193,13 +222,18 @@ def assess_policy_geo_v1062(
         "level": level,
         "reason": (
             f"{base.get('reason') or ''}; ticker_profile={resolved_profile}; "
-            f"ticker_event_score={score:+.2f}; ticker_event_risk={risk:.2f}"
+            f"ticker_event_score={score:+.2f}; ticker_event_risk={risk:.2f}; "
+            f"market_shock=L{shock_level}/{shock_score:.1f}"
         ).strip("; "),
         "ticker_profile": resolved_profile,
         "ticker_profile_label": profile_label,
         "ticker_market_beta": round(beta, 3),
         "ticker_impact_rows": impacts,
         "ticker_exposure_source": "TINO_V1062_TICKER_EVENT_EXPOSURE",
+        "market_shock": shock,
+        "market_shock_level": shock_level,
+        "market_shock_score": round(shock_score, 1),
+        "market_shock_text": shock_text,
         "price_veto": True,
     })
     return base
