@@ -27,7 +27,8 @@
         "GLOBAL"
       ],
       "source_tickers": [
-        "GLOBAL"
+        "GLOBAL",
+        "SKHY"
       ],
       "status": "active_red",
       "title": "USO, BATL, TPET Jump As Brent Tops $100 For First Time Since May: Gulf Nations Reportedly Racing To Build Pipelines Around Hormuz - TradingView",
@@ -63,7 +64,8 @@
         "GLOBAL"
       ],
       "source_tickers": [
-        "GLOBAL"
+        "GLOBAL",
+        "SKHY"
       ],
       "status": "active_red",
       "title": "Trump’s latest ‘forced labour tariffs’: Who’s been hit, how badly? - Al Jazeera",
@@ -170,5 +172,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-24T14:16:34+00:00"
+  "updated_at": "2026-07-24T14:16:36+00:00"
 }
