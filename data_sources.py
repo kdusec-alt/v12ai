@@ -22,7 +22,50 @@ except Exception:
     def ensure_global_macro_calendar():
         return None
 
-# Process-local routing cache.  It contains only compact TickerInfo objects and
+try:
+    from ticker_event_exposure import annotate_global_event_news
+except Exception:
+    def annotate_global_event_news(ticker, rows):
+        return list(rows or [])
+
+try:
+    from market_shock_levels_v1062 import (
+        annotate_market_shock_news_v1062 as annotate_market_shock_news,
+        install_market_shock_levels_v1062,
+    )
+    install_market_shock_levels_v1062()
+except Exception:
+    try:
+        from market_shock_indicator import annotate_market_shock_news
+    except Exception:
+        def annotate_market_shock_news(rows):
+            return list(rows or [])
+
+try:
+    from event_intelligence_v1062 import install_event_intelligence_v1062
+    install_event_intelligence_v1062()
+except Exception:
+    pass
+
+try:
+    from event_reassessment_v1062 import install_event_reassessment_v1062
+    install_event_reassessment_v1062()
+except Exception:
+    pass
+
+try:
+    from decision_narrative_v1062 import install_decision_narrative_v1062
+    install_decision_narrative_v1062()
+except Exception:
+    pass
+
+try:
+    from ui_event_status_v1062 import inject_event_status_css
+except Exception:
+    def inject_event_status_css():
+        return None
+
+# Process-local routing cache. It contains only compact TickerInfo objects and
 # avoids probing both exchanges again during the subsequent fetch_news call.
 _RESOLVED_ROUTE_CACHE: Dict[str, TickerInfo] = {}
 
@@ -45,9 +88,9 @@ def _price_usable(frame: PriceFrame | None) -> bool:
 
 
 def _fetch_by_ticker(ticker: TickerInfo) -> PriceFrame:
-    # Taiwan ETFs keep the dedicated TW route.  US ETFs must stay on the US
+    # Taiwan ETFs keep the dedicated TW route. US ETFs must stay on the US
     # pipeline because their quote/news/fund metadata are not compatible with
-    # TWSE/TPEX sources.  Asset type may be upgraded dynamically after Yahoo
+    # TWSE/TPEX sources. Asset type may be upgraded dynamically after Yahoo
     # metadata is read, so this branch must remain market-aware.
     if ticker.market == "TW" and ticker.asset_type == "etf":
         return fetch_etf_price(ticker)
@@ -75,7 +118,7 @@ def fetch_price(raw_ticker: str) -> PriceFrame:
         return primary
 
     # Unknown plain numeric code: only probe the other Taiwan market if the
-    # primary route is unusable.  This keeps normal analysis fast and prevents
+    # primary route is unusable. This keeps normal analysis fast and prevents
     # an unknown TPEx/emerging code from being silently treated as TWSE.
     if _price_usable(primary):
         _RESOLVED_ROUTE_CACHE[key] = getattr(primary, "ticker", ticker)
@@ -111,6 +154,9 @@ def _merge_news(primary: List[NewsItem], global_rows: List[NewsItem], limit: int
 
 
 def fetch_news(raw_ticker: str, force_refresh: bool = False) -> List[NewsItem]:
+    # The five-minute status line is operational state, not muted helper text.
+    inject_event_status_css()
+
     key = _cache_key(raw_ticker)
     ticker = _RESOLVED_ROUTE_CACHE.get(key) or resolve_ticker(raw_ticker)
     if ticker.market == "TW" and ticker.asset_type == "etf":
@@ -119,10 +165,14 @@ def fetch_news(raw_ticker: str, force_refresh: bool = False) -> List[NewsItem]:
         primary = fetch_tw_news(ticker, force_refresh=force_refresh)
     else:
         primary = fetch_us_news(ticker, force_refresh=force_refresh)
-    # Independent route: the five-minute watcher must see oil/tariff/PMI events
-    # even when the headline never mentions the currently analysed company.
+
+    # Independent route: the watcher sees oil/tariff/PMI even when the headline
+    # never names the active stock. V1062 attaches both ticker exposure DNA and
+    # a strong market-shock level so oil spikes/war outrank ordinary headlines.
     try:
         global_rows = fetch_global_event_news(force_refresh=force_refresh)
+        global_rows = annotate_global_event_news(ticker, global_rows)
+        global_rows = annotate_market_shock_news(global_rows)
     except Exception:
         global_rows = []
     return _merge_news(list(primary or []), list(global_rows or []))

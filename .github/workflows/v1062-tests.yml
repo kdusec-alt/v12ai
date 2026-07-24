@@ -1,0 +1,31 @@
+name: V1062 event exposure tests
+
+on:
+  push:
+    branches:
+      - agent/tw-event-exposure-v1062
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  event-exposure-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Python modules
+        run: python -m compileall -q .
+      - name: Run V1062 targeted tests
+        run: |
+          python -m unittest -v \
+            test_ticker_event_exposure.py \
+            test_event_intelligence_v1062.py \
+            test_market_shock_indicator.py \
+            test_decision_narrative_v1062.py
