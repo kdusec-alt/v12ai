@@ -4,6 +4,10 @@ from __future__ import annotations
 import unittest
 
 from models import NewsItem
+from market_shock_levels_v1062 import install_market_shock_levels_v1062
+
+install_market_shock_levels_v1062()
+
 from decision_narrative_v1062 import dominant_market_shock
 
 
