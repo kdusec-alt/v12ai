@@ -2,6 +2,37 @@
   "events": [
     {
       "acknowledged": false,
+      "category": "macro_release_pending",
+      "cooling_count": 0,
+      "event_id": "EV-717A2AC87DC8DC",
+      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
+      "family": "high_impact",
+      "fingerprint": "fa6cb1c1e8141edd",
+      "first_seen_at": "2026-07-25T05:20:02+00:00",
+      "first_seen_epoch": 1784956802.439899,
+      "last_evidence_epoch": 1784956802.439899,
+      "last_seen_at": "2026-07-25T05:20:02+00:00",
+      "last_seen_epoch": 1784956802.439899,
+      "last_transition_at": "2026-07-25T05:20:02+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 1,
+      "related_fingerprints": [],
+      "risk_sign": 0,
+      "scope": "ticker",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/KWSN",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL"
+      ],
+      "status": "active_red",
+      "title": "US business activity perks up in July, helped by World Cup, but trend may not last, S&P Global says - KWSN",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
+    },
+    {
+      "acknowledged": false,
       "category": "geo_energy_escalation",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
@@ -179,5 +210,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-25T04:34:00+00:00"
+  "updated_at": "2026-07-25T05:20:02+00:00"
 }
