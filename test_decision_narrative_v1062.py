@@ -8,7 +8,7 @@ from market_shock_levels_v1062 import install_market_shock_levels_v1062
 
 install_market_shock_levels_v1062()
 
-from decision_narrative_v1062 import dominant_market_shock
+from decision_narrative_v1062 import dominant_market_shock, _concise_operation_line
 
 
 class DecisionNarrativeV1062Tests(unittest.TestCase):
@@ -33,6 +33,17 @@ class DecisionNarrativeV1062Tests(unittest.TestCase):
         self.assertEqual(shock["level"], 5)
         self.assertIn("荷姆茲航道", shock["drivers"])
         self.assertIn("伊朗/中東戰爭", shock["drivers"])
+
+    def test_one_liner_keeps_only_tactical_conclusion(self):
+        line = _concise_operation_line(
+            "明日操盤：未站回 198.87 前不搶，回測 192.31 只做止穩確認，破 184.46 停。"
+        )
+        self.assertEqual(
+            line,
+            "未站回 198.87 前不搶，回測 192.31 只做止穩確認，破 184.46 停。",
+        )
+        self.assertNotIn("市場衝擊", line)
+        self.assertNotIn("荷姆茲", line)
 
 
 if __name__ == "__main__":
