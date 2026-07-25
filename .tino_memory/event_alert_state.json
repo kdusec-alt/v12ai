@@ -7,29 +7,29 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "31ff9997b8640ad0",
+      "fingerprint": "9d9ebb308c293002",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1784957880.371465,
-      "last_seen_at": "2026-07-25T05:38:00+00:00",
-      "last_seen_epoch": 1784957880.371465,
-      "last_transition_at": "2026-07-25T05:38:00+00:00",
+      "last_evidence_epoch": 1784967618.567605,
+      "last_seen_at": "2026-07-25T08:20:18+00:00",
+      "last_seen_epoch": 1784967618.567605,
+      "last_transition_at": "2026-07-25T08:20:18+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 24,
+      "reinforcement_count": 25,
       "related_fingerprints": [
-        "176c1efd28e1634c",
         "e745764454665b06",
         "c8ae2c7459240ffd",
         "9423b1d4d67a0da5",
         "ad88be1bdb749101",
         "7a112bad7a057613",
         "615659051a8e250e",
-        "c7010d39a0bf1561"
+        "c7010d39a0bf1561",
+        "31ff9997b8640ad0"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "GoogleNewsGlobal/finance.biggo.com",
+      "source": "GoogleNewsGlobal/India's News.Net",
       "source_markets": [
         "GLOBAL"
       ],
@@ -39,7 +39,7 @@
         "MRVL"
       ],
       "status": "active_red",
-      "title": "U.S. Slaps 10-12.5% Tariffs on Key Chip Partners, Sending Semiconductor Stocks Tumbling - finance.biggo.com",
+      "title": "US Sec 301 tariffs unlikely to hit India's exports, textiles need close watch, says FIEO chief - India's News.Net",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
@@ -119,7 +119,7 @@
       "last_evidence_epoch": 1784902594.499664,
       "last_seen_at": "2026-07-24T14:16:34+00:00",
       "last_seen_epoch": 1784902594.499664,
-      "last_transition_at": "2026-07-24T14:16:34+00:00",
+      "last_transition_at": "2026-07-25T08:20:18+00:00",
       "peak_severity": 3,
       "reinforcement_count": 2,
       "related_fingerprints": [
@@ -127,7 +127,7 @@
       ],
       "risk_sign": -1,
       "scope": "global",
-      "severity": 3,
+      "severity": 2,
       "source": "GoogleNewsGlobal/TradingView",
       "source_markets": [
         "GLOBAL"
@@ -136,9 +136,9 @@
         "GLOBAL",
         "SKHY"
       ],
-      "status": "active_red",
+      "status": "cooling",
       "title": "USO, BATL, TPET Jump As Brent Tops $100 For First Time Since May: Gulf Nations Reportedly Racing To Build Pipelines Around Hormuz - TradingView",
-      "transition_reason": "油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
     },
     {
       "acknowledged": true,
@@ -210,5 +210,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-25T05:38:00+00:00"
+  "updated_at": "2026-07-25T08:20:18+00:00"
 }
