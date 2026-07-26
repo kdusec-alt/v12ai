@@ -64,7 +64,8 @@
         "GLOBAL"
       ],
       "source_tickers": [
-        "GLOBAL"
+        "GLOBAL",
+        "SKHY"
       ],
       "status": "active_red",
       "title": "US Stock Market This Week - 2026-07-27 - TradingKey",
@@ -217,5 +218,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-26T11:39:35+00:00"
+  "updated_at": "2026-07-26T11:39:36+00:00"
 }
