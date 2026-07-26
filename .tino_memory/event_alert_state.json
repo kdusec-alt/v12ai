@@ -38,6 +38,40 @@
     },
     {
       "acknowledged": false,
+      "category": "macro_release_pending",
+      "cooling_count": 0,
+      "event_id": "EV-717A2AC87DC8DC",
+      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
+      "family": "high_impact",
+      "fingerprint": "46d5a9faa3b39f37",
+      "first_seen_at": "2026-07-25T05:20:02+00:00",
+      "first_seen_epoch": 1784956802.439899,
+      "last_evidence_epoch": 1785065975.342847,
+      "last_seen_at": "2026-07-26T11:39:35+00:00",
+      "last_seen_epoch": 1785065975.342847,
+      "last_transition_at": "2026-07-26T11:39:35+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 3,
+      "related_fingerprints": [
+        "fa6cb1c1e8141edd",
+        "33a2ac1ace040017"
+      ],
+      "risk_sign": 0,
+      "scope": "ticker",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/TradingKey",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL"
+      ],
+      "status": "active_red",
+      "title": "US Stock Market This Week - 2026-07-27 - TradingKey",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
+    },
+    {
+      "acknowledged": false,
       "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
@@ -77,39 +111,6 @@
       "status": "active_red",
       "title": "Trump hits 60 nations with forced-labor tariffs - Livingston Parish News",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
-    },
-    {
-      "acknowledged": false,
-      "category": "macro_release_pending",
-      "cooling_count": 0,
-      "event_id": "EV-717A2AC87DC8DC",
-      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
-      "family": "high_impact",
-      "fingerprint": "33a2ac1ace040017",
-      "first_seen_at": "2026-07-25T05:20:02+00:00",
-      "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785065075.268918,
-      "last_seen_at": "2026-07-26T11:24:35+00:00",
-      "last_seen_epoch": 1785065075.268918,
-      "last_transition_at": "2026-07-26T11:24:35+00:00",
-      "peak_severity": 3,
-      "reinforcement_count": 2,
-      "related_fingerprints": [
-        "fa6cb1c1e8141edd"
-      ],
-      "risk_sign": 0,
-      "scope": "ticker",
-      "severity": 3,
-      "source": "GoogleNewsGlobal/InteractiveCrypto",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL"
-      ],
-      "status": "active_red",
-      "title": "EURUSD Edges Lower Despite Eurozone Growth and ECB Hawkish Tone Amid Dollar Strength - InteractiveCrypto",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
     },
     {
       "acknowledged": false,
@@ -216,5 +217,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-26T11:34:35+00:00"
+  "updated_at": "2026-07-26T11:39:35+00:00"
 }
