@@ -7,24 +7,25 @@
       "event_id": "EV-8EF02DA37AF306",
       "event_key": "global:geopolitical:iran_middle_east",
       "family": "geopolitical",
-      "fingerprint": "1791d41255180e72",
+      "fingerprint": "999ee5a2fd738c12",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785056219.363948,
-      "last_seen_at": "2026-07-26T08:56:59+00:00",
-      "last_seen_epoch": 1785056219.363948,
-      "last_transition_at": "2026-07-26T08:56:59+00:00",
+      "last_evidence_epoch": 1785100342.224821,
+      "last_seen_at": "2026-07-26T21:12:22+00:00",
+      "last_seen_epoch": 1785100342.224821,
+      "last_transition_at": "2026-07-26T21:12:22+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 4,
+      "reinforcement_count": 5,
       "related_fingerprints": [
         "0995e33209be8893",
         "fbb6c7b0167a431a",
-        "1a356e01011e213d"
+        "1a356e01011e213d",
+        "1791d41255180e72"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 4,
-      "source": "GoogleNewsGlobal/Energy Update",
+      "source": "GoogleNewsGlobal/EnergyNow.com",
       "source_markets": [
         "GLOBAL"
       ],
@@ -33,7 +34,7 @@
         "SKHY"
       ],
       "status": "active_red",
-      "title": "Oil Prices Slide Over 4% on Hopes of Renewed US-Iran Peace Talks, Despite Weekly Surge - Energy Update",
+      "title": "Oil Prices Jump Over 7% After Trump Says Attacks on Iran Will Continue - EnergyNow.com",
       "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
@@ -151,5 +152,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-26T19:12:21+00:00"
+  "updated_at": "2026-07-26T21:12:22+00:00"
 }
