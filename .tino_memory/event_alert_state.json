@@ -7,29 +7,29 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "7507ea6c96248e7f",
+      "fingerprint": "2ab03079cdf52acf",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785068720.414678,
-      "last_seen_at": "2026-07-26T12:25:20+00:00",
-      "last_seen_epoch": 1785068720.414678,
-      "last_transition_at": "2026-07-26T12:25:20+00:00",
+      "last_evidence_epoch": 1785069320.379838,
+      "last_seen_at": "2026-07-26T12:35:20+00:00",
+      "last_seen_epoch": 1785069320.379838,
+      "last_transition_at": "2026-07-26T12:35:20+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 34,
+      "reinforcement_count": 35,
       "related_fingerprints": [
-        "60a0855fa629a523",
         "82f1756e66056ace",
         "11f83a266e4ad173",
         "27e5004c143e5d5b",
         "d970eda2d5d715bd",
         "d8ac6f91db8133e9",
         "283ae353fd5cddb8",
-        "16391497eb2a0d3a"
+        "16391497eb2a0d3a",
+        "7507ea6c96248e7f"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 4,
-      "source": "GoogleNewsGlobal/Anadolu Ajansı",
+      "source": "GoogleNewsGlobal/WSJ",
       "source_markets": [
         "GLOBAL"
       ],
@@ -39,8 +39,8 @@
         "MRVL"
       ],
       "status": "active_red",
-      "title": "Oil rally lags initial war surge as Trump's election calculus caps price fears - Anadolu Ajansı",
-      "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "title": "Oil Futures Rise on Middle East Escalation Fears - WSJ",
+      "transition_reason": "市場衝擊 L4 系統性壓力 16/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
       "acknowledged": false,
@@ -218,5 +218,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-26T12:25:20+00:00"
+  "updated_at": "2026-07-26T12:35:20+00:00"
 }
