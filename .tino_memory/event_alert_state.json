@@ -44,29 +44,29 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "5b20e3a0eeb9ef98",
+      "fingerprint": "250f8381c8b8f61b",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785093141.165157,
-      "last_seen_at": "2026-07-26T19:12:21+00:00",
-      "last_seen_epoch": 1785093141.165157,
-      "last_transition_at": "2026-07-26T19:12:21+00:00",
+      "last_evidence_epoch": 1785101841.314063,
+      "last_seen_at": "2026-07-26T21:37:21+00:00",
+      "last_seen_epoch": 1785101841.314063,
+      "last_transition_at": "2026-07-26T21:37:21+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 44,
+      "reinforcement_count": 45,
       "related_fingerprints": [
-        "0b308469cfe74339",
         "df03d9356827c739",
         "6b54f47af0cc1413",
         "27b870ba54a780ef",
         "c96214d1934f4d77",
         "9b9510adcd83cc90",
         "93fb4f8183c616a4",
-        "52023a894b7ec45b"
+        "52023a894b7ec45b",
+        "5b20e3a0eeb9ef98"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "GoogleNewsGlobal/organiser.org",
+      "source": "GoogleNewsGlobal/United News Ph",
       "source_markets": [
         "GLOBAL"
       ],
@@ -76,7 +76,7 @@
         "MRVL"
       ],
       "status": "active_red",
-      "title": "US Tariff: India gets 10 per cent, below China’s 12.5; Commerce Ministry says 45 per cent exports stay outside levy - organiser.org",
+      "title": "Trump administration to impose new tariffs of 10 to 12.5 percent on over 60 countries - United News Ph",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
@@ -152,5 +152,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-26T21:12:22+00:00"
+  "updated_at": "2026-07-26T21:37:21+00:00"
 }
