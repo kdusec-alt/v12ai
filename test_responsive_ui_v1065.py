@@ -17,7 +17,8 @@ class ResponsiveUiV1065Tests(unittest.TestCase):
     def test_radar_removes_repeated_row_prefixes(self):
         self.assertIn("def _strip_duplicate_label", self.radar_source)
         self.assertIn("Daily Headline｜Daily Headline", self.radar_source)
-        self.assertIn("Policy/Geo |", self.radar_source)
+        self.assertIn('f"{label} |"', self.radar_source)
+        self.assertIn("_strip_duplicate_label(key, _clean_main(raw_val))", self.radar_source)
 
     def test_normal_desktop_no_longer_uses_old_1100_stack_breakpoint(self):
         self.assertIn("@media(max-width:1020px) and (min-width:721px)", self.battle_source)
