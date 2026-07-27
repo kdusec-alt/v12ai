@@ -1,9 +1,10 @@
-name: V1062 event exposure tests
+name: V1062-V1064 targeted tests
 
 on:
   push:
     branches:
       - agent/tw-event-exposure-v1062
+      - agent/low-entry-readiness-v1064
   pull_request:
     branches:
       - main
@@ -22,10 +23,11 @@ jobs:
           python-version: '3.11'
       - name: Compile Python modules
         run: python -m compileall -q .
-      - name: Run V1062 targeted tests
+      - name: Run targeted tests
         run: |
           python -m unittest -v \
             test_ticker_event_exposure.py \
             test_event_intelligence_v1062.py \
             test_market_shock_indicator.py \
-            test_decision_narrative_v1062.py
+            test_decision_narrative_v1062.py \
+            test_low_entry_readiness_v1064.py
