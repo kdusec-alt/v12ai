@@ -26,7 +26,7 @@ jobs:
         run: python -m compileall -q .
       - name: Run V1065 responsive UI contract
         run: python -m unittest -v test_responsive_ui_v1065.py
-      - name: Run V1065 wait-price contract
+      - name: Run V1065 wait-price and consistency contract
         run: python -m unittest -v test_low_entry_readiness_v1065.py
       - name: Run event and low-entry tests
         run: |
