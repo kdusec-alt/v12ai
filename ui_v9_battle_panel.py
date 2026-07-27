@@ -122,8 +122,12 @@ def render_battle_panel(st, forecast):
     readiness_score = int(readiness.get('score') or 0)
     readiness_label = safe(readiness.get('label') or '再等等')
     readiness_summary = safe(readiness.get('summary') or '等待價格與籌碼確認')
+    main_message = safe(readiness.get('canonical_main_message') or d.get('主訊息'))
     readiness_items = []
-    for row in list(readiness.get('conditions') or [])[:5]:
+    consistency = dict(readiness.get('price_consistency') or {})
+    if consistency.get('consistent'):
+        readiness_items.append("<span class='ok'>✓ 操作價格與五格已同步</span>")
+    for row in list(readiness.get('conditions') or [])[:4]:
         ok = bool(row.get('ok'))
         cls = 'ok' if ok else 'wait'
         symbol = '✓' if ok else '✕'
@@ -186,7 +190,7 @@ def render_battle_panel(st, forecast):
       <div class='entrylamp {readiness_color}'><div class='entrytop'><span class='name'>{readiness_icon} AI低接成熟度</span><span class='score'>{readiness_score}%</span><span class='state'>{readiness_label}</span></div><div class='entrysummary'>{readiness_summary}</div><div class='entryfacts'>{readiness_detail}</div></div>
       <div class='decision'>
         <div class='dt'>{safe(d.get('標題'))}</div>
-        <div class='main'>{safe(d.get('主訊息'))}</div>
+        <div class='main'>{main_message}</div>
         <div class='risk'>{evidence_line}<b class='blue'>市場：</b>{safe(p.radar.get('市場風控'))}<br><b class='blue'>{'Short' if t.market == 'US' else '籌碼'}：</b>{safe(p.radar.get('左側籌碼摘要'))}</div>
         <div class='grid'>
           <div class='mini'><b>低接計畫</b><span>{fmt(d.get('低接第一批'))} 第一批｜{fmt(d.get('低接第二批'))} 第二批</span></div>
