@@ -5,7 +5,8 @@ import unittest
 from low_entry_readiness_v1065 import assess_low_entry_readiness
 
 
-def forecast(last=169.50, first=168.01, second=166.11, stop=164.89, confirmation=171.48):
+def forecast(last=169.50, first=168.01, second=166.11, stop=164.89, confirmation=171.48,
+             main_message="FOMC 公布前等待確認"):
     decision = {
         "現價": last,
         "低接第一批": first,
@@ -17,7 +18,7 @@ def forecast(last=169.50, first=168.01, second=166.11, stop=164.89, confirmation
         "VWAP位置": "VWAP 下方",
         "漲跌幅": 2.56,
         "標題": "AI進場決策卡｜事件卡｜公布後確認",
-        "主訊息": "FOMC 公布前等待確認",
+        "主訊息": main_message,
         "決策分": 6,
         "_direction_engine": {"gate_state": "B回測", "score": 6},
         "_trend_snapshot": {"ma20_gap_pct": -2.0},
@@ -55,6 +56,26 @@ class LowEntryReadinessV1065Tests(unittest.TestCase):
         self.assertEqual(result["color"], "red")
         self.assertIn("重新站回 164.89", result["summary"])
         self.assertIn("暫停低接", result["summary"])
+
+    def test_ai_narrative_stale_prices_are_corrected_to_tactical_cards(self):
+        result = assess_low_entry_readiness(forecast(
+            main_message="站穩 180.00 才小單，回測 160.00 止穩再分批，破 150.00 停。",
+        ))
+        message = result["canonical_main_message"]
+        self.assertIn("171.48", message)
+        self.assertIn("168.01", message)
+        self.assertIn("164.89", message)
+        self.assertNotIn("180.00", message)
+        self.assertNotIn("160.00", message)
+        self.assertNotIn("150.00", message)
+        self.assertTrue(result["price_consistency"]["corrected"])
+
+    def test_yellow_gate_cannot_render_immediate_aggressive_buy(self):
+        result = assess_low_entry_readiness(forecast(main_message="立即買進並重倉追價"))
+        message = result["canonical_main_message"]
+        self.assertNotIn("立即買進", message)
+        self.assertNotIn("重倉追價", message)
+        self.assertIn("等待條件確認後再分批", message)
 
 
 if __name__ == "__main__":
