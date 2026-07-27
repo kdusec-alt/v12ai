@@ -110,7 +110,6 @@ def render_battle_panel(st, forecast):
     t1_prefix = "下一交易日"
     evidence = safe(d.get('證據鏈', ''))
     evidence_line = f"<b class='blue'>AI證據鏈：</b>{evidence}<br>" if evidence else ""
-    tags = "｜".join([safe(x) for x in p.tags[:4]])
     fair = safe(p.radar.get('Fair Value', ''))
     persona_badge = safe(p.radar.get('US Persona', '') or '')
     persona_html = f"<div class='persona'>{persona_badge}</div>" if persona_badge else ""
@@ -142,7 +141,6 @@ def render_battle_panel(st, forecast):
     .fvleft b{{display:block;color:#a7f3d0;font-size:9.4px;letter-spacing:.35px;margin-bottom:2px;font-weight:800}}
     .fvnote{{display:block;color:#93c5fd;font-size:9px;margin-top:1px}}
     .persona{{display:inline-block;margin-top:5px;border:1px solid rgba(255,215,82,.55);border-radius:13px;color:#fff6c8;background:rgba(18,49,37,.55);padding:3px 8px;font-size:11px;font-weight:800;white-space:nowrap}}
-    @media(max-width:1100px){{.head{{grid-template-columns:1fr}}}}
     .info{{margin-top:6px;border:1px solid rgba(85,200,255,.22);border-radius:11px;background:#071727;padding:6px 9px;font-weight:650;line-height:1.16;font-size:11.8px}}.ptime{{display:block;margin-top:2px;color:#a7f3d0;font-size:9.6px;font-weight:750}}.label{{color:#9bdcff;font-weight:800}}
     .entrylamp{{margin-top:6px;border-radius:12px;padding:7px 10px;border:1px solid;box-shadow:inset 0 0 22px rgba(255,255,255,.025)}}
     .entrylamp.green{{background:linear-gradient(90deg,rgba(0,90,55,.54),rgba(4,24,28,.92));border-color:#37f59a}}
@@ -159,6 +157,29 @@ def render_battle_panel(st, forecast):
     .mini b{{display:block;color:#9bdcff;font-size:10.8px;margin-bottom:2px;font-weight:800}}.mini span{{font-size:10.8px;font-weight:750;color:#fff;line-height:1.12}}
     .chips{{margin-top:5px;font-size:10.9px;color:#e6f5ff;font-weight:650;line-height:1.12;max-height:24px;overflow:hidden}}.bottom{{margin-top:6px;background:rgba(0,0,0,.25);border-radius:9px;padding:6px 9px;color:#fff5bc;font-weight:800;font-size:11.4px;line-height:1.12}}
     .t1{{margin-top:7px;border-top:1px solid rgba(55,230,255,.18);padding-top:5px}}.tl{{font-size:11.8px;color:#9bdcff;font-weight:800}}.tm{{font-size:16.6px;line-height:1.0;color:#5ff4ff;font-weight:900}}.ts{{color:#d8f2ff;font-weight:650;font-size:11px}}
+    /* V1065: 100% desktop zoom keeps the header side-by-side.  The old 1100px
+       breakpoint stacked Fair Value below the title inside each Streamlit column,
+       adding enough height to clip the bottom of the fixed iframe. */
+    @media(max-width:1020px) and (min-width:721px){{
+      .panel{{padding:3px 7px 4px}}
+      .head{{grid-template-columns:minmax(0,1fr) minmax(205px,285px);gap:6px;padding-bottom:5px}}
+      h1{{font-size:18.5px}}.streak{{font-size:10.3px}}
+      .fvleft{{padding:5px 7px;font-size:9.8px;line-height:1.10}}.fvleft b{{font-size:8.9px}}.fvnote{{font-size:8.4px}}
+      .info{{margin-top:5px;padding:5px 8px;font-size:10.8px;line-height:1.10}}.ptime{{font-size:8.9px}}
+      .entrylamp{{margin-top:5px;padding:6px 8px}}.entrytop{{gap:7px}}.entrytop .name{{font-size:12px}}.entrytop .score{{font-size:17px}}.entrytop .state{{font-size:11px}}
+      .entrysummary{{font-size:9.9px}}.entryfacts{{font-size:8.7px;gap:3px 8px}}
+      .decision{{margin-top:5px;padding:5px 7px}}.dt{{font-size:10.5px;margin-bottom:4px}}.main{{font-size:11.3px;padding:5px 8px;margin-bottom:5px;line-height:1.08}}
+      .risk{{font-size:9.0px;line-height:1.08;max-height:62px;margin-bottom:4px}}
+      .grid{{gap:4px}}.mini{{padding:4px 5px;min-height:33px}}.mini b{{font-size:9.7px}}.mini span{{font-size:9.6px;line-height:1.08}}
+      .chips{{margin-top:4px;font-size:9.8px;max-height:22px}}.bottom{{margin-top:5px;padding:5px 8px;font-size:10.3px;line-height:1.08}}
+      .t1{{margin-top:6px;padding-top:4px}}.tl{{font-size:10.8px}}.tm{{font-size:15.2px}}.ts{{font-size:10px}}
+    }}
+    @media(max-width:720px){{
+      .head{{grid-template-columns:1fr}}
+      .grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      .mini:last-child{{grid-column:1 / -1}}
+      .panel{{overflow:visible}}
+    }}
     </style></head><body><div class='panel'>
       <div class='head'><div><h1>{safe(t.resolved_symbol)}｜{safe(t.name)}</h1><div class='streak'>{safe(header_trend)}</div>{persona_html}</div><div class='fvleft'><b>模型合理價值區間 / FAIR VALUE</b>{fair}<span class='fvnote'>技術錨 + V8.4校準 / 樣本少｜研究參考</span></div></div>
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜漲跌：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>今日高：{fmt(d.get('最高'))}｜今日低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
