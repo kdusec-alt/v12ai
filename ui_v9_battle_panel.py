@@ -3,6 +3,19 @@ from __future__ import annotations
 
 from ui_html import fmt, html_block, safe
 
+try:
+    from low_entry_readiness_v1064 import assess_low_entry_readiness
+except Exception:
+    def assess_low_entry_readiness(_forecast):
+        return {
+            "score": 0,
+            "label": "資料待確認",
+            "color": "yellow",
+            "icon": "🟡",
+            "summary": "低接成熟度模組暫時無法載入",
+            "conditions": [],
+        }
+
 
 def _title_price(v):
     try:
@@ -103,11 +116,26 @@ def render_battle_panel(st, forecast):
     persona_html = f"<div class='persona'>{persona_badge}</div>" if persona_badge else ""
     header_trend = _header_trend_line(p)
     header_streak_positive = '+' in header_trend.split('│', 1)[0]
+
+    readiness = assess_low_entry_readiness(p)
+    readiness_color = str(readiness.get('color') or 'yellow')
+    readiness_icon = safe(readiness.get('icon') or '🟡')
+    readiness_score = int(readiness.get('score') or 0)
+    readiness_label = safe(readiness.get('label') or '再等等')
+    readiness_summary = safe(readiness.get('summary') or '等待價格與籌碼確認')
+    readiness_items = []
+    for row in list(readiness.get('conditions') or [])[:5]:
+        ok = bool(row.get('ok'))
+        cls = 'ok' if ok else 'wait'
+        symbol = '✓' if ok else '✕'
+        readiness_items.append(f"<span class='{cls}'>{symbol} {safe(row.get('text'))}</span>")
+    readiness_detail = "".join(readiness_items)
+
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei',Arial,sans-serif;color:#edf7ff}}
-    .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:552px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow:hidden}}
+    .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:612px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow:hidden}}
     .head{{border-bottom:1px solid rgba(55,230,255,.22);padding-bottom:6px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,318px);gap:8px;align-items:start}}
     h1{{margin:0;color:#fff;font-size:20px;font-weight:900;letter-spacing:.01em}}.streak{{margin-top:1px;color:{'#6dffb1' if header_streak_positive else '#ff6f8e'};font-weight:800;font-size:11.2px}}
     .fvleft{{border:1px solid rgba(45,212,191,.28);background:linear-gradient(135deg,rgba(6,78,59,.18),rgba(2,18,30,.55));border-radius:12px;padding:6px 8px;color:#ecfeff;font-size:10.5px;line-height:1.16;font-weight:650}}
@@ -116,6 +144,14 @@ def render_battle_panel(st, forecast):
     .persona{{display:inline-block;margin-top:5px;border:1px solid rgba(255,215,82,.55);border-radius:13px;color:#fff6c8;background:rgba(18,49,37,.55);padding:3px 8px;font-size:11px;font-weight:800;white-space:nowrap}}
     @media(max-width:1100px){{.head{{grid-template-columns:1fr}}}}
     .info{{margin-top:6px;border:1px solid rgba(85,200,255,.22);border-radius:11px;background:#071727;padding:6px 9px;font-weight:650;line-height:1.16;font-size:11.8px}}.ptime{{display:block;margin-top:2px;color:#a7f3d0;font-size:9.6px;font-weight:750}}.label{{color:#9bdcff;font-weight:800}}
+    .entrylamp{{margin-top:6px;border-radius:12px;padding:7px 10px;border:1px solid;box-shadow:inset 0 0 22px rgba(255,255,255,.025)}}
+    .entrylamp.green{{background:linear-gradient(90deg,rgba(0,90,55,.54),rgba(4,24,28,.92));border-color:#37f59a}}
+    .entrylamp.yellow{{background:linear-gradient(90deg,rgba(104,75,0,.48),rgba(20,20,24,.94));border-color:#ffd35a}}
+    .entrylamp.red{{background:linear-gradient(90deg,rgba(105,17,31,.54),rgba(25,10,16,.94));border-color:#ff5574}}
+    .entrytop{{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;font-weight:950;color:#ffffff}}
+    .entrytop .name{{font-size:13px}}.entrytop .score{{font-size:19px}}.entrytop .state{{font-size:12px;color:#fff5b8}}
+    .entrysummary{{margin-top:2px;color:#eaf7ff;font-size:10.8px;font-weight:750}}
+    .entryfacts{{margin-top:3px;display:flex;gap:5px 10px;flex-wrap:wrap;font-size:9.4px;font-weight:750}}.entryfacts .ok{{color:#7dffbd}}.entryfacts .wait{{color:#ffd27a}}
     .decision{{margin-top:6px;border:1px solid rgba(255,211,78,.48);border-radius:13px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:6px 8px}}
     .dt{{font-size:11.4px;font-weight:850;color:#fff;margin-bottom:5px}}.blue{{color:#8fd7ff}}.main{{background:rgba(0,0,0,.26);border-radius:9px;color:#fff9c9;font-size:12.4px;line-height:1.12;font-weight:850;padding:6px 9px;margin-bottom:6px}}
     .risk{{border-left:3px solid #ff6f8e;padding-left:8px;color:#dff2ff;font-size:9.8px;font-weight:650;line-height:1.13;margin-bottom:5px;max-height:70px;overflow:hidden}}
@@ -126,6 +162,7 @@ def render_battle_panel(st, forecast):
     </style></head><body><div class='panel'>
       <div class='head'><div><h1>{safe(t.resolved_symbol)}｜{safe(t.name)}</h1><div class='streak'>{safe(header_trend)}</div>{persona_html}</div><div class='fvleft'><b>模型合理價值區間 / FAIR VALUE</b>{fair}<span class='fvnote'>技術錨 + V8.4校準 / 樣本少｜研究參考</span></div></div>
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜漲跌：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>今日高：{fmt(d.get('最高'))}｜今日低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
+      <div class='entrylamp {readiness_color}'><div class='entrytop'><span class='name'>{readiness_icon} AI低接成熟度</span><span class='score'>{readiness_score}%</span><span class='state'>{readiness_label}</span></div><div class='entrysummary'>{readiness_summary}</div><div class='entryfacts'>{readiness_detail}</div></div>
       <div class='decision'>
         <div class='dt'>{safe(d.get('標題'))}</div>
         <div class='main'>{safe(d.get('主訊息'))}</div>
@@ -143,4 +180,4 @@ def render_battle_panel(st, forecast):
       <div class='t1'><div class='tl'>{t1_title}</div><div class='tm'>{t1_prefix}收盤預估：{fmt(p.final_t1)}</div><div class='ts'>{t1_prefix}路徑上緣：{fmt(p.final_t1_high)}｜{t1_prefix}風險低點：{fmt(p.final_t1_low)}</div></div>
     </div></body></html>
     """
-    html_block(html, height=580, scrolling=False)
+    html_block(html, height=642, scrolling=False)
