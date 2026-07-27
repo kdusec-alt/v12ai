@@ -1210,17 +1210,17 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-07-27T15:33:21+08:00",
     "approved_bias": 0.0,
-    "audit_count": 18,
-    "avg_abs_error_pct": 2.5441,
-    "avg_direction_brier": 0.348428,
-    "avg_downside_tail_breach_pct": 1.7337,
-    "close_range_hit_rate": 0.4545,
-    "direction_audit_count": 11,
-    "direction_hit_rate": 0.2727,
+    "audit_count": 19,
+    "avg_abs_error_pct": 2.4102,
+    "avg_direction_brier": 0.333007,
+    "avg_downside_tail_breach_pct": 1.5892,
+    "close_range_hit_rate": 0.5,
+    "direction_audit_count": 12,
+    "direction_hit_rate": 0.3333,
     "error_type_counts": {
       "over_prediction": 6,
       "under_prediction": 5,
-      "within_tolerance": 7
+      "within_tolerance": 8
     },
     "factor_learning": {
       "MU": {
@@ -1620,19 +1620,19 @@
     "last_close_in_predicted_range": true,
     "last_defense_stop_touched": false,
     "last_direction_hit": true,
-    "last_dominant_force": "價格結構",
+    "last_dominant_force": "法人",
     "last_dominant_force_hit": null,
     "last_downside_tail_breach_pct": 0.0,
     "last_error_pct": 0.0,
     "last_error_type": "within_tolerance",
     "last_predicted_direction": "NEUTRAL",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
-    "learning_maturity": 0.275,
+    "learning_maturity": 0.3,
     "learning_schema": "RC4.5_DNA_V1",
-    "range_audit_count": 11,
+    "range_audit_count": 12,
     "suggested_bias": 0.0,
     "ticker": "2330.TW",
-    "updated_at_tw": "2026-07-27T15:33:00+08:00"
+    "updated_at_tw": "2026-07-27T16:41:55+08:00"
   },
   "2337.TW": {
     "active_family_count": 0,
