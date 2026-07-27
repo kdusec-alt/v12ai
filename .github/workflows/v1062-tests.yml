@@ -1,10 +1,11 @@
-name: V1062-V1064 targeted tests
+name: V1062-V1065 targeted tests
 
 on:
   push:
     branches:
       - agent/tw-event-exposure-v1062
       - agent/low-entry-readiness-v1064
+      - agent/responsive-desktop-v1065
   pull_request:
     branches:
       - main
@@ -23,7 +24,11 @@ jobs:
           python-version: '3.11'
       - name: Compile Python modules
         run: python -m compileall -q .
-      - name: Run targeted tests
+      - name: Run V1065 responsive UI contract
+        run: python -m unittest -v test_responsive_ui_v1065.py
+      - name: Run V1065 wait-price and consistency contract
+        run: python -m unittest -v test_low_entry_readiness_v1065.py
+      - name: Run event and low-entry tests
         run: |
           python -m unittest -v \
             test_ticker_event_exposure.py \
