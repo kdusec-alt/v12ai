@@ -40,36 +40,35 @@
       "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
-      "acknowledged": true,
-      "acknowledged_at": "2026-07-27T08:52:35+00:00",
+      "acknowledged": false,
       "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "250f8381c8b8f61b",
+      "fingerprint": "977d50f4bb51a670",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785142041.511744,
-      "last_seen_at": "2026-07-27T08:47:21+00:00",
-      "last_seen_epoch": 1785142041.511744,
-      "last_transition_at": "2026-07-27T08:52:35+00:00",
+      "last_evidence_epoch": 1785143302.847823,
+      "last_seen_at": "2026-07-27T09:08:22+00:00",
+      "last_seen_epoch": 1785143302.847823,
+      "last_transition_at": "2026-07-27T09:08:22+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 56,
+      "reinforcement_count": 58,
       "related_fingerprints": [
-        "977d50f4bb51a670",
-        "31b67214fab918df",
         "fa4a8d62e55748ab",
         "039ab5e6198ea744",
         "9abb5c83e4507f26",
         "93fb4f8183c616a4",
         "0b308469cfe74339",
-        "27b870ba54a780ef"
+        "27b870ba54a780ef",
+        "250f8381c8b8f61b",
+        "8eb2a482c92a8b2b"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "GoogleNewsGlobal/United News Ph",
+      "source": "GoogleNewsGlobal/Egyptian Streets",
       "source_markets": [
         "GLOBAL"
       ],
@@ -81,8 +80,8 @@
         "2454.TW"
       ],
       "status": "active_red",
-      "title": "Trump administration to impose new tariffs of 10 to 12.5 percent on over 60 countries - United News Ph",
-      "transition_reason": "Admin 已讀並關閉畫面警示"
+      "title": "US Imposes 12.5 Percent Tariff on Egypt Under New Trade Measures - Egyptian Streets",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
       "acknowledged": true,
@@ -163,5 +162,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T08:52:38+00:00"
+  "updated_at": "2026-07-27T09:08:22+00:00"
 }
