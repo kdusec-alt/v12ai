@@ -32,6 +32,8 @@ class ResponsiveUiV1065Tests(unittest.TestCase):
 
     def test_battle_panel_uses_explicit_wait_price_engine(self):
         self.assertIn("from low_entry_readiness_v1065 import assess_low_entry_readiness", self.battle_source)
+        self.assertIn("canonical_main_message", self.battle_source)
+        self.assertIn("操作價格與五格已同步", self.battle_source)
 
 
 if __name__ == "__main__":
