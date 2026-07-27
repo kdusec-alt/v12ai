@@ -11,12 +11,13 @@ class DecisionEvidenceSpacingV1067Tests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
 
-    def test_evidence_uses_fixed_two_line_viewport_without_webkit_clamp(self):
+    def test_evidence_uses_fixed_two_line_viewport_without_webkit_box_clamp(self):
         self.assertIn(".decision-evidence", self.source)
         self.assertIn("display:block", self.source)
         self.assertIn("height:31px", self.source)
         self.assertIn("line-height:1.22", self.source)
-        self.assertNotIn("-webkit-line-clamp:2", self.source)
+        self.assertNotIn("display:-webkit-box", self.source)
+        self.assertNotIn("-webkit-box-orient:vertical", self.source)
 
     def test_price_bar_is_separated_from_evidence(self):
         self.assertIn("margin-bottom:4px", self.source)
