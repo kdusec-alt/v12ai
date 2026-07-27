@@ -40,7 +40,8 @@
       "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
-      "acknowledged": false,
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-27T08:52:35+00:00",
       "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
@@ -52,7 +53,7 @@
       "last_evidence_epoch": 1785142041.511744,
       "last_seen_at": "2026-07-27T08:47:21+00:00",
       "last_seen_epoch": 1785142041.511744,
-      "last_transition_at": "2026-07-27T08:47:21+00:00",
+      "last_transition_at": "2026-07-27T08:52:35+00:00",
       "peak_severity": 4,
       "reinforcement_count": 56,
       "related_fingerprints": [
@@ -81,7 +82,7 @@
       ],
       "status": "active_red",
       "title": "Trump administration to impose new tariffs of 10 to 12.5 percent on over 60 countries - United News Ph",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
       "acknowledged": false,
@@ -161,5 +162,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T08:47:21+00:00"
+  "updated_at": "2026-07-27T08:52:35+00:00"
 }
