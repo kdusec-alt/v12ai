@@ -159,9 +159,13 @@ def render_battle_panel(st, forecast):
     .entrysummary{{margin-top:1px;color:#eaf7ff;font-size:10.2px;font-weight:780;line-height:1.12}}.entryfacts{{margin-top:2px;display:flex;gap:4px 9px;flex-wrap:wrap;font-size:9px;font-weight:750}}.entryfacts .ok{{color:#7dffbd}}.entryfacts .wait{{color:#ffd27a}}
     .decision{{margin-top:5px;border:1px solid rgba(255,211,78,.48);border-radius:12px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:5px 7px}}
     .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}.main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:11.6px;line-height:1.10;font-weight:850;padding:5px 8px;margin-bottom:4px}}
-    .decision-evidence{{border-left:3px solid #ff6f8e;padding:2px 0 2px 7px;color:#dff2ff;font-size:9.1px;font-weight:650;line-height:1.08;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:help}}
+    /* V1067: reserve two complete text lines and a separate gap before the price strip.
+       WebKit line-clamp clipped the second line descenders and visually collided with
+       the price bar at 100% zoom.  A fixed two-line viewport keeps both TW and US text
+       readable while the title attribute still exposes the complete evidence chain. */
+    .decision-evidence{{border-left:3px solid #ff6f8e;padding:3px 0 3px 7px;color:#dff2ff;font-size:9.1px;font-weight:650;line-height:1.22;display:block;height:31px;overflow:hidden;cursor:help;margin-bottom:4px}}
     .decision-evidence b{{color:#8fd7ff}}.sep{{color:#6d8ca5;padding:0 3px}}
-    .pricebar{{margin-top:4px;border:1px solid rgba(85,170,255,.28);background:#071727;border-radius:9px;display:grid;grid-template-columns:1.35fr 1.15fr 1.15fr .95fr .95fr;overflow:hidden}}
+    .pricebar{{margin-top:0;border:1px solid rgba(85,170,255,.28);background:#071727;border-radius:9px;display:grid;grid-template-columns:1.35fr 1.15fr 1.15fr .95fr .95fr;overflow:hidden;clear:both}}
     .priceitem{{min-width:0;padding:4px 6px;border-right:1px solid rgba(85,170,255,.18);font-size:9.7px;font-weight:760;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.priceitem:last-child{{border-right:0}}.priceitem b{{color:#9bdcff;margin-right:3px;font-size:9.2px}}
     .t1{{margin-top:5px;border-top:1px solid rgba(55,230,255,.18);padding-top:4px}}.tl{{font-size:10.8px;color:#9bdcff;font-weight:800}}.tm{{font-size:15.8px;line-height:1.0;color:#5ff4ff;font-weight:900}}.ts{{color:#d8f2ff;font-weight:650;font-size:10.3px}}
     @media(max-width:1020px) and (min-width:721px){{
@@ -169,7 +173,7 @@ def render_battle_panel(st, forecast):
       h1{{font-size:18.2px}}.streak{{font-size:10px}}.fvleft{{padding:4px 7px;font-size:9.5px;line-height:1.08}}.fvleft b{{font-size:8.7px}}.fvnote{{font-size:8.1px}}
       .info{{margin-top:4px;padding:4px 7px;font-size:10.4px;line-height:1.08}}.ptime{{font-size:8.6px}}
       .entrylamp{{margin-top:4px;padding:5px 7px}}.entrytop{{gap:6px}}.entrytop .name{{font-size:11.5px}}.entrytop .score{{font-size:16.5px}}.entrytop .state{{font-size:10.5px}}.entrysummary{{font-size:9.4px}}.entryfacts{{font-size:8.3px;gap:2px 7px}}
-      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.4px;padding:4px 7px;margin-bottom:3px;line-height:1.06}}.decision-evidence{{font-size:8.3px;line-height:1.04}}
+      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.4px;padding:4px 7px;margin-bottom:3px;line-height:1.06}}.decision-evidence{{font-size:8.3px;line-height:1.18;height:27px;padding:2px 0 2px 6px;margin-bottom:4px}}
       .priceitem{{padding:3px 4px;font-size:8.7px}}.priceitem b{{font-size:8.2px;margin-right:2px}}
       .t1{{margin-top:4px;padding-top:3px}}.tl{{font-size:9.9px}}.tm{{font-size:14.6px}}.ts{{font-size:9.3px}}
     }}
