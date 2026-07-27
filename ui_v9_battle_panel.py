@@ -84,125 +84,115 @@ def render_battle_panel(st, forecast):
     p = forecast
     t = p.ticker
     d = p.decision_card or {}
-    status = str(getattr(p, 'price_market_status', '') or getattr(p, 'market_status', '') or '')
-    # FinalForecast itself does not expose market_status in older builds; use decision text as backup.
-    data_title = str(d.get('資料標題', ''))
-    is_intraday = data_title.startswith('盤中')
-    is_closed = data_title.startswith('收盤')
-    close_reference = is_closed or data_title.startswith('盤後') or data_title.startswith('休市')
+    data_title = str(d.get("資料標題", ""))
+    is_intraday = data_title.startswith("盤中")
+    is_closed = data_title.startswith("收盤")
+    close_reference = is_closed or data_title.startswith("盤後") or data_title.startswith("休市")
     t0_line = f"<br><span class='label'>今日收盤預估：</span>{fmt(p.final_t0)}" if is_intraday else ""
     compare_line = ""
     if close_reference:
         try:
             from learning import t1_prediction_vs_actual, today_prediction_vs_actual
-            cmp = t1_prediction_vs_actual(p, d.get('現價'))
-            text = _strip_compare_prefix(cmp.get('display', ''), '昨測今收：', '昨測今收預覽：')
-            if cmp.get('status') in {'audited', 'preview'} and text and '尚無昨日' not in text:
+            cmp = t1_prediction_vs_actual(p, d.get("現價"))
+            text = _strip_compare_prefix(cmp.get("display", ""), "昨測今收：", "昨測今收預覽：")
+            if cmp.get("status") in {"audited", "preview"} and text and "尚無昨日" not in text:
                 compare_line = f"<br><span class='label'>昨測今收：</span>{safe(text)}"
             elif is_closed:
-                alt_cmp = today_prediction_vs_actual(p, d.get('現價'))
-                text = _strip_compare_prefix(alt_cmp.get('display', ''), '今日預測VS實際：', '今日預測VS實際預覽：')
-                if alt_cmp.get('status') in {'audited', 'preview'} and text and '尚無' not in text:
+                alt_cmp = today_prediction_vs_actual(p, d.get("現價"))
+                text = _strip_compare_prefix(alt_cmp.get("display", ""), "今日預測VS實際：", "今日預測VS實際預覽：")
+                if alt_cmp.get("status") in {"audited", "preview"} and text and "尚無" not in text:
                     compare_line = f"<br><span class='label'>今日預測VS實際：</span>{safe(text)}"
         except Exception as exc:
             compare_line = f"<br><span class='label'>昨測今收：</span>暫無可用比對（{safe(type(exc).__name__)}）"
-    t1_title = "下一交易日參考預測"
-    t1_prefix = "下一交易日"
-    evidence = safe(d.get('證據鏈', ''))
-    evidence_line = f"<b class='blue'>AI證據鏈：</b>{evidence}<br>" if evidence else ""
-    fair = safe(p.radar.get('Fair Value', ''))
-    persona_badge = safe(p.radar.get('US Persona', '') or '')
+
+    fair = safe(p.radar.get("Fair Value", ""))
+    persona_badge = safe(p.radar.get("US Persona", "") or "")
     persona_html = f"<div class='persona'>{persona_badge}</div>" if persona_badge else ""
     header_trend = _header_trend_line(p)
-    header_streak_positive = '+' in header_trend.split('│', 1)[0]
+    header_streak_positive = "+" in header_trend.split("│", 1)[0]
 
     readiness = assess_low_entry_readiness(p)
-    readiness_color = str(readiness.get('color') or 'yellow')
-    readiness_icon = safe(readiness.get('icon') or '🟡')
-    readiness_score = int(readiness.get('score') or 0)
-    readiness_label = safe(readiness.get('label') or '再等等')
-    readiness_summary = safe(readiness.get('summary') or '等待價格與籌碼確認')
-    main_message = safe(readiness.get('canonical_main_message') or d.get('主訊息'))
+    readiness_color = str(readiness.get("color") or "yellow")
+    readiness_icon = safe(readiness.get("icon") or "🟡")
+    readiness_score = int(readiness.get("score") or 0)
+    readiness_label = safe(readiness.get("label") or "再等等")
+    readiness_summary = safe(readiness.get("summary") or "等待價格與籌碼確認")
+    main_message = safe(readiness.get("canonical_main_message") or d.get("主訊息"))
     readiness_items = []
-    consistency = dict(readiness.get('price_consistency') or {})
-    if consistency.get('consistent'):
-        readiness_items.append("<span class='ok'>✓ 操作價格與五格已同步</span>")
-    for row in list(readiness.get('conditions') or [])[:4]:
-        ok = bool(row.get('ok'))
-        cls = 'ok' if ok else 'wait'
-        symbol = '✓' if ok else '✕'
+    consistency = dict(readiness.get("price_consistency") or {})
+    if consistency.get("consistent"):
+        readiness_items.append("<span class='ok'>✓ 操作價格已同步</span>")
+    # 價格等待路徑已在 summary 說明；下方只保留兩個最重要的條件，避免卡片肥大。
+    for row in list(readiness.get("conditions") or [])[:2]:
+        ok = bool(row.get("ok"))
+        cls = "ok" if ok else "wait"
+        symbol = "✓" if ok else "✕"
         readiness_items.append(f"<span class='{cls}'>{symbol} {safe(row.get('text'))}</span>")
     readiness_detail = "".join(readiness_items)
+
+    decision_title_raw = _strip_compare_prefix(
+        d.get("標題", "AI決策"), "AI進場決策卡｜", "AI進場決策卡 |"
+    )
+    decision_title = safe(decision_title_raw or "AI決策")
+    evidence_raw = str(d.get("證據鏈", "") or "")
+    market_raw = str(p.radar.get("市場風控", "") or "")
+    chip_raw = str(p.radar.get("左側籌碼摘要", "") or "")
+    evidence = safe(evidence_raw)
+    market = safe(market_raw)
+    chip = safe(chip_raw)
+    evidence_tooltip = safe(f"AI證據：{evidence_raw}｜市場：{market_raw}｜籌碼：{chip_raw}")
 
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei',Arial,sans-serif;color:#edf7ff}}
     .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:612px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow:hidden}}
-    .head{{border-bottom:1px solid rgba(55,230,255,.22);padding-bottom:6px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,318px);gap:8px;align-items:start}}
-    h1{{margin:0;color:#fff;font-size:20px;font-weight:900;letter-spacing:.01em}}.streak{{margin-top:1px;color:{'#6dffb1' if header_streak_positive else '#ff6f8e'};font-weight:800;font-size:11.2px}}
-    .fvleft{{border:1px solid rgba(45,212,191,.28);background:linear-gradient(135deg,rgba(6,78,59,.18),rgba(2,18,30,.55));border-radius:12px;padding:6px 8px;color:#ecfeff;font-size:10.5px;line-height:1.16;font-weight:650}}
-    .fvleft b{{display:block;color:#a7f3d0;font-size:9.4px;letter-spacing:.35px;margin-bottom:2px;font-weight:800}}
-    .fvnote{{display:block;color:#93c5fd;font-size:9px;margin-top:1px}}
-    .persona{{display:inline-block;margin-top:5px;border:1px solid rgba(255,215,82,.55);border-radius:13px;color:#fff6c8;background:rgba(18,49,37,.55);padding:3px 8px;font-size:11px;font-weight:800;white-space:nowrap}}
-    .info{{margin-top:6px;border:1px solid rgba(85,200,255,.22);border-radius:11px;background:#071727;padding:6px 9px;font-weight:650;line-height:1.16;font-size:11.8px}}.ptime{{display:block;margin-top:2px;color:#a7f3d0;font-size:9.6px;font-weight:750}}.label{{color:#9bdcff;font-weight:800}}
-    .entrylamp{{margin-top:6px;border-radius:12px;padding:7px 10px;border:1px solid;box-shadow:inset 0 0 22px rgba(255,255,255,.025)}}
-    .entrylamp.green{{background:linear-gradient(90deg,rgba(0,90,55,.54),rgba(4,24,28,.92));border-color:#37f59a}}
-    .entrylamp.yellow{{background:linear-gradient(90deg,rgba(104,75,0,.48),rgba(20,20,24,.94));border-color:#ffd35a}}
-    .entrylamp.red{{background:linear-gradient(90deg,rgba(105,17,31,.54),rgba(25,10,16,.94));border-color:#ff5574}}
-    .entrytop{{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;font-weight:950;color:#ffffff}}
-    .entrytop .name{{font-size:13px}}.entrytop .score{{font-size:19px}}.entrytop .state{{font-size:12px;color:#fff5b8}}
-    .entrysummary{{margin-top:2px;color:#eaf7ff;font-size:10.8px;font-weight:750}}
-    .entryfacts{{margin-top:3px;display:flex;gap:5px 10px;flex-wrap:wrap;font-size:9.4px;font-weight:750}}.entryfacts .ok{{color:#7dffbd}}.entryfacts .wait{{color:#ffd27a}}
-    .decision{{margin-top:6px;border:1px solid rgba(255,211,78,.48);border-radius:13px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:6px 8px}}
-    .dt{{font-size:11.4px;font-weight:850;color:#fff;margin-bottom:5px}}.blue{{color:#8fd7ff}}.main{{background:rgba(0,0,0,.26);border-radius:9px;color:#fff9c9;font-size:12.4px;line-height:1.12;font-weight:850;padding:6px 9px;margin-bottom:6px}}
-    .risk{{border-left:3px solid #ff6f8e;padding-left:8px;color:#dff2ff;font-size:9.8px;font-weight:650;line-height:1.13;margin-bottom:5px;max-height:70px;overflow:hidden}}
-    .grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}}.mini{{border:1px solid rgba(85,170,255,.31);background:#071727;border-radius:9px;padding:5px 7px;min-height:36px}}
-    .mini b{{display:block;color:#9bdcff;font-size:10.8px;margin-bottom:2px;font-weight:800}}.mini span{{font-size:10.8px;font-weight:750;color:#fff;line-height:1.12}}
-    .chips{{margin-top:5px;font-size:10.9px;color:#e6f5ff;font-weight:650;line-height:1.12;max-height:24px;overflow:hidden}}.bottom{{margin-top:6px;background:rgba(0,0,0,.25);border-radius:9px;padding:6px 9px;color:#fff5bc;font-weight:800;font-size:11.4px;line-height:1.12}}
-    .t1{{margin-top:7px;border-top:1px solid rgba(55,230,255,.18);padding-top:5px}}.tl{{font-size:11.8px;color:#9bdcff;font-weight:800}}.tm{{font-size:16.6px;line-height:1.0;color:#5ff4ff;font-weight:900}}.ts{{color:#d8f2ff;font-weight:650;font-size:11px}}
-    /* V1065: 100% desktop zoom keeps the header side-by-side.  The old 1100px
-       breakpoint stacked Fair Value below the title inside each Streamlit column,
-       adding enough height to clip the bottom of the fixed iframe. */
+    .head{{border-bottom:1px solid rgba(55,230,255,.22);padding-bottom:5px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,318px);gap:8px;align-items:start}}
+    h1{{margin:0;color:#fff;font-size:20px;font-weight:900;letter-spacing:.01em}}.streak{{margin-top:1px;color:{'#6dffb1' if header_streak_positive else '#ff6f8e'};font-weight:800;font-size:11px}}
+    .fvleft{{border:1px solid rgba(45,212,191,.28);background:linear-gradient(135deg,rgba(6,78,59,.18),rgba(2,18,30,.55));border-radius:11px;padding:5px 8px;color:#ecfeff;font-size:10.3px;line-height:1.12;font-weight:650}}
+    .fvleft b{{display:block;color:#a7f3d0;font-size:9.2px;letter-spacing:.35px;margin-bottom:1px;font-weight:800}}.fvnote{{display:block;color:#93c5fd;font-size:8.7px;margin-top:1px}}
+    .persona{{display:inline-block;margin-top:4px;border:1px solid rgba(255,215,82,.55);border-radius:13px;color:#fff6c8;background:rgba(18,49,37,.55);padding:2px 7px;font-size:10.6px;font-weight:800;white-space:nowrap}}
+    .info{{margin-top:5px;border:1px solid rgba(85,200,255,.22);border-radius:10px;background:#071727;padding:5px 8px;font-weight:650;line-height:1.12;font-size:11.2px}}.ptime{{display:block;margin-top:1px;color:#a7f3d0;font-size:9.1px;font-weight:750}}.label{{color:#9bdcff;font-weight:800}}
+    .entrylamp{{margin-top:5px;border-radius:11px;padding:6px 9px;border:1px solid;box-shadow:inset 0 0 22px rgba(255,255,255,.025)}}
+    .entrylamp.green{{background:linear-gradient(90deg,rgba(0,90,55,.54),rgba(4,24,28,.92));border-color:#37f59a}}.entrylamp.yellow{{background:linear-gradient(90deg,rgba(104,75,0,.48),rgba(20,20,24,.94));border-color:#ffd35a}}.entrylamp.red{{background:linear-gradient(90deg,rgba(105,17,31,.54),rgba(25,10,16,.94));border-color:#ff5574}}
+    .entrytop{{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-weight:950;color:#fff}}.entrytop .name{{font-size:12.5px}}.entrytop .score{{font-size:18px}}.entrytop .state{{font-size:11.5px;color:#fff5b8}}
+    .entrysummary{{margin-top:1px;color:#eaf7ff;font-size:10.2px;font-weight:780;line-height:1.12}}.entryfacts{{margin-top:2px;display:flex;gap:4px 9px;flex-wrap:wrap;font-size:9px;font-weight:750}}.entryfacts .ok{{color:#7dffbd}}.entryfacts .wait{{color:#ffd27a}}
+    .decision{{margin-top:5px;border:1px solid rgba(255,211,78,.48);border-radius:12px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:5px 7px}}
+    .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}.main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:11.6px;line-height:1.10;font-weight:850;padding:5px 8px;margin-bottom:4px}}
+    .decision-evidence{{border-left:3px solid #ff6f8e;padding:2px 0 2px 7px;color:#dff2ff;font-size:9.1px;font-weight:650;line-height:1.08;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:help}}
+    .decision-evidence b{{color:#8fd7ff}}.sep{{color:#6d8ca5;padding:0 3px}}
+    .pricebar{{margin-top:4px;border:1px solid rgba(85,170,255,.28);background:#071727;border-radius:9px;display:grid;grid-template-columns:1.35fr 1.15fr 1.15fr .95fr .95fr;overflow:hidden}}
+    .priceitem{{min-width:0;padding:4px 6px;border-right:1px solid rgba(85,170,255,.18);font-size:9.7px;font-weight:760;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.priceitem:last-child{{border-right:0}}.priceitem b{{color:#9bdcff;margin-right:3px;font-size:9.2px}}
+    .t1{{margin-top:5px;border-top:1px solid rgba(55,230,255,.18);padding-top:4px}}.tl{{font-size:10.8px;color:#9bdcff;font-weight:800}}.tm{{font-size:15.8px;line-height:1.0;color:#5ff4ff;font-weight:900}}.ts{{color:#d8f2ff;font-weight:650;font-size:10.3px}}
     @media(max-width:1020px) and (min-width:721px){{
-      .panel{{padding:3px 7px 4px}}
-      .head{{grid-template-columns:minmax(0,1fr) minmax(205px,285px);gap:6px;padding-bottom:5px}}
-      h1{{font-size:18.5px}}.streak{{font-size:10.3px}}
-      .fvleft{{padding:5px 7px;font-size:9.8px;line-height:1.10}}.fvleft b{{font-size:8.9px}}.fvnote{{font-size:8.4px}}
-      .info{{margin-top:5px;padding:5px 8px;font-size:10.8px;line-height:1.10}}.ptime{{font-size:8.9px}}
-      .entrylamp{{margin-top:5px;padding:6px 8px}}.entrytop{{gap:7px}}.entrytop .name{{font-size:12px}}.entrytop .score{{font-size:17px}}.entrytop .state{{font-size:11px}}
-      .entrysummary{{font-size:9.9px}}.entryfacts{{font-size:8.7px;gap:3px 8px}}
-      .decision{{margin-top:5px;padding:5px 7px}}.dt{{font-size:10.5px;margin-bottom:4px}}.main{{font-size:11.3px;padding:5px 8px;margin-bottom:5px;line-height:1.08}}
-      .risk{{font-size:9.0px;line-height:1.08;max-height:62px;margin-bottom:4px}}
-      .grid{{gap:4px}}.mini{{padding:4px 5px;min-height:33px}}.mini b{{font-size:9.7px}}.mini span{{font-size:9.6px;line-height:1.08}}
-      .chips{{margin-top:4px;font-size:9.8px;max-height:22px}}.bottom{{margin-top:5px;padding:5px 8px;font-size:10.3px;line-height:1.08}}
-      .t1{{margin-top:6px;padding-top:4px}}.tl{{font-size:10.8px}}.tm{{font-size:15.2px}}.ts{{font-size:10px}}
+      .panel{{padding:3px 7px 4px}}.head{{grid-template-columns:minmax(0,1fr) minmax(205px,285px);gap:6px;padding-bottom:4px}}
+      h1{{font-size:18.2px}}.streak{{font-size:10px}}.fvleft{{padding:4px 7px;font-size:9.5px;line-height:1.08}}.fvleft b{{font-size:8.7px}}.fvnote{{font-size:8.1px}}
+      .info{{margin-top:4px;padding:4px 7px;font-size:10.4px;line-height:1.08}}.ptime{{font-size:8.6px}}
+      .entrylamp{{margin-top:4px;padding:5px 7px}}.entrytop{{gap:6px}}.entrytop .name{{font-size:11.5px}}.entrytop .score{{font-size:16.5px}}.entrytop .state{{font-size:10.5px}}.entrysummary{{font-size:9.4px}}.entryfacts{{font-size:8.3px;gap:2px 7px}}
+      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.4px;padding:4px 7px;margin-bottom:3px;line-height:1.06}}.decision-evidence{{font-size:8.3px;line-height:1.04}}
+      .priceitem{{padding:3px 4px;font-size:8.7px}}.priceitem b{{font-size:8.2px;margin-right:2px}}
+      .t1{{margin-top:4px;padding-top:3px}}.tl{{font-size:9.9px}}.tm{{font-size:14.6px}}.ts{{font-size:9.3px}}
     }}
     @media(max-width:720px){{
-      .head{{grid-template-columns:1fr}}
-      .grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      .mini:last-child{{grid-column:1 / -1}}
-      .panel{{overflow:visible}}
+      .head{{grid-template-columns:1fr}}.pricebar{{grid-template-columns:repeat(2,minmax(0,1fr))}}.priceitem{{border-bottom:1px solid rgba(85,170,255,.18)}}.priceitem:last-child{{grid-column:1 / -1}}.panel{{overflow:visible}}
     }}
     </style></head><body><div class='panel'>
       <div class='head'><div><h1>{safe(t.resolved_symbol)}｜{safe(t.name)}</h1><div class='streak'>{safe(header_trend)}</div>{persona_html}</div><div class='fvleft'><b>模型合理價值區間 / FAIR VALUE</b>{fair}<span class='fvnote'>技術錨 + V8.4校準 / 樣本少｜研究參考</span></div></div>
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜漲跌：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>今日高：{fmt(d.get('最高'))}｜今日低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
       <div class='entrylamp {readiness_color}'><div class='entrytop'><span class='name'>{readiness_icon} AI低接成熟度</span><span class='score'>{readiness_score}%</span><span class='state'>{readiness_label}</span></div><div class='entrysummary'>{readiness_summary}</div><div class='entryfacts'>{readiness_detail}</div></div>
       <div class='decision'>
-        <div class='dt'>{safe(d.get('標題'))}</div>
+        <div class='dt'>AI決策｜{decision_title}</div>
         <div class='main'>{main_message}</div>
-        <div class='risk'>{evidence_line}<b class='blue'>市場：</b>{safe(p.radar.get('市場風控'))}<br><b class='blue'>{'Short' if t.market == 'US' else '籌碼'}：</b>{safe(p.radar.get('左側籌碼摘要'))}</div>
-        <div class='grid'>
-          <div class='mini'><b>低接計畫</b><span>{fmt(d.get('低接第一批'))} 第一批｜{fmt(d.get('低接第二批'))} 第二批</span></div>
-          <div class='mini'><b>攻擊</b><span>{safe(d.get('攻擊'))}</span></div>
-          <div class='mini'><b>轉強確認</b><span>{safe(d.get('轉強'))}</span></div>
-          <div class='mini'><b>停手</b><span>{fmt(d.get('防守'))} 收不回停</span></div>
-          <div class='mini'><b>不追</b><span>{fmt(d.get('不追'))} 上方急拉不追</span></div>
+        <div class='decision-evidence' title='{evidence_tooltip}'><b>證據</b> {evidence}<span class='sep'>｜</span><b>市場</b> {market}<span class='sep'>｜</span><b>{'Short' if t.market == 'US' else '籌碼'}</b> {chip}</div>
+        <div class='pricebar'>
+          <div class='priceitem' title='第一批與第二批低接價'><b>低接</b>{fmt(d.get('低接第一批'))}／{fmt(d.get('低接第二批'))}</div>
+          <div class='priceitem' title='{safe(d.get('攻擊'))}'><b>攻擊</b>{safe(d.get('攻擊'))}</div>
+          <div class='priceitem' title='{safe(d.get('轉強'))}'><b>轉強</b>{safe(d.get('轉強'))}</div>
+          <div class='priceitem' title='防守價'><b>停手</b>{fmt(d.get('防守'))}</div>
+          <div class='priceitem' title='不追價'><b>不追</b>{fmt(d.get('不追'))}</div>
         </div>
-        <div class='chips'>籌碼摘要：{safe(p.radar.get('左側籌碼摘要'))}</div>
-        <div class='bottom'>一句話：{safe(d.get('一句話'))}</div>
       </div>
-      <div class='t1'><div class='tl'>{t1_title}</div><div class='tm'>{t1_prefix}收盤預估：{fmt(p.final_t1)}</div><div class='ts'>{t1_prefix}路徑上緣：{fmt(p.final_t1_high)}｜{t1_prefix}風險低點：{fmt(p.final_t1_low)}</div></div>
+      <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>
     </div></body></html>
     """
     html_block(html, height=642, scrolling=False)
