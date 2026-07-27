@@ -1210,17 +1210,17 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-07-23T20:25:37+08:00",
     "approved_bias": 0.0,
-    "audit_count": 15,
-    "avg_abs_error_pct": 3.0101,
-    "avg_direction_brier": 0.389704,
-    "avg_downside_tail_breach_pct": 2.119,
-    "close_range_hit_rate": 0.3333,
-    "direction_audit_count": 9,
-    "direction_hit_rate": 0.1111,
+    "audit_count": 16,
+    "avg_abs_error_pct": 2.8353,
+    "avg_direction_brier": 0.367699,
+    "avg_downside_tail_breach_pct": 1.9071,
+    "close_range_hit_rate": 0.4,
+    "direction_audit_count": 10,
+    "direction_hit_rate": 0.2,
     "error_type_counts": {
       "over_prediction": 6,
       "under_prediction": 5,
-      "within_tolerance": 4
+      "within_tolerance": 5
     },
     "factor_learning": {
       "MU": {
@@ -1616,23 +1616,23 @@
         "weighted_reliability": 0.0569
       }
     },
-    "last_actual_direction": "DOWN",
+    "last_actual_direction": "NEUTRAL",
     "last_close_in_predicted_range": true,
-    "last_defense_stop_touched": true,
-    "last_direction_hit": false,
+    "last_defense_stop_touched": false,
+    "last_direction_hit": true,
     "last_dominant_force": "費半",
-    "last_dominant_force_hit": false,
-    "last_downside_tail_breach_pct": -0.6289,
-    "last_error_pct": -0.6198,
+    "last_dominant_force_hit": null,
+    "last_downside_tail_breach_pct": 0.0,
+    "last_error_pct": 0.2132,
     "last_error_type": "within_tolerance",
     "last_predicted_direction": "NEUTRAL",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
-    "learning_maturity": 0.225,
+    "learning_maturity": 0.25,
     "learning_schema": "RC4.5_DNA_V1",
-    "range_audit_count": 9,
+    "range_audit_count": 10,
     "suggested_bias": 0.0,
     "ticker": "2330.TW",
-    "updated_at_tw": "2026-07-23T20:25:14+08:00"
+    "updated_at_tw": "2026-07-27T14:10:47+08:00"
   },
   "2337.TW": {
     "active_family_count": 0,
