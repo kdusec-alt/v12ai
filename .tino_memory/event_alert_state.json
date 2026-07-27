@@ -1,7 +1,8 @@
 {
   "events": [
     {
-      "acknowledged": false,
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-27T01:14:20+00:00",
       "category": "geo_energy_escalation",
       "cooling_count": 0,
       "event_id": "EV-8EF02DA37AF306",
@@ -13,7 +14,7 @@
       "last_evidence_epoch": 1785114016.532015,
       "last_seen_at": "2026-07-27T01:00:16+00:00",
       "last_seen_epoch": 1785114016.532015,
-      "last_transition_at": "2026-07-27T01:00:16+00:00",
+      "last_transition_at": "2026-07-27T01:14:20+00:00",
       "peak_severity": 4,
       "reinforcement_count": 6,
       "related_fingerprints": [
@@ -36,7 +37,7 @@
       ],
       "status": "active_red",
       "title": "Oil Prices Rise as US, Iran Trade Strikes, Israel Moves Further Into Lebanon - EnergyNow.com",
-      "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
       "acknowledged": false,
@@ -153,5 +154,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T01:00:16+00:00"
+  "updated_at": "2026-07-27T01:14:20+00:00"
 }
