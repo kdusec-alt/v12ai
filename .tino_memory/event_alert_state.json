@@ -90,29 +90,29 @@
       "event_id": "EV-717A2AC87DC8DC",
       "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
       "family": "high_impact",
-      "fingerprint": "8c83b1d323182891",
+      "fingerprint": "2912cd290264f1d8",
       "first_seen_at": "2026-07-25T05:20:02+00:00",
       "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785145152.161558,
-      "last_seen_at": "2026-07-27T09:39:12+00:00",
-      "last_seen_epoch": 1785145152.161558,
-      "last_transition_at": "2026-07-27T09:39:12+00:00",
+      "last_evidence_epoch": 1785151187.615325,
+      "last_seen_at": "2026-07-27T11:19:47+00:00",
+      "last_seen_epoch": 1785151187.615325,
+      "last_transition_at": "2026-07-27T11:19:47+00:00",
       "peak_severity": 3,
-      "reinforcement_count": 9,
+      "reinforcement_count": 10,
       "related_fingerprints": [
-        "fa6cb1c1e8141edd",
         "33a2ac1ace040017",
         "46d5a9faa3b39f37",
         "89d142180136e37b",
         "c19910438eaf85f1",
         "d85793aad51784f8",
         "b5fb07e5c47f23c0",
-        "1a9cc472048ed893"
+        "1a9cc472048ed893",
+        "8c83b1d323182891"
       ],
       "risk_sign": 0,
       "scope": "ticker",
       "severity": 3,
-      "source": "GoogleNewsGlobal/GMK Center",
+      "source": "GoogleNewsGlobal/IndexBox",
       "source_markets": [
         "GLOBAL"
       ],
@@ -121,7 +121,7 @@
         "SKHY"
       ],
       "status": "active_red",
-      "title": "Business activity in the eurozone returned to growth in July for the first time in four months - GMK Center",
+      "title": "Eurozone PMI Rises to 51.9 in July 2026 Amid Recovery and Middle East Risks - News and Statistics - IndexBox",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
     },
     {
@@ -162,5 +162,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T10:58:54+00:00"
+  "updated_at": "2026-07-27T11:19:47+00:00"
 }
