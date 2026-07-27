@@ -119,7 +119,8 @@
       "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
-      "acknowledged": false,
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-27T01:14:33+00:00",
       "category": "macro_release_pending",
       "cooling_count": 0,
       "event_id": "EV-717A2AC87DC8DC",
@@ -131,7 +132,7 @@
       "last_evidence_epoch": 1785091596.106017,
       "last_seen_at": "2026-07-26T18:46:36+00:00",
       "last_seen_epoch": 1785091596.106017,
-      "last_transition_at": "2026-07-27T00:48:38+00:00",
+      "last_transition_at": "2026-07-27T01:14:33+00:00",
       "peak_severity": 3,
       "reinforcement_count": 4,
       "related_fingerprints": [
@@ -152,9 +153,9 @@
       ],
       "status": "cooling",
       "title": "The U.S. Economy Is Stronger Than Expected. That Could Keep Interest Rates Higher for Longer - 24/7 Wall St.",
-      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T01:14:29+00:00"
+  "updated_at": "2026-07-27T01:14:33+00:00"
 }
