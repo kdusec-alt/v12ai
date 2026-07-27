@@ -46,25 +46,26 @@
       "event_id": "EV-717A2AC87DC8DC",
       "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
       "family": "high_impact",
-      "fingerprint": "c19910438eaf85f1",
+      "fingerprint": "d85793aad51784f8",
       "first_seen_at": "2026-07-25T05:20:02+00:00",
       "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785122381.228757,
-      "last_seen_at": "2026-07-27T03:19:41+00:00",
-      "last_seen_epoch": 1785122381.228757,
-      "last_transition_at": "2026-07-27T03:19:41+00:00",
+      "last_evidence_epoch": 1785125266.898685,
+      "last_seen_at": "2026-07-27T04:07:46+00:00",
+      "last_seen_epoch": 1785125266.898685,
+      "last_transition_at": "2026-07-27T04:07:46+00:00",
       "peak_severity": 3,
-      "reinforcement_count": 5,
+      "reinforcement_count": 6,
       "related_fingerprints": [
         "fa6cb1c1e8141edd",
         "33a2ac1ace040017",
         "46d5a9faa3b39f37",
-        "89d142180136e37b"
+        "89d142180136e37b",
+        "c19910438eaf85f1"
       ],
       "risk_sign": 0,
       "scope": "ticker",
       "severity": 3,
-      "source": "GoogleNewsGlobal/TradingKey",
+      "source": "GoogleNewsGlobal/livemint.com",
       "source_markets": [
         "GLOBAL"
       ],
@@ -73,7 +74,7 @@
         "SKHY"
       ],
       "status": "active_red",
-      "title": "TradingKey Wall Street Weekly Report: Inflation Data Improves, Energy Costs Pressure U.S. Stocks to End Week Lower - TradingKey",
+      "title": "US stocks to Asian markets today: Global equity heatmap you may like to know before Dalal Street opens on Monday - livemint.com",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
     },
     {
@@ -157,5 +158,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T03:19:41+00:00"
+  "updated_at": "2026-07-27T04:07:46+00:00"
 }
