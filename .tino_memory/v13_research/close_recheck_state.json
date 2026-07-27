@@ -3,19 +3,21 @@
     "1591.TWO",
     "2327.TW",
     "2408.TW",
-    "3037.TW"
+    "3037.TW",
+    "5483.TWO",
+    "6586.TWO"
   ],
   "context_updated": 0,
   "error_tickers": [],
   "errors": 0,
-  "formal_written": 4,
-  "last_run_time_tw": "2026-07-27T17:09:11+08:00",
-  "remaining": 7,
+  "formal_written": 6,
+  "last_run_time_tw": "2026-07-27T17:10:01+08:00",
+  "remaining": 5,
   "status": "partial",
   "today_tickers": 11,
   "trade_date": "2026-07-27",
   "unchanged": 0,
-  "updated": 4,
+  "updated": 6,
   "waiting_institution": 0,
   "waiting_tickers": []
 }
