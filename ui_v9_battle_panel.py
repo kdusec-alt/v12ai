@@ -4,7 +4,7 @@ from __future__ import annotations
 from ui_html import fmt, html_block, safe
 
 try:
-    from low_entry_readiness_v1064 import assess_low_entry_readiness
+    from low_entry_readiness_v1065 import assess_low_entry_readiness
 except Exception:
     def assess_low_entry_readiness(_forecast):
         return {
