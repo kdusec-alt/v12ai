@@ -1,4 +1,4 @@
-name: V1062-V1066 targeted tests
+name: V1062-V1067 targeted tests
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - agent/low-entry-readiness-v1064
       - agent/responsive-desktop-v1065
       - agent/compact-decision-panel-v1066
+      - agent/decision-evidence-spacing-v1067
   pull_request:
     branches:
       - main
@@ -31,6 +32,8 @@ jobs:
         run: python -m unittest -v test_low_entry_readiness_v1065.py
       - name: Run V1066 compact decision panel contract
         run: python -m unittest -v test_compact_decision_panel_v1066.py
+      - name: Run V1067 decision evidence spacing contract
+        run: python -m unittest -v test_decision_evidence_spacing_v1067.py
       - name: Run event and low-entry tests
         run: |
           python -m unittest -v \
