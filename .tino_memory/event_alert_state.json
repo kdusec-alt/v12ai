@@ -1,6 +1,48 @@
 {
   "events": [
     {
+      "acknowledged": false,
+      "category": "geo_energy_escalation",
+      "cooling_count": 0,
+      "event_id": "EV-FE4B47983D28AA",
+      "event_key": "global:geopolitical:general_geo",
+      "family": "geopolitical",
+      "fingerprint": "fa4a8d62e55748ab",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1785133297.98725,
+      "last_seen_at": "2026-07-27T06:21:37+00:00",
+      "last_seen_epoch": 1785133297.98725,
+      "last_transition_at": "2026-07-27T06:21:37+00:00",
+      "peak_severity": 4,
+      "reinforcement_count": 50,
+      "related_fingerprints": [
+        "93fb4f8183c616a4",
+        "52023a894b7ec45b",
+        "5b20e3a0eeb9ef98",
+        "250f8381c8b8f61b",
+        "2ec39285d95f9f00",
+        "ff0f3bec348d5e03",
+        "977d50f4bb51a670",
+        "31b67214fab918df"
+      ],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 4,
+      "source": "TINO_GlobalEventCore_YahooFinance",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL",
+        "SKHY",
+        "MRVL"
+      ],
+      "status": "active_red",
+      "title": "Global Event Core｜油價快速回落｜WTI -6.16%／Brent -6.03%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
+      "transition_reason": "市場衝擊 L2 產業衝擊 0/100｜跨市場事件｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+    },
+    {
       "acknowledged": true,
       "acknowledged_at": "2026-07-27T01:14:20+00:00",
       "category": "geo_energy_escalation",
@@ -46,26 +88,27 @@
       "event_id": "EV-717A2AC87DC8DC",
       "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
       "family": "high_impact",
-      "fingerprint": "d85793aad51784f8",
+      "fingerprint": "b5fb07e5c47f23c0",
       "first_seen_at": "2026-07-25T05:20:02+00:00",
       "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785125266.898685,
-      "last_seen_at": "2026-07-27T04:07:46+00:00",
-      "last_seen_epoch": 1785125266.898685,
-      "last_transition_at": "2026-07-27T04:07:46+00:00",
+      "last_evidence_epoch": 1785133297.98725,
+      "last_seen_at": "2026-07-27T06:21:37+00:00",
+      "last_seen_epoch": 1785133297.98725,
+      "last_transition_at": "2026-07-27T06:21:37+00:00",
       "peak_severity": 3,
-      "reinforcement_count": 6,
+      "reinforcement_count": 7,
       "related_fingerprints": [
         "fa6cb1c1e8141edd",
         "33a2ac1ace040017",
         "46d5a9faa3b39f37",
         "89d142180136e37b",
-        "c19910438eaf85f1"
+        "c19910438eaf85f1",
+        "d85793aad51784f8"
       ],
       "risk_sign": 0,
       "scope": "ticker",
       "severity": 3,
-      "source": "GoogleNewsGlobal/livemint.com",
+      "source": "GoogleNewsGlobal/BW Businessworld",
       "source_markets": [
         "GLOBAL"
       ],
@@ -74,51 +117,8 @@
         "SKHY"
       ],
       "status": "active_red",
-      "title": "US stocks to Asian markets today: Global equity heatmap you may like to know before Dalal Street opens on Monday - livemint.com",
+      "title": "India's July Flash PMI Falls To 54.3 - BW Businessworld",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
-    },
-    {
-      "acknowledged": true,
-      "acknowledged_at": "2026-07-27T01:14:24+00:00",
-      "category": "geo_trade_controls",
-      "cooling_count": 0,
-      "event_id": "EV-FE4B47983D28AA",
-      "event_key": "global:geopolitical:general_geo",
-      "family": "geopolitical",
-      "fingerprint": "31b67214fab918df",
-      "first_seen_at": "2026-07-24T14:16:34+00:00",
-      "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785113454.187926,
-      "last_seen_at": "2026-07-27T00:50:54+00:00",
-      "last_seen_epoch": 1785113454.187926,
-      "last_transition_at": "2026-07-27T01:14:24+00:00",
-      "peak_severity": 4,
-      "reinforcement_count": 49,
-      "related_fingerprints": [
-        "9b9510adcd83cc90",
-        "93fb4f8183c616a4",
-        "52023a894b7ec45b",
-        "5b20e3a0eeb9ef98",
-        "250f8381c8b8f61b",
-        "2ec39285d95f9f00",
-        "ff0f3bec348d5e03",
-        "977d50f4bb51a670"
-      ],
-      "risk_sign": -1,
-      "scope": "global",
-      "severity": 3,
-      "source": "GoogleNewsGlobal/NST Online",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "SKHY",
-        "MRVL"
-      ],
-      "status": "active_red",
-      "title": "Malaysia gains tariff edge over Asean rivals - NST Online",
-      "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
       "acknowledged": true,
@@ -158,5 +158,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T04:07:46+00:00"
+  "updated_at": "2026-07-27T06:21:37+00:00"
 }
