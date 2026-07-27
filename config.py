@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-VERSION = "TINO RC5.0｜Ticker Event Exposure DNA + Market Shock Transmission｜V9 Frontend Contract"
+VERSION = "TINO RC5.1｜AI Low Entry Readiness + Event Freshness Gate｜V9 Frontend Contract"
 
 CONSTITUTION = """
 V12 是唯一正式版本，取代 V9，但不得低於 V9。
