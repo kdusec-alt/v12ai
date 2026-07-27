@@ -46,29 +46,29 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "ff0f3bec348d5e03",
+      "fingerprint": "8135daecd3718ebf",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785153747.934775,
-      "last_seen_at": "2026-07-27T12:02:27+00:00",
-      "last_seen_epoch": 1785153747.934775,
-      "last_transition_at": "2026-07-27T12:02:27+00:00",
+      "last_evidence_epoch": 1785154402.988507,
+      "last_seen_at": "2026-07-27T12:13:22+00:00",
+      "last_seen_epoch": 1785154402.988507,
+      "last_transition_at": "2026-07-27T12:13:22+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 61,
+      "reinforcement_count": 62,
       "related_fingerprints": [
-        "93fb4f8183c616a4",
         "0b308469cfe74339",
         "27b870ba54a780ef",
         "250f8381c8b8f61b",
         "8eb2a482c92a8b2b",
         "977d50f4bb51a670",
         "31b67214fab918df",
-        "fa4a8d62e55748ab"
+        "fa4a8d62e55748ab",
+        "ff0f3bec348d5e03"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "GoogleNewsGlobal/KLSE Screener",
+      "source": "GoogleNewsGlobal/IndraStra Global",
       "source_markets": [
         "GLOBAL"
       ],
@@ -80,7 +80,7 @@
         "2454.TW"
       ],
       "status": "active_red",
-      "title": "Malaysia gains tariff edge over Asean rivals - KLSE Screener",
+      "title": "Human Rights or Protectionism? The Legal and Economic Battle Behind America's New Forced Labor Tariffs - IndraStra Global",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
@@ -162,5 +162,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T12:02:27+00:00"
+  "updated_at": "2026-07-27T12:13:22+00:00"
 }
