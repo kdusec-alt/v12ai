@@ -21,7 +21,7 @@ class DecisionEvidenceSpacingV1067Tests(unittest.TestCase):
 
     def test_price_bar_is_separated_from_evidence(self):
         self.assertIn("margin-bottom:4px", self.source)
-        self.assertIn(".pricebar{margin-top:0", self.source)
+        self.assertIn(".pricebar{{margin-top:0", self.source)
         self.assertIn("clear:both", self.source)
 
     def test_compact_desktop_preserves_two_complete_lines(self):
