@@ -41,6 +41,46 @@
     },
     {
       "acknowledged": false,
+      "category": "macro_release_pending",
+      "cooling_count": 0,
+      "event_id": "EV-717A2AC87DC8DC",
+      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
+      "family": "high_impact",
+      "fingerprint": "1a9cc472048ed893",
+      "first_seen_at": "2026-07-25T05:20:02+00:00",
+      "first_seen_epoch": 1784956802.439899,
+      "last_evidence_epoch": 1785137380.832103,
+      "last_seen_at": "2026-07-27T07:29:40+00:00",
+      "last_seen_epoch": 1785137380.832103,
+      "last_transition_at": "2026-07-27T07:29:40+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 8,
+      "related_fingerprints": [
+        "fa6cb1c1e8141edd",
+        "33a2ac1ace040017",
+        "46d5a9faa3b39f37",
+        "89d142180136e37b",
+        "c19910438eaf85f1",
+        "d85793aad51784f8",
+        "b5fb07e5c47f23c0"
+      ],
+      "risk_sign": 0,
+      "scope": "ticker",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/BW Businessworld",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL",
+        "SKHY"
+      ],
+      "status": "active_red",
+      "title": "India's Private Sector Growth Slows To Over Three-Year Low In July - BW Businessworld",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
+    },
+    {
+      "acknowledged": false,
       "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
@@ -83,45 +123,6 @@
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
-      "acknowledged": false,
-      "category": "macro_release_pending",
-      "cooling_count": 0,
-      "event_id": "EV-717A2AC87DC8DC",
-      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
-      "family": "high_impact",
-      "fingerprint": "b5fb07e5c47f23c0",
-      "first_seen_at": "2026-07-25T05:20:02+00:00",
-      "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785133297.98725,
-      "last_seen_at": "2026-07-27T06:21:37+00:00",
-      "last_seen_epoch": 1785133297.98725,
-      "last_transition_at": "2026-07-27T06:21:37+00:00",
-      "peak_severity": 3,
-      "reinforcement_count": 7,
-      "related_fingerprints": [
-        "fa6cb1c1e8141edd",
-        "33a2ac1ace040017",
-        "46d5a9faa3b39f37",
-        "89d142180136e37b",
-        "c19910438eaf85f1",
-        "d85793aad51784f8"
-      ],
-      "risk_sign": 0,
-      "scope": "ticker",
-      "severity": 3,
-      "source": "GoogleNewsGlobal/BW Businessworld",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "SKHY"
-      ],
-      "status": "active_red",
-      "title": "India's July Flash PMI Falls To 54.3 - BW Businessworld",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
-    },
-    {
       "acknowledged": true,
       "acknowledged_at": "2026-07-27T01:14:29+00:00",
       "category": "geo_trade_controls",
@@ -159,5 +160,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T06:31:38+00:00"
+  "updated_at": "2026-07-27T07:29:40+00:00"
 }
