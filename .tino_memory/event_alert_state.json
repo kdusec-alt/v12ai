@@ -41,34 +41,34 @@
     },
     {
       "acknowledged": false,
-      "category": "geo_energy_escalation",
+      "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "27b870ba54a780ef",
+      "fingerprint": "96415bceba4d6ae2",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785159685.020385,
-      "last_seen_at": "2026-07-27T13:41:25+00:00",
-      "last_seen_epoch": 1785159685.020385,
-      "last_transition_at": "2026-07-27T13:41:25+00:00",
+      "last_evidence_epoch": 1785162007.24385,
+      "last_seen_at": "2026-07-27T14:20:07+00:00",
+      "last_seen_epoch": 1785162007.24385,
+      "last_transition_at": "2026-07-27T14:20:07+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 65,
+      "reinforcement_count": 66,
       "related_fingerprints": [
-        "8eb2a482c92a8b2b",
         "977d50f4bb51a670",
         "31b67214fab918df",
         "fa4a8d62e55748ab",
         "ff0f3bec348d5e03",
         "8135daecd3718ebf",
         "2ec39285d95f9f00",
-        "715ff1074c5f89d3"
+        "715ff1074c5f89d3",
+        "27b870ba54a780ef"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "TINO_GlobalEventCore_YahooFinance",
+      "source": "GoogleNewsGlobal/SGB Media",
       "source_markets": [
         "GLOBAL",
         "US"
@@ -83,8 +83,8 @@
         "ONDS"
       ],
       "status": "active_red",
-      "title": "Global Event Core｜油價快速回落｜WTI -5.79%／Brent -5.92%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
-      "transition_reason": "市場衝擊 L2 產業衝擊 0/100｜跨市場事件｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "title": "EXEC: Apparel Brands Sourced in Vietnam Hit Hardest by Latest Trump Tariffs - SGB Media",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
       "acknowledged": false,
@@ -166,5 +166,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T13:41:25+00:00"
+  "updated_at": "2026-07-27T14:20:07+00:00"
 }
