@@ -84,42 +84,6 @@
     },
     {
       "acknowledged": true,
-      "acknowledged_at": "2026-07-27T01:14:29+00:00",
-      "category": "geo_trade_controls",
-      "cooling_count": 0,
-      "event_id": "EV-23640CEC3DF480",
-      "event_key": "global:geopolitical:taiwan_strait",
-      "family": "geopolitical",
-      "fingerprint": "710f73af887db4a7",
-      "first_seen_at": "2026-07-24T14:16:34+00:00",
-      "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785056219.363948,
-      "last_seen_at": "2026-07-26T08:56:59+00:00",
-      "last_seen_epoch": 1785056219.363948,
-      "last_transition_at": "2026-07-27T01:14:29+00:00",
-      "peak_severity": 3,
-      "reinforcement_count": 4,
-      "related_fingerprints": [
-        "55e127308085da11",
-        "f01999abc803becd",
-        "c1cb6bb59e114382"
-      ],
-      "risk_sign": -1,
-      "scope": "global",
-      "severity": 3,
-      "source": "GoogleNewsGlobal/Taipei Times",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL"
-      ],
-      "status": "active_red",
-      "title": "US exempts 2,231 Taiwanese products from new tariffs - Taipei Times",
-      "transition_reason": "Admin 已讀並關閉畫面警示"
-    },
-    {
-      "acknowledged": true,
       "acknowledged_at": "2026-07-27T01:14:33+00:00",
       "category": "macro_release_pending",
       "cooling_count": 0,
@@ -154,8 +118,44 @@
       "status": "cooling",
       "title": "The U.S. Economy Is Stronger Than Expected. That Could Keep Interest Rates Higher for Longer - 24/7 Wall St.",
       "transition_reason": "Admin 已讀並關閉畫面警示"
+    },
+    {
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-27T01:14:29+00:00",
+      "category": "geo_trade_controls",
+      "cooling_count": 0,
+      "event_id": "EV-23640CEC3DF480",
+      "event_key": "global:geopolitical:taiwan_strait",
+      "family": "geopolitical",
+      "fingerprint": "710f73af887db4a7",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1785056219.363948,
+      "last_seen_at": "2026-07-26T08:56:59+00:00",
+      "last_seen_epoch": 1785056219.363948,
+      "last_transition_at": "2026-07-27T02:59:33+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 4,
+      "related_fingerprints": [
+        "55e127308085da11",
+        "f01999abc803becd",
+        "c1cb6bb59e114382"
+      ],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 2,
+      "source": "GoogleNewsGlobal/Taipei Times",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL"
+      ],
+      "status": "cooling",
+      "title": "US exempts 2,231 Taiwanese products from new tariffs - Taipei Times",
+      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T01:14:33+00:00"
+  "updated_at": "2026-07-27T02:59:33+00:00"
 }
