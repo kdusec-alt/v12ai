@@ -74,7 +74,8 @@
       ],
       "source_tickers": [
         "GLOBAL",
-        "SKHY"
+        "SKHY",
+        "INTC"
       ],
       "status": "active_red",
       "title": "Weekly Market Update: Central Banks & Earnings - Davy",
@@ -162,5 +163,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-27T12:43:23+00:00"
+  "updated_at": "2026-07-27T12:43:24+00:00"
 }
