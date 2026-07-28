@@ -79,7 +79,9 @@ def _theme():
         color:#eaf6ff!important;
     }
     [data-testid="stToolbar"]{z-index:1000000!important;}
-    .block-container{max-width:1920px;padding:.72rem .34rem .24rem!important;}
+    /* Keep the first navigation row below Streamlit's fixed toolbar without
+       restoring the old oversized empty band. */
+    .block-container{max-width:1920px;padding:3.15rem .34rem .24rem!important;}
     [data-testid="stSidebar"]{background:#07101c!important;}
     [data-testid="stSidebar"] *{color:#eaf6ff!important;}
     .input-safe-spacer{height:6px;}
@@ -95,6 +97,14 @@ def _theme():
     [data-baseweb="select"] div, [data-baseweb="select"] span{
         color:#111827!important;
     }
+    [data-testid="stMetric"]{
+        background:transparent!important;border:0!important;box-shadow:none!important;
+        padding:4px 0 8px!important;
+    }
+    [data-testid="stMetricValue"]{font-size:2.05rem!important;line-height:1.08!important;color:#eaf6ff!important;}
+    [data-testid="stMetricLabel"]{font-weight:800!important;color:#eaf6ff!important;}
+    [data-baseweb="select"]>div{background:#071727!important;border-color:#1d6f95!important;color:#eaf6ff!important;}
+    [data-baseweb="select"] span,[data-baseweb="select"] input{color:#eaf6ff!important;}
     [data-baseweb="tag"]{background:#ff4b5c!important;color:#ffffff!important;}
     [data-baseweb="tag"] span{color:#ffffff!important;}
     [data-testid="stDataFrame"], [data-testid="stDataFrame"] *{
@@ -152,6 +162,11 @@ def _theme():
     .tino-nav-spacer{height:0;}
     [data-testid="stVerticalBlock"]{gap:.62rem!important;}
     .tino-nav-note{color:#bfe6ff;font-size:12px;font-weight:850;margin:-2px 0 6px;}
+    .market-command{border:1px solid rgba(54,230,255,.28);border-left:5px solid #36e6ff;border-radius:12px;background:#061827;padding:8px 12px;margin:4px 0 8px;color:#eaf6ff;line-height:1.35}
+    .market-command .mc-head{font-weight:1000;color:#fff5c4}.market-command .mc-head span{margin-left:10px;color:#eaf6ff}
+    .market-command .mc-facts,.market-command .mc-reason{font-size:12px;color:#bfe6ff;margin-top:2px}
+    .market-command .mc-action{font-size:13px;font-weight:900;margin-top:3px}.market-command small{float:right;color:#9bdcff}
+    .market-crash{border-left-color:#ff4b5c}.market-sell_off{border-left-color:#ff9f43}.market-caution{border-left-color:#ffd96a}.market-normal{border-left-color:#25d88a}
     </style>
     """, unsafe_allow_html=True)
 
@@ -236,6 +251,15 @@ def _global_event_ack_degraded(*args, **kwargs):
 def _global_event_display_degraded(*args, **kwargs):
     return {"level": "caption", "text": ""}
 
+def _market_command_degraded(*args, **kwargs):
+    return {"market": "", "code": "WAIT_CONFIRM", "label": "⚪ 大盤資料等待確認",
+            "score": 0, "confidence": 0, "action": "維持原策略，不以缺失資料推論",
+            "facts": [], "event_reason": ""}
+
+
+def _market_proxy_degraded(*args, **kwargs):
+    return {"accepted": False}
+
 
 try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
@@ -298,6 +322,12 @@ try:
             _global_event_ack_degraded,
             _global_event_display_degraded,
         ),
+    )
+    assess_market_command = _load_optional(
+        "market_command_v1071", ("assess_market_command",), _market_command_degraded
+    )
+    fetch_market_proxy_context = _load_optional(
+        "quantum_market_context", ("fetch_market_proxy_context",), _market_proxy_degraded
     )
 except Exception as exc:
     trace = _log_exception("project_import_failed", exc)
@@ -548,6 +578,33 @@ def _event_watch_fragment_body() -> None:
     forecast = st.session_state.get("forecast")
     if forecast is not None and not bool(getattr(forecast, "stopped", False)):
         _render_event_watch_status(forecast)
+        _render_market_command(forecast)
+
+
+def _render_market_command(forecast) -> None:
+    """Compact market judgement refreshed with the five-minute watcher."""
+    ticker = getattr(forecast, "ticker", None)
+    market = str(getattr(ticker, "market", "") or "").upper()
+    try:
+        proxies = fetch_market_proxy_context(str(getattr(forecast, "price_date", "") or ""))
+        result = assess_market_command(
+            market, proxies, list(getattr(forecast, "news_items", []) or []),
+            dict(getattr(forecast, "radar", {}) or {}),
+        )
+    except Exception:
+        result = _market_command_degraded()
+    market_label = "台股" if market == "TW" else "美股"
+    facts = "｜".join(str(x) for x in (result.get("facts") or [])) or "市場資料同步中"
+    event = str(result.get("event_reason") or "").strip()
+    event_line = f"<div class='mc-reason'>事件：{html.escape(event)}</div>" if event else ""
+    st.markdown(
+        f"""<div class="market-command market-{html.escape(str(result.get('code') or '').lower())}">
+        <div class="mc-head">🌐 大盤智能判斷｜{market_label}<span>{html.escape(str(result.get('label') or '等待確認'))}</span></div>
+        <div class="mc-facts">{html.escape(facts)}</div>{event_line}
+        <div class="mc-action">現在建議：{html.escape(str(result.get('action') or '等待確認'))}
+        <small>可信度 {int(result.get('confidence') or 0)}%</small></div></div>""",
+        unsafe_allow_html=True,
+    )
 
 
 if hasattr(st, "fragment"):
