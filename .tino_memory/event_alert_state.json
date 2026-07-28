@@ -7,29 +7,29 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "3d877ccfe8e241ac",
+      "fingerprint": "6cedaf599d8a70f7",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785229034.796273,
-      "last_seen_at": "2026-07-28T08:57:14+00:00",
-      "last_seen_epoch": 1785229034.796273,
-      "last_transition_at": "2026-07-28T08:57:14+00:00",
+      "last_evidence_epoch": 1785229998.921597,
+      "last_seen_at": "2026-07-28T09:13:18+00:00",
+      "last_seen_epoch": 1785229998.921597,
+      "last_transition_at": "2026-07-28T09:13:18+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 101,
+      "reinforcement_count": 102,
       "related_fingerprints": [
-        "39d91c64cec81400",
         "5d9289dbcc56a14c",
         "a0c6319cafc340e6",
         "00c202b701d5d2a4",
         "71dda054fdc98153",
         "2dae1e430c53f618",
         "71624d59216b8cf9",
-        "9abb5c83e4507f26"
+        "9abb5c83e4507f26",
+        "3d877ccfe8e241ac"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "GoogleNewsGlobal/Asia News Network",
+      "source": "GoogleNewsGlobal/Investing.com",
       "source_markets": [
         "GLOBAL",
         "US"
@@ -45,7 +45,7 @@
         "MRVL"
       ],
       "status": "active_red",
-      "title": "What is the new US 10% tariff on Bangladesh and how does it differ this time? - Asia News Network",
+      "title": "Tariffs Complicate the Fed’s Inflation Fight - Investing.com",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
@@ -62,7 +62,7 @@
       "last_evidence_epoch": 1785208252.061843,
       "last_seen_at": "2026-07-28T03:10:52+00:00",
       "last_seen_epoch": 1785208252.061843,
-      "last_transition_at": "2026-07-28T08:27:59+00:00",
+      "last_transition_at": "2026-07-28T09:13:18+00:00",
       "peak_severity": 3,
       "reinforcement_count": 14,
       "related_fingerprints": [
@@ -77,7 +77,7 @@
       ],
       "risk_sign": 0,
       "scope": "ticker",
-      "severity": 3,
+      "severity": 2,
       "source": "GoogleNewsGlobal/thebull.com.au",
       "source_markets": [
         "GLOBAL"
@@ -87,9 +87,9 @@
         "SKHY",
         "INTC"
       ],
-      "status": "active_red",
+      "status": "cooling",
       "title": "The Impact of Strong US Economic Data on Australian Markets - thebull.com.au",
-      "transition_reason": "Admin 已讀並關閉畫面警示"
+      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
     },
     {
       "acknowledged": true,
@@ -168,5 +168,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T08:57:14+00:00"
+  "updated_at": "2026-07-28T09:13:18+00:00"
 }
