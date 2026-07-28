@@ -320,6 +320,65 @@ def _safe_ts_label(ts) -> str:
         return "時間待同步"
 
 
+def _session_window(status: str) -> tuple[int, int] | None:
+    return {
+        "pre_market": (4 * 60, 9 * 60 + 30),
+        "intraday": (9 * 60 + 30, 16 * 60),
+        "after_hours": (16 * 60, 20 * 60),
+    }.get(str(status or ""))
+
+
+def _session_rows(frame: pd.DataFrame, status: str, now_ny: datetime | None = None) -> pd.DataFrame:
+    """Return bars from exactly one US trading session.
+
+    Pre-market, regular-session and after-hours volume/VWAP are different
+    evidence.  Returning an empty frame is safer than silently mixing them.
+    """
+    window = _session_window(status)
+    if frame is None or frame.empty or window is None:
+        return frame.iloc[0:0] if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    now_ny = now_ny or datetime.now(ZoneInfo("America/New_York"))
+    try:
+        idx_ny = (
+            frame.index.tz_convert("America/New_York")
+            if getattr(frame.index, "tz", None) is not None
+            else frame.index.tz_localize("America/New_York")
+        )
+        minutes = idx_ny.hour * 60 + idx_ny.minute
+        mask = (
+            (idx_ny.date == now_ny.date())
+            & (minutes >= window[0])
+            & (minutes < window[1])
+        )
+        return frame.loc[mask]
+    except Exception:
+        return frame.iloc[0:0]
+
+
+def _formal_us_history(
+    hist: pd.DataFrame,
+    status: str,
+    now_ny: datetime | None = None,
+) -> pd.DataFrame:
+    """Strip an unconfirmed current-day daily candle during regular trading."""
+    if hist is None or hist.empty:
+        return hist
+    now_ny = now_ny or datetime.now(ZoneInfo("America/New_York"))
+    out = hist
+    if status in {"pre_market", "intraday"}:
+        try:
+            last_index = hist.index[-1]
+            if hasattr(last_index, "tz_convert") and getattr(last_index, "tzinfo", None) is not None:
+                last_date = last_index.tz_convert("America/New_York").date()
+            else:
+                last_date = last_index.date()
+            if last_date == now_ny.date() and len(hist) >= 2:
+                out = hist.iloc[:-1]
+        except Exception:
+            pass
+    return out
+
+
 def _fetch_us_extended_quote(symbol: str, previous_close: float, status: str) -> Dict[str, object]:
     """Fetch pre-market / after-hours / intraday quote without replacing official daily K history.
 
@@ -340,48 +399,65 @@ def _fetch_us_extended_quote(symbol: str, previous_close: float, status: str) ->
         import yfinance as yf
         tk = yf.Ticker(symbol)
         # 1m occasionally comes back empty outside regular session; 5m is a safe fallback.
-        h = tk.history(period="5d", interval="1m", prepost=True, auto_adjust=False, timeout=8)
+        interval = "1m"
+        h = tk.history(period="5d", interval=interval, prepost=True, auto_adjust=False, timeout=8)
         if h is None or h.empty:
-            h = tk.history(period="5d", interval="5m", prepost=True, auto_adjust=False, timeout=8)
+            interval = "5m"
+            h = tk.history(period="5d", interval=interval, prepost=True, auto_adjust=False, timeout=8)
         if h is None or h.empty:
             return out
         h = h.dropna(subset=["Close"])
         if h.empty:
             return out
-        last_row = h.iloc[-1]
-        last_ts = h.index[-1]
+        session_h = _session_rows(h, status)
+        if session_h.empty:
+            out["reason"] = "NO_BARS_IN_REQUESTED_SESSION"
+            return out
+        last_row = session_h.iloc[-1]
+        last_ts = session_h.index[-1]
         last = float(last_row["Close"])
         prev = float(previous_close or last)
         chg = last - prev
         chgp = (chg / prev * 100.0) if prev else 0.0
-        # Use current NY date rows for extended/intraday high-low-volume snapshot.
+        open_value = (
+            float(session_h["Open"].dropna().iloc[0])
+            if "Open" in session_h and not session_h["Open"].dropna().empty
+            else last
+        )
+        high = float(session_h["High"].dropna().max()) if "High" in session_h and not session_h["High"].dropna().empty else last
+        low = float(session_h["Low"].dropna().min()) if "Low" in session_h and not session_h["Low"].dropna().empty else last
+        vol = float(session_h["Volume"].fillna(0).sum()) if "Volume" in session_h else 0.0
+        vwap = None
         try:
-            idx_ny = h.index.tz_convert("America/New_York") if getattr(h.index, "tz", None) is not None else h.index.tz_localize("America/New_York")
-            today_mask = idx_ny.date == datetime.now(ZoneInfo("America/New_York")).date()
-            day_h = h.loc[today_mask] if any(today_mask) else h.tail(390)
-        except Exception:
-            day_h = h.tail(390)
-        high = float(day_h["High"].dropna().max()) if "High" in day_h and not day_h["High"].dropna().empty else last
-        low = float(day_h["Low"].dropna().min()) if "Low" in day_h and not day_h["Low"].dropna().empty else last
-        vol = float(day_h["Volume"].fillna(0).sum()) if "Volume" in day_h else 0.0
-        vwap = last
-        try:
-            pv = (day_h["Close"].astype(float) * day_h["Volume"].fillna(0).astype(float)).sum()
-            vv = day_h["Volume"].fillna(0).astype(float).sum()
+            pv = (session_h["Close"].astype(float) * session_h["Volume"].fillna(0).astype(float)).sum()
+            vv = session_h["Volume"].fillna(0).astype(float).sum()
             if vv > 0:
                 vwap = float(pv / vv)
         except Exception:
             pass
+        try:
+            trade_date = (
+                last_ts.tz_convert("America/New_York").date().isoformat()
+                if getattr(last_ts, "tzinfo", None) is not None
+                else last_ts.date().isoformat()
+            )
+        except Exception:
+            trade_date = ""
         out.update({
             "accepted": True,
-            "source": "YahooFinance_1m_PrePost",
+            "source": f"YahooFinance_{interval}_PrePost",
+            "open": round(open_value, 4),
             "last": round(last, 4),
             "high": round(high, 4),
             "low": round(max(low, 0.01), 4),
             "volume": int(vol) if vol else None,
-            "vwap": round(vwap, 4),
+            "vwap": round(vwap, 4) if vwap is not None else None,
+            "vwap_accepted": vwap is not None,
+            "vwap_scope": status,
+            "reference_close": round(prev, 4),
             "change": round(chg, 4),
             "change_pct": round(chgp, 2),
+            "trade_date": trade_date,
             "timestamp": _safe_ts_label(last_ts),
             "status": status,
             "label": _us_session_label(status),
@@ -452,21 +528,36 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
         if hist is None or hist.empty or len(hist) < 3:
             return _fallback_price(ticker, "yfinance 無資料，使用美股樣本方向參考")
         hist = hist.dropna(subset=["Open", "High", "Low", "Close"])
-        last = hist.iloc[-1]; prev = hist.iloc[-2]
-        regular_close = float(last["Close"])
-        previous_close = float(prev["Close"])
         status = _us_market_status_now()
-        ext = _fetch_us_extended_quote(ticker.resolved_symbol, previous_close, status)
+        formal_hist = _formal_us_history(hist, status)
+        if formal_hist is None or len(formal_hist) < 2:
+            return _fallback_price(ticker, "正式日K不足，使用美股樣本方向參考")
+        regular_row = formal_hist.iloc[-1]
+        formal_prev_row = formal_hist.iloc[-2]
+        regular_close = float(regular_row["Close"])
+        formal_previous_close = float(formal_prev_row["Close"])
+        active_session = status in {"pre_market", "intraday", "after_hours"}
+        session_reference_close = regular_close if active_session else formal_previous_close
+        ext = _fetch_us_extended_quote(ticker.resolved_symbol, session_reference_close, status)
         # Formal daily K remains the backbone for trend / MA / regular-session validation.
-        # During pre-market / after-hours / intraday, use extended snapshot only for current tactical price.
+        # During pre-market / after-hours / intraday, use only that session's
+        # bars for tactical O/H/L/V/VWAP; never blend daily and extended ranges.
         live_last = float(ext.get("last") or regular_close) if ext.get("accepted") else regular_close
-        live_high = max(float(last["High"]), float(ext.get("high") or regular_close)) if ext.get("accepted") else float(last["High"])
-        live_low = min(float(last["Low"]), float(ext.get("low") or regular_close)) if ext.get("accepted") else float(last["Low"])
-        live_volume = float(ext.get("volume") or last.get("Volume", 0) or 0) if ext.get("accepted") else float(last.get("Volume",0) or 0)
-        live_vwap = float(ext.get("vwap") or ((live_high + live_low + live_last) / 3.0)) if ext.get("accepted") else (float(last["High"])+float(last["Low"])+regular_close)/3
-        tr = pd.concat([(hist["High"]-hist["Low"]).abs(), (hist["High"]-hist["Close"].shift()).abs(), (hist["Low"]-hist["Close"].shift()).abs()], axis=1).max(axis=1)
+        live_open = float(ext.get("open") or live_last) if ext.get("accepted") else float(regular_row["Open"])
+        live_high = float(ext.get("high") or live_last) if ext.get("accepted") else float(regular_row["High"])
+        live_low = float(ext.get("low") or live_last) if ext.get("accepted") else float(regular_row["Low"])
+        live_volume = float(ext.get("volume") or 0) if ext.get("accepted") else float(regular_row.get("Volume", 0) or 0)
+        live_vwap = (
+            float(ext.get("vwap"))
+            if ext.get("accepted") and ext.get("vwap") is not None
+            else live_last
+            if ext.get("accepted")
+            else (float(regular_row["High"]) + float(regular_row["Low"]) + regular_close) / 3
+        )
+        tr = pd.concat([(formal_hist["High"]-formal_hist["Low"]).abs(), (formal_hist["High"]-formal_hist["Close"].shift()).abs(), (formal_hist["Low"]-formal_hist["Close"].shift()).abs()], axis=1).max(axis=1)
         atr = float(tr.rolling(14).mean().iloc[-1]) if len(tr) >= 14 else max(regular_close*0.04, .01)
-        d = parse_date_safe(hist.index[-1].date().isoformat())
+        d = parse_date_safe(formal_hist.index[-1].date().isoformat())
+        formal_prev_date = parse_date_safe(formal_hist.index[-2].date().isoformat())
         info = _get_us_info(ticker.resolved_symbol)
         ticker = _resolved_us_ticker(ticker, info)
         is_etf = ticker.asset_type == "etf"
@@ -478,8 +569,16 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
             "session": status,
             "session_label": ext.get("label") or _us_session_label(status),
             "regular_close": round(regular_close, 4),
-            "previous_close": round(previous_close, 4),
+            "regular_close_date": d,
+            "formal_previous_close": round(formal_previous_close, 4),
+            "formal_previous_close_date": formal_prev_date,
+            "session_reference_close": round(session_reference_close, 4),
+            "previous_close": round(session_reference_close, 4),
             "extended_accepted": bool(ext.get("accepted")),
+            "vwap_accepted": bool(ext.get("vwap_accepted")),
+            "vwap_scope": ext.get("vwap_scope") or "regular_session",
+            "current_trade_date": ext.get("trade_date") or d,
+            "history_scope": "formal_daily_only",
         }
         ctx = {
             "macro": _us_macro_context(d),
@@ -494,9 +593,27 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
         if is_etf:
             ctx["etf_mode"] = True
             ctx["distribution"] = "ETF Mode：價格熱度 / 成分 / 流動性 / 市場風險"
-        truth_source = "YahooFinance_1m_PrePost" if ext.get("accepted") else "YahooFinance"
+        truth_source = str(ext.get("source") or "YahooFinance_PrePost") if ext.get("accepted") else "YahooFinance"
         truth_reason = f"{_us_session_label(status)}價格快照｜正式日K保留" if ext.get("accepted") else "價格最新｜日K"
-        return PriceFrame(ticker, make_truth(truth_source, d, False, True, truth_reason, "latest"), float(last["Open"]), live_high, live_low, live_last, previous_close, live_volume, live_vwap, atr, [float(x) for x in hist["Close"].tail(60)], [float(x) for x in hist["High"].tail(60)], [float(x) for x in hist["Low"].tail(60)], [float(x) for x in hist["Volume"].tail(60)], d, status, ctx)
+        return PriceFrame(
+            ticker,
+            make_truth(truth_source, d, False, True, truth_reason, "latest"),
+            live_open,
+            live_high,
+            live_low,
+            live_last,
+            session_reference_close,
+            live_volume,
+            live_vwap,
+            atr,
+            [float(x) for x in formal_hist["Close"].tail(60)],
+            [float(x) for x in formal_hist["High"].tail(60)],
+            [float(x) for x in formal_hist["Low"].tail(60)],
+            [float(x) for x in formal_hist["Volume"].tail(60)],
+            d,
+            status,
+            ctx,
+        )
     except Exception as exc:
         return _fallback_price(ticker, f"資料源錯誤：{type(exc).__name__}")
 
@@ -575,7 +692,8 @@ _US_BULL_TERMS = [
 ]
 _US_BEAR_TERMS = [
     "miss", "misses", "cuts", "cut", "weak demand", "slump", "slumps", "downgrade", "downgraded",
-    "guidance cut", "probe", "investigation", "ban", "tariff", "export control", "falls", "fell",
+    "guidance cut", "weak guidance", "soft guidance", "underwhelming guidance", "tepid guidance",
+    "probe", "investigation", "ban", "tariff", "export control", "falls", "fell",
     "drops", "dropped", "plunges", "plunge", "selloff", "lawsuit", "warns", "warning", "delay",
 ]
 _US_AI_SEMI_TERMS = [
@@ -700,7 +818,10 @@ def _us_news_profile_queries(ticker: TickerInfo) -> List[Tuple[str, str, int]]:
     industry = prof.get("industry") or []
     peers = prof.get("peers") or []
     analyst_query = f"{base} downgrade price target cut Morgan Stanley JPMorgan analyst rating"
-    forward_risk_query = f"{base} guidance cut weak outlook demand slowdown margin decline offering investigation"
+    forward_risk_query = (
+        f"{base} guidance weak soft underwhelming outlook not enough "
+        "expectations demand slowdown margin decline offering investigation"
+    )
     # Keep only three company calls for speed: two operating/company routes plus
     # one dedicated analyst route so target changes cannot be starved.
     company_queries = company[:2]
@@ -793,12 +914,19 @@ def _score_us_news(title: str, bucket: str = "company") -> Tuple[float, str]:
     score += min(0.22, pos * 0.075)
     score -= min(0.22, neg * 0.075)
     forward_negative = (
-        "guidance cut", "cuts guidance", "lowered guidance", "lower outlook", "weak outlook",
+        "guidance cut", "cuts guidance", "lowered guidance", "weak guidance", "soft guidance",
+        "underwhelming guidance", "guidance disappoints", "guidance falls short", "tepid guidance",
+        "lower outlook", "weak outlook", "soft outlook", "lack of a stronger outlook", "not enough",
         "below estimates", "misses estimates", "demand slowdown", "order cancellation",
         "demand slows", "inventory build", "margin decline", "price target cut", "downgrade",
         "offering", "dilution", "investigation", "probe",
     )
     forward_hits = sum(1 for term in forward_negative if term in text)
+    forward_positive = (
+        "raises guidance", "raised guidance", "guidance raised", "boosts outlook",
+        "strong outlook", "guides above", "above consensus",
+    )
+    forward_positive_hits = sum(1 for term in forward_positive if term in text)
     if forward_hits:
         score -= min(0.18, 0.075 * forward_hits)
     if ai_semi and bucket in {"company", "industry"}:
@@ -836,7 +964,11 @@ def _score_us_news(title: str, bucket: str = "company") -> Tuple[float, str]:
         else:
             tag = "us_industry_news"
     else:
-        if earnings:
+        if earnings and forward_hits:
+            tag = "us_company_earnings_forward_risk"
+        elif earnings and forward_positive_hits:
+            tag = "us_company_earnings_forward_raise"
+        elif earnings:
             tag = "us_company_earnings"
         elif ai_semi:
             tag = "us_company_ai_semis"
@@ -880,7 +1012,7 @@ def _google_news_us(query: str, bucket: str, limit: int = 4) -> List[NewsItem]:
 
 def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsItem]:
     sym = str(ticker.resolved_symbol or ticker.symbol or "").upper()
-    cache_key = f"rc24_us_news_v3_score_time:{sym}:{date.today().isoformat()}"
+    cache_key = f"v1072_us_news_forward_first:{sym}:{date.today().isoformat()}"
     now_ts = time.time()
     cached = _US_NEWS_CACHE.get(cache_key)
     if not force_refresh and cached and now_ts - cached[0] < _US_NEWS_CACHE_TTL_SEC:

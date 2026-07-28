@@ -5,6 +5,7 @@ from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional
 
 from models import PriceFrame
+from price_truth_v1072 import price_truth
 
 
 @dataclass(frozen=True)
@@ -72,9 +73,32 @@ def _is_live_unconfirmed(price: PriceFrame) -> bool:
 
 def _confirmed_closes(price: PriceFrame) -> List[float]:
     closes = _positive_closes(list(getattr(price, "recent_closes", []) or []))
-    if len(closes) >= 2 and _is_live_unconfirmed(price):
+    meta = (price.context or {}).get("price_meta", {})
+    if not isinstance(meta, dict):
+        meta = {}
+    if (
+        len(closes) >= 2
+        and _is_live_unconfirmed(price)
+        and str(meta.get("history_scope") or "") != "formal_daily_only"
+    ):
         # data_sources 可能把 live last 塞到 closes[-1]；正式連漲連跌必須先排除。
-        return closes[:-1]
+        closes = closes[:-1]
+
+    truth = price_truth(price)
+    status = str(getattr(price, "market_status", "") or "")
+    formal_close = truth.get("formal_close")
+    if (
+        closes
+        and truth.get("formal_series_mismatch")
+        and status in {"after_close", "closed_reference"}
+        and formal_close
+    ):
+        previous = float(getattr(price, "previous_close", 0) or 0)
+        tolerance = max(0.005, abs(previous) * 0.0005)
+        if previous > 0 and abs(closes[-1] - previous) <= tolerance:
+            closes = [*closes, float(formal_close)]
+        else:
+            closes = [*closes[:-1], float(formal_close)]
     return closes
 
 
@@ -203,11 +227,19 @@ def _display_streak(price: PriceFrame) -> tuple[str, int, Optional[float], str]:
 
 def trend_tag(price: PriceFrame) -> str:
     direction, days, streak_ret, suffix = _display_streak(price)
+    truth = price_truth(price)
+    if (
+        str(price.ticker.market or "").upper() == "US"
+        and str(getattr(price, "market_status", "") or "") in {"pre_market", "intraday", "after_hours"}
+        and truth.get("header_label")
+    ):
+        return f"{truth['header_label']}{suffix}"
     if days <= 0 or streak_ret is None:
         return f"{direction}{suffix}"
     # 一個交易日只是「今日漲跌」，尚未構成可讀性良好的連續趨勢。
     if days == 1:
-        return f"今日 {_fmt_pct(streak_ret)}{suffix}"
+        header = str(truth.get("header_label") or "")
+        return f"{header or ('今日 ' + _fmt_pct(streak_ret))}{suffix}"
     return f"{direction}{days}天 {_fmt_pct(streak_ret)}{suffix}"
 
 

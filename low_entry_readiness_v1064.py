@@ -169,6 +169,24 @@ def assess_low_entry_readiness(forecast: Any) -> Dict[str, Any]:
     atr = _fair_atr_estimate(radar, last) if last > 0 else 0.01
     hard_blockers: list[str] = []
     caps: list[int] = []
+    trust = dict(d.get("_prediction_trust") or {})
+    thesis = dict(d.get("_decision_thesis") or d.get("_decision_narrative") or {})
+    trust_cap = _num(trust.get("maturity_cap"))
+    if trust.get("accepted") and trust_cap is not None and trust_cap < 100:
+        caps.append(int(trust_cap))
+    if bool(trust.get("entry_block")):
+        hard_blockers.append("昨測大幅失準，模型進入短期冷卻")
+    if str(thesis.get("entry_permission") or "") == "blocked":
+        reason = {
+            "price_truth_blocked": "價格基準尚未同源",
+            "forecast_cooldown": "昨測失準且價格結構尚未修復",
+            "session_repricing": "延長盤正在重新定價，需等正式盤承接",
+            "earnings_expectation_reset": "財報後前瞻預期正在重定價，需等正式盤承接",
+            "trend_break": "價格結構已破壞，觀察支撐不是買點",
+            "good_news_rejected": "利多未獲價格確認",
+        }.get(str(thesis.get("state") or ""), "AI 決策閘門暫停買進")
+        if reason not in hard_blockers:
+            hard_blockers.append(reason)
 
     if last <= 0 or bool((d.get("_price_meta") or {}).get("decision_blocked")):
         price_score = 0.0
@@ -300,6 +318,8 @@ def assess_low_entry_readiness(forecast: Any) -> Dict[str, Any]:
         _condition(max_shock <= 2, "重大事件已降溫", f"市場事件仍為 L{max_shock}" if max_shock else "事件方向待確認"),
         _condition(ai_score >= 7, "AI 允許進入低接觀察", "AI 尚未開啟低接閘門"),
     ]
+    if trust.get("accepted") and str(trust.get("severity") or "") in {"moderate", "high", "severe"}:
+        conditions.insert(0, _condition(False, "", str(trust.get("reason") or "昨測誤差仍在冷卻")))
     if energy.get("direction") == "down":
         conditions.insert(3, _condition(True, "最新油價快速回落，舊上漲新聞已降權", ""))
     summary_parts = [row["text"] for row in conditions if row["ok"]][:2]

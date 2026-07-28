@@ -135,6 +135,7 @@ def _wait_plan(forecast: Any, result: Dict[str, Any]) -> Dict[str, Any]:
     stop, no_chase, confirmation = prices["stop"], prices["no_chase"], prices["confirmation"]
     color = str(result.get("color") or "yellow")
     blockers = list(result.get("hard_blockers") or [])
+    thesis = dict(decision.get("_decision_thesis") or decision.get("_decision_narrative") or {})
     rule = _exchange_rule(decision)
     reach = _active_reachability(first, rule)
 
@@ -180,10 +181,12 @@ def _wait_plan(forecast: Any, result: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     if color == "green":
-        action = (
-            f"可執行：{_price(first)} 附近分批，仍須確認止穩；{invalid_text}。"
-            if first is not None else f"可執行低接，但仍須確認止穩；{invalid_text}。"
-        )
+        routes = [f"首選買點 {_price(first)}，確認止穩後分批"] if first is not None else ["低接區確認止穩後分批"]
+        if second is not None:
+            routes.append(f"第二承接 {_price(second)}")
+        if confirmation is not None:
+            routes.append(f"未回測則站穩 {_price(confirmation)} 才小量確認")
+        action = "可執行：" + "；".join(routes) + f"；{invalid_text}。"
         return {
             "mode": "ready", "text": action, "pullback": first,
             "confirmation": confirmation, "second": second, "invalid": stop,
@@ -191,11 +194,21 @@ def _wait_plan(forecast: Any, result: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     if blockers:
+        thesis_state = str(thesis.get("state") or "")
+        blocked_states = {
+            "forecast_cooldown", "session_repricing", "earnings_expectation_reset",
+            "trend_break", "good_news_rejected", "price_truth_blocked",
+        }
+        if thesis_state in blocked_states:
+            text = str(thesis.get("message") or "").strip()
+            if "：" in text:
+                text = text.split("：", 1)[-1]
+            text = "暫停買進：" + (text or f"等待站回 {_price(confirmation)} 後重新評估；{invalid_text}。")
         if stop is not None and last is not None and last < stop:
             text = f"暫停低接：先重新站回 {_price(stop)} 並完成築底，再重新評估第一批 {_price(first)}。"
         elif no_chase is not None and last is not None and last >= no_chase:
             text = f"等待回測 {_price(first)} 附近，不在 {_price(no_chase)} 以上追價；{invalid_text}。"
-        else:
+        elif thesis_state not in blocked_states:
             text = f"暫停低接：等待價格重新驗證；{invalid_text}。"
         return {
             "mode": "blocked", "text": text, "pullback": first,
@@ -204,9 +217,11 @@ def _wait_plan(forecast: Any, result: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     if first is not None and last is not None and last > first:
-        routes = [f"A 回測 {_price(first)} 附近止穩"]
+        routes = [f"首選買點 {_price(first)}，需先止穩"]
+        if second is not None:
+            routes.append(f"第二承接 {_price(second)}，同樣需止穩")
         if confirmation is not None:
-            routes.append(f"B 站穩 {_price(confirmation)} 轉強確認")
+            routes.append(f"若未回測，站穩 {_price(confirmation)} 才小量確認")
         text = "等待：" + "；".join(routes) + f"；{invalid_text}。"
     elif second is not None and last is not None and last <= second:
         text = f"等待：已到第二批極限區 {_price(second)}，只在止穩與籌碼改善後執行；{invalid_text}。"

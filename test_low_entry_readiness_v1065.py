@@ -48,8 +48,11 @@ class LowEntryReadinessV1065Tests(unittest.TestCase):
         self.assertIn("168.01", result["summary"])
         self.assertIn("171.48", result["summary"])
         self.assertIn("164.89", result["summary"])
-        self.assertIn("A 回測", result["summary"])
-        self.assertIn("B 站穩", result["summary"])
+        self.assertIn("首選買點", result["summary"])
+        self.assertIn("第二承接", result["summary"])
+        self.assertIn("未回測", result["summary"])
+        self.assertNotIn("A 回測", result["summary"])
+        self.assertNotIn("B 站穩", result["summary"])
 
     def test_below_stop_says_rebuild_before_low_entry(self):
         result = assess_low_entry_readiness(forecast(last=163.00))

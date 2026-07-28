@@ -6,7 +6,7 @@ import unittest
 from data_sources_tw import _score_news, _tw_company_news_relevant
 from data_sources_us import _score_us_news, _us_news_relevant_to_ticker
 from models import NewsItem, TickerInfo
-from orchestrator import _directional_company_news
+from orchestrator import _directional_company_news, _news_summary
 
 
 class NewsEventScoringTests(unittest.TestCase):
@@ -30,6 +30,34 @@ class NewsEventScoringTests(unittest.TestCase):
         score, tag = _score_us_news("NVIDIA beats estimates and raises guidance", "company")
         self.assertGreater(score, 0.06)
         self.assertTrue(tag.startswith("bullish_"))
+
+    def test_us_weak_guidance_outweighs_backward_beat(self):
+        score, tag = _score_us_news(
+            "Corning earnings beat estimates but weak third-quarter guidance is not enough",
+            "company",
+        )
+        self.assertLessEqual(score, -0.08)
+        self.assertIn("earnings_forward_risk", tag)
+
+    def test_earnings_publishers_count_as_one_forward_first_family(self):
+        rows = [
+            NewsItem(
+                "GoogleNewsUS", "latest", 0.12, "bullish_us_company_earnings",
+                "Corning earnings beat estimates on strong AI optical sales", "",
+            ),
+            NewsItem(
+                "GoogleNewsUS", "latest", -0.12, "bearish_us_company_earnings_forward_risk",
+                "Corning guidance is in line but not enough as stock sinks", "",
+            ),
+            NewsItem(
+                "GoogleNewsUS", "latest", 0.10, "bullish_us_company_earnings",
+                "Corning posts higher quarterly profit and sales", "",
+            ),
+        ]
+        summary = _news_summary(rows)
+        self.assertEqual(summary["earnings"]["state"], "backward_beat_high_bar_reset")
+        self.assertTrue(summary["earnings_family_counted_once"])
+        self.assertLess(summary["score"], 0)
 
     def test_apple_company_bucket_rejects_bmw_pollution(self):
         ticker = TickerInfo("AAPL", "AAPL", "Apple Inc.", "US", "stock")

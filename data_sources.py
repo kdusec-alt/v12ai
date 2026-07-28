@@ -14,6 +14,7 @@ from data_sources_tw import fetch_tw_price, fetch_tw_news
 from data_sources_us import fetch_us_price, fetch_us_news
 from data_sources_etf import fetch_etf_price, fetch_etf_news
 from exchange_rule_engine_v1069 import attach_exchange_rule_context
+from price_truth_v1072 import attach_price_truth
 
 try:
     from emerging_session_v1070 import install_emerging_session_v1070
@@ -134,7 +135,10 @@ def _fetch_by_ticker(ticker: TickerInfo) -> PriceFrame:
         frame = fetch_tw_price(ticker)
     else:
         frame = fetch_us_price(ticker)
-    return _attach_exchange_rule(frame)
+    # Exchange rules and the session-aware price truth describe the same final
+    # quote.  Attach them only after the market route has finished so every UI
+    # and decision consumer reads one immutable price basis.
+    return attach_price_truth(_attach_exchange_rule(frame))
 
 
 def fetch_price(raw_ticker: str) -> PriceFrame:
