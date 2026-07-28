@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import html
 import os
 import traceback
 import time
@@ -650,18 +651,17 @@ def _is_fragment_rerun() -> bool:
 
 
 def _admin_maintenance_fragment_body() -> None:
-    """Run one idle-time learning/close batch without blocking the full UI."""
+    """Run one timed learning/close batch without blocking the full UI."""
     if not bool(st.session_state.get("admin_authenticated", False)):
         return
     if not _is_fragment_rerun():
         # Full render: arm the timer but perform zero disk/network work.
         return
-    if str(st.session_state.get("main_view") or "analysis") != "analysis":
-        return
-    if st.session_state.get("forecast") is not None:
-        # Active analysis and its five-minute event/market fragment have
-        # priority. Daily evolution resumes automatically on the idle home.
-        return
+
+    # The close-time guards inside Auto Audit and Close Recheck remain the
+    # authority for when work is due.  Do not postpone a due daily calibration
+    # merely because the Admin is viewing a forecast, Learning Center or
+    # Research Lab; this fragment is already isolated from the full-page render.
 
     phase = int(st.session_state.get("tino_background_maintenance_phase") or 0)
     st.session_state["tino_background_maintenance_phase"] = phase + 1
