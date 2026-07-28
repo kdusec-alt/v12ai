@@ -12,9 +12,10 @@ class CompactDecisionPanelV1066Tests(unittest.TestCase):
         cls.source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
 
     def test_decision_main_evidence_market_and_chip_are_one_card(self):
-        self.assertIn("class='decision-evidence'", self.source)
-        self.assertIn("<b>證據</b>", self.source)
-        self.assertIn("<b>市場</b>", self.source)
+        self.assertIn("class='evidence-summary'", self.source)
+        self.assertIn("class='evidence-details'", self.source)
+        self.assertIn("<b>AI 證據：</b>", self.source)
+        self.assertIn("<b>市場：</b>", self.source)
         self.assertIn("canonical_main_message", self.source)
 
     def test_five_large_boxes_are_replaced_by_one_price_strip(self):
