@@ -70,14 +70,42 @@ def _render_gene_panel(st, snapshot: Mapping[str, Any]) -> None:
 
 
 def render_research_lab(st) -> None:
-    st.markdown("## 🔬 AI Research Lab / 市場研究實驗室")
+    st.markdown("### 🔬 AI Research Lab / 市場研究實驗室")
     st.caption("獨立研究平台｜只讀正式 Prediction Log 衍生資料｜不影響 AI Decision、Direction、T1 或 Confidence")
 
-    recovery_report = recover_research_history_from_prediction_log(limit=600)
+    # V1071: render must survive a malformed legacy row, slow recovery, or
+    # temporarily unavailable audit store.  Recovery is supportive work; the
+    # bounded dashboard remains useful on its last valid sidecar snapshot.
+    try:
+        recovery_report = recover_research_history_from_prediction_log(limit=200)
+    except Exception as exc:
+        recovery_report = {
+            "status": "WARN",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "research_only": True,
+            "decision_influence": False,
+        }
     st.session_state["last_v13_recovery_report"] = recovery_report
-    fitness_recovery = recover_shadow_fitness_from_audit_log(limit=1200)
+    try:
+        fitness_recovery = recover_shadow_fitness_from_audit_log(limit=400)
+    except Exception as exc:
+        fitness_recovery = {
+            "status": "WARN",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "research_only": True,
+            "decision_influence": False,
+        }
     st.session_state["last_v13_fitness_recovery_report"] = fitness_recovery
-    dashboard = load_research_dashboard(genome_limit=600, detection_limit=600)
+    try:
+        dashboard = load_research_dashboard(genome_limit=300, detection_limit=300)
+    except Exception as exc:
+        dashboard = {
+            "genomes": [], "detections": [], "latest_by_ticker": {},
+            "macro_events": [], "shadow_phenotypes": [], "shadow_fitness": [],
+            "evolution_gates": [], "latest_phenotype_by_ticker": {},
+            "storage": {"status": "degraded", "reason": f"{type(exc).__name__}: {exc}"},
+        }
+        st.warning("Research 歷史資料目前降級；頁面已保留，V12 正式分析不受影響。")
     genomes = list(dashboard.get("genomes") or [])
     detections = list(dashboard.get("detections") or [])
     latest_by_ticker = dict(dashboard.get("latest_by_ticker") or {})
