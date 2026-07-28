@@ -7,24 +7,24 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "39d91c64cec81400",
+      "fingerprint": "51e8fc4f6632e6be",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785252341.830069,
-      "last_seen_at": "2026-07-28T15:25:41+00:00",
-      "last_seen_epoch": 1785252341.830069,
-      "last_transition_at": "2026-07-28T15:25:41+00:00",
+      "last_evidence_epoch": 1785254474.797977,
+      "last_seen_at": "2026-07-28T16:01:14+00:00",
+      "last_seen_epoch": 1785254474.797977,
+      "last_transition_at": "2026-07-28T16:01:14+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 129,
+      "reinforcement_count": 130,
       "related_fingerprints": [
-        "504efb65c149b3de",
         "9abb5c83e4507f26",
         "34fffef8c317d244",
         "3d877ccfe8e241ac",
         "a0c6319cafc340e6",
         "00c202b701d5d2a4",
         "71dda054fdc98153",
-        "2dae1e430c53f618"
+        "2dae1e430c53f618",
+        "39d91c64cec81400"
       ],
       "risk_sign": -1,
       "scope": "global",
@@ -45,7 +45,7 @@
         "SNDK"
       ],
       "status": "active_red",
-      "title": "Global Event Core｜油價快速回落｜WTI -2.69%／Brent -3.25%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
+      "title": "Global Event Core｜油價快速回落｜WTI -3.92%／Brent -4.33%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
       "transition_reason": "市場衝擊 L2 產業衝擊 0/100｜跨市場事件｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
@@ -144,7 +144,7 @@
       "last_evidence_epoch": 1785056219.363948,
       "last_seen_at": "2026-07-26T08:56:59+00:00",
       "last_seen_epoch": 1785056219.363948,
-      "last_transition_at": "2026-07-27T02:59:33+00:00",
+      "last_transition_at": "2026-07-28T16:01:14+00:00",
       "peak_severity": 3,
       "reinforcement_count": 4,
       "related_fingerprints": [
@@ -152,9 +152,11 @@
         "f01999abc803becd",
         "c1cb6bb59e114382"
       ],
+      "resolved_at": "2026-07-28T16:01:14+00:00",
+      "resolved_epoch": 1785254474.797977,
       "risk_sign": -1,
       "scope": "global",
-      "severity": 2,
+      "severity": 1,
       "source": "GoogleNewsGlobal/Taipei Times",
       "source_markets": [
         "GLOBAL"
@@ -162,11 +164,11 @@
       "source_tickers": [
         "GLOBAL"
       ],
-      "status": "cooling",
+      "status": "resolved",
       "title": "US exempts 2,231 Taiwanese products from new tariffs - Taipei Times",
-      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
+      "transition_reason": "觀察期內未再出現風險證據，自動解除"
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T15:25:43+00:00"
+  "updated_at": "2026-07-28T16:01:14+00:00"
 }
