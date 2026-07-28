@@ -60,7 +60,10 @@ def build_ai_decision_narrative_v1062(*args, **kwargs) -> Dict[str, Any]:
     )
 
     evidence = str(result.get("evidence_line") or "").strip()
-    if str(result.get("schema") or "") == "TINO_DECISION_THESIS_V1072":
+    if str(result.get("schema") or "") in {
+        "TINO_DECISION_THESIS_V1072",
+        "TINO_DECISION_THESIS_V1073",
+    }:
         # The thesis ledger already owns one macro_event family.  Keep the
         # shock as a bounded risk overlay without counting or narrating the
         # same event a second time.
