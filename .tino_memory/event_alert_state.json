@@ -36,14 +36,14 @@
         "US"
       ],
       "source_tickers": [
-        "INTC",
         "ONDS",
         "TSLL",
         "2308.TW",
         "GLOBAL",
         "MU",
         "MRVL",
-        "2330.TW"
+        "2330.TW",
+        "FORM"
       ],
       "status": "active_red",
       "title": "Trump Hits Global Wood with a 10% Tax Whilst Sawmills Shrink at Home - Wood Central",
@@ -169,5 +169,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T14:22:54+00:00"
+  "updated_at": "2026-07-28T14:25:30+00:00"
 }
