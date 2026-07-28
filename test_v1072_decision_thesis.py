@@ -261,6 +261,32 @@ class DecisionThesisScenarioTests(unittest.TestCase):
         self.assertIn("15–30 分鐘", result["message"])
         self.assertEqual(result["entry_permission"], "blocked")
 
+    def test_us_intraday_repricing_never_says_wait_for_market_open(self):
+        context = {
+            "price_meta": {
+                "session": "intraday", "regular_close": 35.92,
+                "formal_previous_close": 35.92, "session_reference_close": 35.92,
+                "extended_accepted": True, "vwap_accepted": True,
+                "history_scope": "formal_daily_only",
+            },
+            "us_session": {
+                "accepted": True, "last": 33.46, "high": 34.65,
+                "low": 32.12, "vwap": 33.10,
+            },
+        }
+        frame = _frame(
+            market="US", symbol="IONQ", last=33.46, previous=35.92,
+            high=34.65, low=32.12, vwap=33.10,
+            closes=[44 - i * 0.4 for i in range(22)], status="intraday",
+            context=context, atr=2.0,
+        )
+        result = _narrative(frame, "DOWN")
+        self.assertEqual(result["state"], "session_repricing")
+        self.assertEqual(result["entry_permission"], "blocked")
+        self.assertIn("盤中先確認後續不再破低", result["message"])
+        self.assertNotIn("正式開盤後", result["message"])
+        self.assertIn("正式盤中重定價", result["title"])
+
     def test_glw_backward_beat_and_high_bar_reset_outrank_fomc_template(self):
         context = {
             "price_meta": {
