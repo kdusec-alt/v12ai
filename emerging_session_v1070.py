@@ -20,6 +20,20 @@ _ACTIVE_TW_SYMBOL: ContextVar[str] = ContextVar("tino_active_tw_symbol", default
 _INSTALLED = False
 
 
+def emerging_session_phase(now) -> str:
+    """Pure official session resolver for Taiwan emerging shares."""
+    if now.weekday() >= 5:
+        return "closed"
+    current = now.time()
+    if current < time(9, 0):
+        return "pre_market"
+    if time(9, 0) <= current < time(15, 0):
+        return "intraday"
+    if time(15, 0) <= current <= time(15, 5):
+        return "close_confirm"
+    return "after_close"
+
+
 def _is_emerging_symbol(module, symbol: str) -> bool:
     try:
         return bool(module._is_emerging_symbol(symbol))
@@ -39,20 +53,9 @@ def install_emerging_session_v1070(fetch_tw_price: Callable):
         def session_phase(now=None) -> str:
             now = now or tw._tw_now()
             symbol = _ACTIVE_TW_SYMBOL.get()
-            if not _is_emerging_symbol(tw, symbol):
-                return original_phase(now)
-            if now.weekday() >= 5:
-                return "closed"
-            current = now.time()
-            if current < time(9, 0):
-                return "pre_market"
-            if time(9, 0) <= current < time(15, 0):
-                return "intraday"
-            # Keep a short close-confirm window, mirroring the stable main-board
-            # guard but using the official emerging close at 15:00.
-            if time(15, 0) <= current <= time(15, 5):
-                return "close_confirm"
-            return "after_close"
+            if _is_emerging_symbol(tw, symbol):
+                return emerging_session_phase(now)
+            return original_phase(now)
 
         tw._tw_session_phase = session_phase
         _INSTALLED = True
