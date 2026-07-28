@@ -50,6 +50,31 @@ def _fmt(value: float) -> str:
     return f"{float(value):,.2f}"
 
 
+def _repricing_wait_text(session: str) -> str:
+    """Describe the next verification step without contradicting the live session."""
+    status = str(session or "").strip().lower()
+    if status == "pre_market":
+        return "等正式開盤後 15–30 分鐘不再破低"
+    if status == "intraday":
+        return "盤中先確認後續不再破低"
+    if status == "after_hours":
+        return "等下一個正式盤開盤後 15–30 分鐘不再破低"
+    if status == "close_confirm":
+        return "等收盤價格確認完成且下一交易時段不再破低"
+    return "等下一個可交易時段不再破低"
+
+
+def _repricing_title_scope(session: str, session_scope: Any) -> str:
+    status = str(session or "").strip().lower()
+    if status == "intraday":
+        return "正式盤中重定價｜等待盤中止穩"
+    if status == "pre_market":
+        return f"{session_scope or '盤前'}重定價｜先等正式盤驗證"
+    if status == "after_hours":
+        return f"{session_scope or '盤後'}重定價｜先等下一正式盤驗證"
+    return f"{session_scope or '時段'}重定價｜等待價格驗證"
+
+
 def build_decision_thesis(
     price: Any,
     direction: Any,
@@ -297,12 +322,20 @@ def build_decision_thesis(
         counter = "首輪跳空或急拉急殺尚未形成完整量價結構"
     elif active_us and day_pct <= repricing_threshold:
         state = "session_repricing"
-        title = f"AI進場決策卡｜{truth.get('session_scope')}重定價｜先等正式盤驗證"
-        axis = "延長盤重定價｜不把盤前低點當低接"
+        title = f"AI進場決策卡｜{_repricing_title_scope(session, truth.get('session_scope'))}"
+        axis = (
+            "正式盤中重定價｜等待止穩與收復"
+            if session == "intraday"
+            else "延長盤重定價｜不把延長盤低點當低接"
+        )
         entry_permission = "blocked"
         action_mode = "session_wait"
         dominant = price_text
-        counter = "正式盤尚未形成 15–30 分鐘承接，延長盤 VWAP 不能代表全天"
+        counter = (
+            "正式盤仍在重新定價，接近支撐不代表跌勢已停止"
+            if session == "intraday"
+            else "正式盤尚未形成承接，延長盤 VWAP 不能代表全天"
+        )
     elif active_us and day_pct > 0.5 and above_vwap and structural_bear:
         state = "session_countertrend_rebound"
         title = f"AI進場決策卡｜{truth.get('session_scope')}反彈已收復VWAP｜結構尚未翻多"
@@ -438,10 +471,9 @@ def build_decision_thesis(
             f"才小量確認，跌破 {_fmt(invalid)} 取消。"
         )
     elif state == "session_repricing":
-        next_window = "下一個正式盤" if session == "after_hours" else "正式開盤後"
         message = (
             f"{session_prefix}：{move_label} {day_pct:+.2f}% 且位於{truth.get('session_scope')}弱側，市場正在重新定價；"
-            f"現在不接。等{next_window} 15–30 分鐘不再破低，並站回 {_fmt(confirmation)} 才小量確認，"
+            f"現在不接。{_repricing_wait_text(session)}，並站回 {_fmt(confirmation)} 才小量確認，"
             f"跌破 {_fmt(invalid)} 取消計畫。"
         )
     elif state == "earnings_expectation_reset":
