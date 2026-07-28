@@ -33,7 +33,8 @@
       ],
       "source_tickers": [
         "GLOBAL",
-        "SKHY"
+        "SKHY",
+        "SNDK"
       ],
       "status": "active_red",
       "title": "Global Event Core｜中東/美伊供應風險推升油價｜WTI +1.94%／Brent +1.78%｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
@@ -171,5 +172,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T22:14:15+00:00"
+  "updated_at": "2026-07-28T22:14:16+00:00"
 }
