@@ -318,6 +318,17 @@ def assess_low_entry_readiness(forecast: Any) -> Dict[str, Any]:
         _condition(max_shock <= 2, "重大事件已降溫", f"市場事件仍為 L{max_shock}" if max_shock else "事件方向待確認"),
         _condition(ai_score >= 7, "AI 允許進入低接觀察", "AI 尚未開啟低接閘門"),
     ]
+    if hard_blockers:
+        support_context = (
+            "價格已接近觀察支撐，但目前不是買點"
+            if price_note in {
+                "已到第二批極限區",
+                "已到第一批低接區",
+                "接近第一批低接區",
+            }
+            else f"{price_note}，低接閘門尚未開啟"
+        )
+        conditions[0] = _condition(False, "", support_context)
     if trust.get("accepted") and str(trust.get("severity") or "") in {"moderate", "high", "severe"}:
         conditions.insert(0, _condition(False, "", str(trust.get("reason") or "昨測誤差仍在冷卻")))
     if energy.get("direction") == "down":
