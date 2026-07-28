@@ -5,26 +5,34 @@ import re
 from typing import Dict
 
 from models import TickerInfo
+from exchange_rule_engine_v1069 import ticker_with_exchange_rule
 
 
 def ticker_with_quote_identity(ticker: TickerInfo, quote: Dict[str, object] | None) -> TickerInfo:
-    """Use official quote name for unknown numeric symbols without changing routing."""
+    """Use official quote name and refresh the product-rule classification.
+
+    The quote name can distinguish ordinary domestic ETFs from overseas ETFs or
+    leveraged products.  A `.TWO` suffix is never treated as an unlimited-move
+    flag; TPEx ordinary stocks remain under the same ±10% principle as TWSE.
+    """
     if not isinstance(quote, dict):
-        return ticker
+        return ticker_with_exchange_rule(ticker)
     quote_name = re.sub(r"\s+", " ", str(quote.get("quote_name") or "")).strip()
     code = str(ticker.resolved_symbol or "").split(".")[0]
-    if not quote_name or str(ticker.name or "").strip() not in {"", code}:
-        return ticker
-    return TickerInfo(
+    name = ticker.name
+    if quote_name and str(ticker.name or "").strip() in {"", code}:
+        name = quote_name
+    refreshed = TickerInfo(
         raw=ticker.raw,
         resolved_symbol=ticker.resolved_symbol,
-        name=quote_name,
+        name=name,
         market=ticker.market,
         asset_type=ticker.asset_type,
         exchange=ticker.exchange,
         currency=ticker.currency,
         price_limit_pct=ticker.price_limit_pct,
     )
+    return ticker_with_exchange_rule(refreshed, quote_name=quote_name or name)
 
 
 def attach_market_microstructure(
