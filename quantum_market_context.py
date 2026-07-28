@@ -280,7 +280,7 @@ def fetch_market_proxy_context(reference_date: str = "") -> Dict[str, object]:
             "tsm_adr": None, "tx_night": None, "as_of": {}, "symbols": {},
         }
 
-    raw = _fetch_cached(int(time.time() // 900))
+    raw = _fetch_cached(int(time.time() // 300))
     out = dict(raw)
     out["as_of"] = dict(raw.get("as_of") or {})
     out["symbols"] = dict(raw.get("symbols") or {})
