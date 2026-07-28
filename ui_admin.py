@@ -272,20 +272,10 @@ def _learning_panel(st, forecast):
     Streamlit/PyArrow path with Segmentation fault.  Formal prediction logging
     remains in app.py; this panel is now a lightweight control/status surface.
     """
-    st.sidebar.markdown("**Auto-Learning Audit｜輕量模式**")
-
-    enabled = st.sidebar.checkbox(
-        "啟用 Auto-Learning 記錄",
-        value=bool(st.session_state.get("learning_log_enabled", True)),
-        key="learning_log_enabled",
-        help="開啟後，每次個股分析完成會由 app.py 寫入一次正式 Prediction Log。",
-    )
-
-    if enabled:
-        st.sidebar.success("Auto-Learning：啟用")
-    else:
-        st.sidebar.info("Auto-Learning：暫停記錄")
-        return
+    # V1071: Admin login is the single control.  Do not make Tino re-enable
+    # the safe lightweight panel and formal snapshot logging on every session.
+    st.session_state["learning_log_enabled"] = True
+    st.sidebar.success("Auto-Learning｜已隨 Admin 登入自動啟用（輕量模式）")
 
     if forecast and not getattr(forecast, "stopped", False):
         try:
@@ -377,8 +367,10 @@ def _mis_debug_panel(st, forecast):
 def render_admin(st, forecast):
     authed = _admin_gate(st)
     if not authed:
+        st.session_state["learning_log_enabled"] = False
         return "neutral", False, True, False
 
+    st.session_state["learning_log_enabled"] = True
     _run_admin_auto_audit_maintenance(st)
 
     macro = st.sidebar.selectbox("Macro 手動偏壓", ["neutral", "bullish", "bearish"], index=0)
@@ -413,16 +405,9 @@ def render_admin(st, forecast):
         else:
             st.sidebar.caption("Trace / Truth Guard 已降載。")
 
-    show_learning_admin = st.sidebar.checkbox(
-        "開啟 Auto-Learning 管理面板",
-        value=False,
-        key="show_learning_admin_panel",
-        help="輕量版：不自動讀取大型 JSONL / DataFrame。",
-    )
-    if show_learning_admin:
-        _learning_panel(st, forecast)
-    else:
-        st.sidebar.caption("Auto-Learning 正式快照會在每次分析完成後自動寫入。")
+    # V1071: hidden always-on Admin contract.
+    st.session_state["show_learning_admin_panel"] = True
+    _learning_panel(st, forecast)
 
     debug = st.sidebar.checkbox("Debug Mode", value=False)
     if debug:
