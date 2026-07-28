@@ -59,7 +59,9 @@ BEAR = [
 ]
 
 _TW_GLOBAL_NEWS_CACHE: tuple[float, List[NewsItem]] | None = None
-_TW_GLOBAL_NEWS_CACHE_TTL_SEC = 15 * 60
+# Match the Admin event watcher cadence: a manual analysis should never reuse
+# market-wide news for half an hour while company news is already fresh.
+_TW_GLOBAL_NEWS_CACHE_TTL_SEC = 5 * 60
 
 def _code(symbol: str) -> str:
     return symbol.split(".")[0]

@@ -23,6 +23,7 @@ from typing import Any, Dict, Mapping, Sequence
 from models import NewsItem, PriceFrame
 from decision_thesis_v1072 import build_decision_thesis
 from earnings_intelligence_v1072 import assess_earnings_evidence
+from news_causal_intelligence_v1073 import analyze_news_causality
 from price_truth_v1072 import price_truth
 
 
@@ -228,7 +229,55 @@ def _overseas_evidence(price: PriceFrame) -> Dict[str, Any]:
     return {"sign": sign, "score": composite, "text": text, "profile": profile, "available": bool(valid)}
 
 
-def _news_evidence(news_items: Sequence[NewsItem | Mapping[str, Any]] | None) -> Dict[str, Any]:
+def _news_evidence(
+    price: PriceFrame,
+    news_items: Sequence[NewsItem | Mapping[str, Any]] | None,
+) -> Dict[str, Any]:
+    """Return family-deduplicated news evidence with a price-time causal gate."""
+    causal = {}
+    try:
+        existing = (price.context or {}).get("news_causal_v1073")
+        causal = (
+            dict(existing)
+            if isinstance(existing, Mapping)
+            else analyze_news_causality(price, news_items)
+        )
+    except Exception:
+        causal = {}
+    if causal:
+        company_score = _num(causal.get("company_score"))
+        global_score = _num(causal.get("global_score"))
+        combined = _num(causal.get("combined_score"), company_score + global_score * 0.35)
+        sign = 1 if combined >= 0.06 else -1 if combined <= -0.06 else 0
+        top_title = _clip_text(causal.get("dominant_headline"), 30)
+        return {
+            "sign": sign,
+            "company_sign": int(causal.get("company_sign") or 0),
+            "global_sign": int(causal.get("global_sign") or 0),
+            "score": combined,
+            "company_score": company_score,
+            "global_score": global_score,
+            "text": (
+                f"新聞偏多《{top_title}》"
+                if sign > 0 and top_title
+                else f"新聞偏空《{top_title}》"
+                if sign < 0 and top_title
+                else f"新聞待價格確認《{top_title}》"
+                if top_title
+                else "新聞無明確方向"
+            ),
+            "top_title": top_title,
+            "company_text": str(causal.get("company_text") or "公司新聞無明確方向"),
+            "global_text": str(causal.get("global_text") or "宏觀事件無明確方向"),
+            "company_available": bool(causal.get("company_family_count")),
+            "global_available": bool(causal.get("global_family_count")),
+            "earnings": dict(causal.get("earnings") or {}),
+            "causal": causal,
+            "available": bool(causal.get("selected_count")),
+        }
+
+    # Fail-safe for malformed legacy objects: preserve the bounded V1072
+    # sentiment path, but do not fabricate causal timing metadata.
     company: list[NewsItem | Mapping[str, Any]] = []
     global_rows: list[NewsItem | Mapping[str, Any]] = []
     for item in news_items or []:
@@ -297,6 +346,7 @@ def _news_evidence(news_items: Sequence[NewsItem | Mapping[str, Any]] | None) ->
         "company_available": bool(company),
         "global_available": bool(global_rows),
         "earnings": earnings,
+        "causal": {},
         "available": bool(ranked),
     }
 
@@ -379,7 +429,7 @@ def build_ai_decision_narrative(
     """
     reality = price_reality(price)
     overseas = _overseas_evidence(price)
-    news = _news_evidence(news_items)
+    news = _news_evidence(price, news_items)
     positioning = _positioning_evidence(price, direction)
     model = _model_evidence(direction)
 

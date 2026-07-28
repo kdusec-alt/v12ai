@@ -621,7 +621,9 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
 
 # --- RC24 US News Query Router / Time Engine / Daily Headline -----------------
 _US_NEWS_CACHE: Dict[str, Tuple[float, List[NewsItem]]] = {}
-_US_NEWS_CACHE_TTL_SEC = 30 * 60
+# "Current news" means the same five-minute freshness window used by the
+# event-reassessment loop. Repeated clicks inside the window stay bounded.
+_US_NEWS_CACHE_TTL_SEC = 5 * 60
 
 _US_QUERY_PROFILES: Dict[str, Dict[str, List[str]]] = {
     "MU": {

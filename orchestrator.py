@@ -30,6 +30,11 @@ from bubble_radar import assess_bubble_risk, bubble_radar_line
 from price_truth_v1072 import attach_price_truth, price_truth, scoped_vwap_state
 from prediction_trust_v1072 import assess_prediction_trust
 from earnings_intelligence_v1072 import assess_earnings_evidence
+from news_causal_intelligence_v1073 import (
+    analyze_news_causality,
+    news_causal_line,
+    select_effective_news_items,
+)
 try:
     from decision_narrative import build_ai_decision_narrative
 except Exception:
@@ -789,6 +794,7 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "_decision_thesis": narrative,
         "_price_truth": truth,
         "_prediction_trust": (price.context or {}).get("prediction_trust_v1072", {}),
+        "_news_causal": (price.context or {}).get("news_causal_v1073", {}),
         "_bubble_radar": bubble,
     }
     if bool(price_meta.get("decision_blocked")):
@@ -836,6 +842,7 @@ FQC：{radar.get('FQC')}
 {margin_text}
 【4｜事件 / 新聞】
 新聞採納：{news['accepted']}/{news['count']}｜情緒 {news['score']:+.2f}｜主事件：{news['top']}
+新聞因果：{news_causal_line((price.context or {}).get('news_causal_v1073'))}
 宏觀：{_macro_line(macro, price, raw, news_items)}
 TV外資壓力公式：深度/Trace保留，不進主雷達｜{_tv_pressure_line(tv) if price.ticker.market=='TW' else '美股不套用'}
 【5｜ABC 情境】
@@ -1019,6 +1026,13 @@ def _us_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = N
 
 
 def _us_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
+    causal = (price.context or {}).get("news_causal_v1073")
+    if isinstance(causal, dict) and causal.get("accepted"):
+        return (
+            f"Company News｜{price.ticker.resolved_symbol}｜"
+            f"{causal.get('company_text') or causal.get('causal_text') or '等待價格確認'}"
+            f"｜事件族去重 {int(causal.get('company_family_count') or 0)}"
+        )
     company = _us_news_filter(news_items, ('us_company', 'bullish_us_company', 'bearish_us_company'))
     industry = _us_news_filter(news_items, ('us_industry', 'bullish_us_industry', 'bearish_us_industry'))
     use = company + [x for x in industry if x not in company]
@@ -1058,6 +1072,13 @@ def _tw_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = N
 
 
 def _tw_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
+    causal = (price.context or {}).get("news_causal_v1073")
+    if isinstance(causal, dict) and causal.get("accepted"):
+        return (
+            f"Company News｜{price.ticker.resolved_symbol}｜"
+            f"{causal.get('company_text') or causal.get('causal_text') or '等待價格確認'}"
+            f"｜事件族去重 {int(causal.get('company_family_count') or 0)}"
+        )
     items = _us_news_filter(news_items, ('tw_company_',))
     top = _us_news_top_text(items, 2)
     if top:
@@ -1342,16 +1363,29 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
     ok, reason = validate_price_frame(price)
     if not ok:
         return _stop_forecast(price, reason)
-    news_items = news_items or []
+    news_items = list(news_items or [])
+    try:
+        causal_news = analyze_news_causality(price, news_items)
+    except Exception as exc:
+        causal_news = {
+            "schema": "TINO_NEWS_CAUSAL_INTELLIGENCE_V1073",
+            "accepted": False,
+            "causal_state": "degraded",
+            "causal_text": f"新聞因果層暫時降級：{type(exc).__name__}",
+            "selected_keys": [],
+        }
+    if isinstance(price.context, dict):
+        price.context["news_causal_v1073"] = causal_news
+    effective_news_items = select_effective_news_items(news_items, causal_news)
     raw = build_raw_forecast(price)
     signals = collect_signals(price, manual_macro)
-    ns = _news_summary(news_items)
-    directional_news_items = _directional_company_news(news_items)
+    ns = _news_summary(effective_news_items)
+    directional_news_items = _directional_company_news(effective_news_items)
     directional_ns = _news_summary(directional_news_items)
     if directional_news_items:
         news_source = "GoogleNewsUS" if price.ticker.market == "US" else "GoogleNewsTW"
         signals.append(SignalPacket("News", f"個股/產業新聞採納 {directional_ns['accepted']}/{directional_ns['count']}｜情緒 {directional_ns['score']:+.2f}", directional_ns["score"] * 10, 0.0, 2.0, directional_ns["bias"], f"採納 {directional_ns['accepted']}｜忽略 {directional_ns['ignored']}｜{directional_ns['top']}", news_source, price.price_date, True))
-    qmacro = _quantum_macro_policy_assessment(news_items, (price.context or {}).get("macro", {}) if isinstance((price.context or {}), dict) else {}, price.ticker.market)
+    qmacro = _quantum_macro_policy_assessment(effective_news_items, (price.context or {}).get("macro", {}) if isinstance((price.context or {}), dict) else {}, price.ticker.market)
     if qmacro.get("level") not in ("待同步", "觀察") or qmacro.get("score") or qmacro.get("risk"):
         signals.append(SignalPacket(
             "Quantum Macro",
@@ -1397,7 +1431,7 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
 
     # V12.2 adaptive dual engine: direction is estimated independently from
     # price and receives timestamped event/news evidence for decay control.
-    direction = build_direction_forecast(price, signals, news_items)
+    direction = build_direction_forecast(price, signals, effective_news_items)
     raw = replace(raw, raw_abc=direction.abc())
 
     # Immediate trust response is deliberately separate from long-term weight
@@ -1471,12 +1505,12 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
         steps.append(TraceStep('V9 Path Guard', 'TW/US market route price guard', round(final_t1 - recon, 4), 0.0, True, 'V9 前台路徑守門；避免台股權值被高Beta/美股風險打成假崩跌', 'orchestrator', price.truth.date))
 
     final_t0 = apply_market_bounds(raw.raw_t0 + (final_t1 - raw.raw_t1) * 0.20, price.previous_close, price.ticker.market, price.ticker.price_limit_pct)
-    decision = _decision_card(price, raw, score, final_t1, final_low, direction, bubble, news_items)
+    decision = _decision_card(price, raw, score, final_t1, final_low, direction, bubble, effective_news_items)
     decision["_direction_ensemble_weight"] = ensemble_weight
-    radar = _radar(price, raw, signals, confidence, news_items, direction)
+    radar = _radar(price, raw, signals, confidence, effective_news_items, direction)
     trace = PredictionTrace(price.ticker.resolved_symbol, raw.raw_t1, steps, final_t1)
-    decision["v12_core"] = _v12_core(price, signals, trace, news_items, confidence, direction)
+    decision["v12_core"] = _v12_core(price, signals, trace, effective_news_items, confidence, direction)
     final_values = {"t0": final_t0, "t1": final_t1, "high": final_high, "low": final_low}
-    deep = _deep_report(price, raw, final_values, decision, radar, signals, confidence, news_items)
+    deep = _deep_report(price, raw, final_values, decision, radar, signals, confidence, effective_news_items)
     tags = [_streak_label(price), _ssot_vwap_state(price), "高檔別追" if price.last >= raw.raw_no_chase else "低接優先"]
     return FinalForecast(price.ticker, False, "", raw, final_t0, final_t1, final_high, final_low, confidence, raw.raw_no_chase, raw.raw_low_entry, decision, tags, str(decision["一句話"]), _session_words(price)["anchor"] if price.ticker.market == "TW" else _us_session_words(price)["anchor"], radar, trace, [price.truth], deep, news_items, signals)
