@@ -6942,8 +6942,8 @@
   "MU": {
     "active_family_count": 8,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-07-29T04:54:23+08:00",
-    "approved_bias": 0.005,
+    "approved_at_tw": "2026-07-29T04:58:23+08:00",
+    "approved_bias": 0.0025,
     "audit_count": 40,
     "avg_abs_error_pct": 2.4078,
     "avg_direction_brier": 0.347323,
