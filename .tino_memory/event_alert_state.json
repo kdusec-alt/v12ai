@@ -7,28 +7,28 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "39d91c64cec81400",
+      "fingerprint": "5d9289dbcc56a14c",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785230185.783496,
-      "last_seen_at": "2026-07-28T09:16:25+00:00",
-      "last_seen_epoch": 1785230185.783496,
-      "last_transition_at": "2026-07-28T09:16:25+00:00",
+      "last_evidence_epoch": 1785230429.181098,
+      "last_seen_at": "2026-07-28T09:20:29+00:00",
+      "last_seen_epoch": 1785230429.181098,
+      "last_transition_at": "2026-07-28T09:20:29+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 103,
+      "reinforcement_count": 104,
       "related_fingerprints": [
-        "a0c6319cafc340e6",
         "00c202b701d5d2a4",
         "71dda054fdc98153",
         "2dae1e430c53f618",
         "71624d59216b8cf9",
         "9abb5c83e4507f26",
         "3d877ccfe8e241ac",
-        "6cedaf599d8a70f7"
+        "6cedaf599d8a70f7",
+        "39d91c64cec81400"
       ],
       "risk_sign": -1,
       "scope": "global",
-      "severity": 3,
+      "severity": 2,
       "source": "TINO_GlobalEventCore_YahooFinance",
       "source_markets": [
         "GLOBAL",
@@ -44,8 +44,8 @@
         "MRVL",
         "2330.TW"
       ],
-      "status": "active_red",
-      "title": "Global Event Core｜油價快速回落｜WTI -2.52%／Brent -3.01%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
+      "status": "active_yellow",
+      "title": "Global Event Core｜油價快速回落｜WTI -2.15%／Brent -2.66%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
       "transition_reason": "市場衝擊 L2 產業衝擊 0/100｜跨市場事件｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
@@ -168,5 +168,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T09:16:25+00:00"
+  "updated_at": "2026-07-28T09:20:29+00:00"
 }
