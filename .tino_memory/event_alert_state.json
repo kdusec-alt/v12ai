@@ -2,6 +2,48 @@
   "events": [
     {
       "acknowledged": false,
+      "category": "macro_release_pending",
+      "cooling_count": 0,
+      "event_id": "EV-717A2AC87DC8DC",
+      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
+      "family": "high_impact",
+      "fingerprint": "f6f92ac12f0d6f8a",
+      "first_seen_at": "2026-07-25T05:20:02+00:00",
+      "first_seen_epoch": 1784956802.439899,
+      "last_evidence_epoch": 1785249509.583871,
+      "last_seen_at": "2026-07-28T14:38:29+00:00",
+      "last_seen_epoch": 1785249509.583871,
+      "last_transition_at": "2026-07-28T14:38:29+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 15,
+      "related_fingerprints": [
+        "b5fb07e5c47f23c0",
+        "1a9cc472048ed893",
+        "8c83b1d323182891",
+        "2912cd290264f1d8",
+        "58da6552cf7f8cbd",
+        "5b80e38621eeafe8",
+        "7f7f7c95ddb7032f",
+        "653ef74eda0da6d9"
+      ],
+      "risk_sign": 0,
+      "scope": "ticker",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/Tech Times",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL",
+        "SKHY",
+        "INTC"
+      ],
+      "status": "active_red",
+      "title": "Eurozone GDP Flash Estimate Lands Thursday: What ECB September Hike Needs to See - Tech Times",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
+    },
+    {
+      "acknowledged": false,
       "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
@@ -47,49 +89,6 @@
       "status": "active_red",
       "title": "Indo-Pacific Recalibration, Not Retaliation, Against US Tariffs – Analysis - Eurasia Review",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
-    },
-    {
-      "acknowledged": true,
-      "acknowledged_at": "2026-07-28T08:27:59+00:00",
-      "category": "macro_release_pending",
-      "cooling_count": 0,
-      "event_id": "EV-717A2AC87DC8DC",
-      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
-      "family": "high_impact",
-      "fingerprint": "653ef74eda0da6d9",
-      "first_seen_at": "2026-07-25T05:20:02+00:00",
-      "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785208252.061843,
-      "last_seen_at": "2026-07-28T03:10:52+00:00",
-      "last_seen_epoch": 1785208252.061843,
-      "last_transition_at": "2026-07-28T09:13:18+00:00",
-      "peak_severity": 3,
-      "reinforcement_count": 14,
-      "related_fingerprints": [
-        "d85793aad51784f8",
-        "b5fb07e5c47f23c0",
-        "1a9cc472048ed893",
-        "8c83b1d323182891",
-        "2912cd290264f1d8",
-        "58da6552cf7f8cbd",
-        "5b80e38621eeafe8",
-        "7f7f7c95ddb7032f"
-      ],
-      "risk_sign": 0,
-      "scope": "ticker",
-      "severity": 2,
-      "source": "GoogleNewsGlobal/thebull.com.au",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "SKHY",
-        "INTC"
-      ],
-      "status": "cooling",
-      "title": "The Impact of Strong US Economic Data on Australian Markets - thebull.com.au",
-      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
     },
     {
       "acknowledged": true,
@@ -168,5 +167,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T14:26:36+00:00"
+  "updated_at": "2026-07-28T14:38:29+00:00"
 }
