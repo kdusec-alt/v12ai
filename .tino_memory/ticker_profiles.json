@@ -5237,8 +5237,8 @@
   "MRVL": {
     "active_family_count": 7,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-07-28T08:34:57+08:00",
-    "approved_bias": -0.0125,
+    "approved_at_tw": "2026-07-28T10:40:31+08:00",
+    "approved_bias": -0.015,
     "audit_count": 27,
     "avg_abs_error_pct": 2.1932,
     "avg_direction_brier": 0.212028,
