@@ -581,6 +581,12 @@ def _event_watch_fragment_body() -> None:
     forecast = st.session_state.get("forecast")
     if forecast is not None and not bool(getattr(forecast, "stopped", False)):
         _render_event_watch_status(forecast)
+
+
+def _market_command_fragment_body() -> None:
+    """Render ticker-independent TW/US market judgement on every analysis."""
+    forecast = st.session_state.get("forecast")
+    if forecast is not None and not bool(getattr(forecast, "stopped", False)):
         _render_market_command(forecast)
 
 
@@ -614,12 +620,19 @@ if hasattr(st, "fragment"):
     _event_watch_fragment = st.fragment(
         run_every=str(os.environ.get("TINO_EVENT_POLL_INTERVAL", "5m") or "5m")
     )(_event_watch_fragment_body)
+    _market_command_fragment = st.fragment(
+        run_every=str(os.environ.get("TINO_EVENT_POLL_INTERVAL", "5m") or "5m")
+    )(_market_command_fragment_body)
 else:
     def _event_watch_fragment() -> None:
         # Streamlit < fragment support: no timer, but keep Admin status honest.
         forecast = st.session_state.get("forecast")
         if forecast is not None and not bool(getattr(forecast, "stopped", False)):
             _render_event_watch_status(forecast)
+
+    def _market_command_fragment() -> None:
+        # Streamlit < fragment support: still render once per full app run.
+        _market_command_fragment_body()
 
 
 def _is_fragment_rerun() -> bool:
@@ -961,10 +974,11 @@ def main():
 
     forecast = st.session_state.forecast
     if forecast:
-        # The fragment owns both polling and its status UI.  Fragment reruns
-        # therefore refresh the timestamp without forcing a full-app rerun.
+        # Market command is a core TW/US analysis feature and must not depend
+        # on Admin-only news polling.  Each fragment refreshes independently.
         if bool(st.session_state.get("admin_authenticated", False)):
             _event_watch_fragment()
+        _market_command_fragment()
         mark_runtime_stage("render_forecast_start", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))
         _render_forecast(forecast)
         mark_runtime_stage("render_forecast_done", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))
