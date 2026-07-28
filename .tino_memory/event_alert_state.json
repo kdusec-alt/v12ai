@@ -36,7 +36,8 @@
       "source_tickers": [
         "GLOBAL",
         "SKHY",
-        "INTC"
+        "INTC",
+        "MU"
       ],
       "status": "active_red",
       "title": "Eurozone GDP Flash Estimate Lands Thursday: What ECB September Hike Needs to See - Tech Times",
@@ -167,5 +168,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T14:38:29+00:00"
+  "updated_at": "2026-07-28T14:38:32+00:00"
 }
