@@ -1,9 +1,13 @@
 import ast
+from datetime import datetime
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import learning
+from auto_audit_scheduler import _market_window
+from v13_research.close_recheck import _cutoff_time
 
 
 ROOT = Path(__file__).resolve().parent
@@ -38,6 +42,26 @@ class V1071UiUnblockHotfixTests(unittest.TestCase):
         self.assertIn("batch_size_override=1", body)
         self.assertIn("if not _is_fragment_rerun()", body)
         self.assertIn("fragment_ids_this_run", detector)
+
+    def test_due_calibration_is_not_postponed_by_active_forecast_or_view(self):
+        body = _function_source("app.py", "_admin_maintenance_fragment_body")
+        self.assertNotIn('get("forecast")', body)
+        self.assertNotIn('get("main_view")', body)
+
+    def test_tw_auto_audit_cutoff_remains_1410_taipei(self):
+        before = datetime(2026, 7, 28, 14, 9, tzinfo=ZoneInfo("Asia/Taipei"))
+        at_cutoff = datetime(2026, 7, 28, 14, 10, tzinfo=ZoneInfo("Asia/Taipei"))
+        self.assertFalse(_market_window("TW", before)["ready"])
+        self.assertTrue(_market_window("TW", at_cutoff)["ready"])
+
+    def test_us_auto_audit_cutoff_remains_1615_new_york(self):
+        before_ny = datetime(2026, 7, 28, 16, 14, tzinfo=ZoneInfo("America/New_York"))
+        at_cutoff_ny = datetime(2026, 7, 28, 16, 15, tzinfo=ZoneInfo("America/New_York"))
+        self.assertFalse(_market_window("US", before_ny.astimezone(ZoneInfo("Asia/Taipei")))["ready"])
+        self.assertTrue(_market_window("US", at_cutoff_ny.astimezone(ZoneInfo("Asia/Taipei")))["ready"])
+
+    def test_tw_close_recheck_cutoff_remains_1700_taipei(self):
+        self.assertEqual(_cutoff_time().strftime("%H:%M"), "17:00")
 
     def test_deferred_tickers_are_not_false_errors(self):
         rows = [
