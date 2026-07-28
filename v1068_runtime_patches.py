@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 _INSTALLED = False
 
@@ -36,7 +36,6 @@ def latest_t1_audit_records(rows: Sequence[Dict[str, Any]], limit: int = 40) -> 
         if ticker and target_date:
             key = (market, ticker, target_date)
         else:
-            # Historical malformed rows must not collapse into one another.
             key = ("ROW", str(row.get("audit_id") or row.get("prediction_id") or id(row)), _sort_stamp(row))
         if key in seen:
             continue
@@ -73,12 +72,9 @@ def _install_fragment_safe_admin_ack() -> None:
         completed = bool(original(event_id))
         if not completed:
             return False
-        # The button is rendered inside Streamlit's five-minute fragment.  A
-        # full-app st.rerun from the caller can raise a RuntimeError even though
-        # the acknowledgement was already persisted.  Refresh only the active
-        # fragment when supported; otherwise return a falsey value so the old
-        # full-app rerun branch is skipped.  The next natural fragment render
-        # reads the already-updated lifecycle state.
+        # The button is inside Streamlit's five-minute fragment.  Refresh only
+        # that fragment; if the installed Streamlit version rejects scoped
+        # reruns, return false so app.py does not execute its legacy full rerun.
         try:
             import streamlit as st
             st.session_state.pop("event_reassessment_notice", None)
@@ -103,9 +99,12 @@ def research_status_text(close_report: Dict[str, Any], scheduler_report: Dict[st
     close = dict(close_report or {})
     scheduler = dict(scheduler_report or {})
     status = str(close.get("status") or scheduler.get("status") or "waiting").strip().lower()
-    waiting = int(float(close.get("waiting_institution") or 0))
-    errors = int(float(close.get("errors") or 0))
-    today = int(float(close.get("today_tickers") or 0))
+    try:
+        waiting = int(float(close.get("waiting_institution") or 0))
+        errors = int(float(close.get("errors") or 0))
+        today = int(float(close.get("today_tickers") or 0))
+    except Exception:
+        waiting = errors = today = 0
     if errors:
         return {"level": "error", "label": "研究資料異常", "detail": f"目前有 {errors} 筆錯誤待處理；V12 Decision 仍保持隔離。"}
     if status in {"running", "working", "processing"}:
@@ -117,10 +116,57 @@ def research_status_text(close_report: Dict[str, Any], scheduler_report: Dict[st
     return {"level": "idle", "label": "等待下一次研究任務", "detail": "目前沒有待處理標的；Research Lab 正常待命，且不影響 V12 Decision。"}
 
 
+def _install_research_ui_contrast() -> None:
+    from v13_research import ui as research_ui
+
+    if getattr(research_ui, "_v1068_research_ui_installed", False):
+        return
+    original = research_ui.render_research_lab
+
+    def render_research_lab_v1068(st):
+        st.markdown(
+            """
+            <style>
+            [data-testid="stMetric"]{background:#071727!important;border:1px solid #21435b!important;border-radius:12px!important;padding:8px 10px!important}
+            [data-testid="stMetric"] [data-testid="stMetricLabel"],
+            [data-testid="stMetric"] [data-testid="stMetricLabel"] *,
+            [data-testid="stMetric"] [data-testid="stMetricValue"],
+            [data-testid="stMetric"] [data-testid="stMetricValue"] *{color:#f2f8ff!important;opacity:1!important}
+            [data-testid="stMetric"] [data-testid="stMetricValue"]{font-weight:900!important}
+            .v1068-research-health{border:1px solid #2f7597;border-left:5px solid #46e6ff;border-radius:10px;background:#071727;padding:8px 12px;margin:4px 0 10px;color:#eff9ff;font-weight:750}
+            .v1068-research-health b{color:#fff0a8;font-size:15px}.v1068-research-health span{display:block;margin-top:2px;color:#ccecff;font-size:12px}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        close_report = st.session_state.get("last_close_recheck_report") or {}
+        scheduler_report = st.session_state.get("last_v13_research_report") or {}
+        if not close_report:
+            try:
+                small_dashboard = research_ui.load_research_dashboard(genome_limit=1, detection_limit=1)
+                close_report = small_dashboard.get("close_recheck_state") or {}
+            except Exception:
+                close_report = {}
+        health = research_status_text(close_report, scheduler_report)
+        st.markdown(
+            "<div class='v1068-research-health'><b>Research Health｜"
+            + str(health.get("label") or "正常待命")
+            + "</b><span>"
+            + str(health.get("detail") or "Decision Influence 維持 FALSE。")
+            + "</span></div>",
+            unsafe_allow_html=True,
+        )
+        return original(st)
+
+    research_ui.render_research_lab = render_research_lab_v1068
+    research_ui._v1068_research_ui_installed = True
+
+
 def install_v1068_runtime_patches() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
     _install_learning_latest_view()
     _install_fragment_safe_admin_ack()
+    _install_research_ui_contrast()
     _INSTALLED = True
