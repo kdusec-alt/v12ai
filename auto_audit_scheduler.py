@@ -125,12 +125,19 @@ def execute_due_auto_audit_once(
                     market_filter=market,
                     trade_date=str(window.get("trade_date") or ""),
                 )
+                remaining = pending_auto_audit_summary(
+                    limit=bounded_scan_limit,
+                    market_filter=market,
+                    trade_date=str(window.get("trade_date") or ""),
+                )
                 base.update({
                     "status": "done",
                     "audited_t1": int(run.get("audited_t1_count") or 0),
                     "audited_today": int(run.get("audited_today_count") or 0),
                     "fetched": int(run.get("fetched_ticker_count") or 0),
                     "errors": len(run.get("errors") or []),
+                    "remaining_t1": int(remaining.get("pending_t1_count") or 0),
+                    "remaining_today": int(remaining.get("pending_today_count") or 0),
                     "scan_limit": bounded_scan_limit,
                     "reason": "安全小批次完成",
                 })

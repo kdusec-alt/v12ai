@@ -249,6 +249,9 @@ def run_login_close_recheck(
     macro: str,
     live_data: bool,
     now: datetime | None = None,
+    request_rerun: bool = True,
+    batch_size_override: int | None = None,
+    time_budget_override: float | None = None,
 ) -> Dict[str, Any]:
     """Run one bounded close-recheck cycle and optionally request another rerun.
 
@@ -287,7 +290,11 @@ def run_login_close_recheck(
 
     max_tickers = _int_env("TINO_V13_CLOSE_RECHECK_MAX_TICKERS", 30, 1, 80)
     batch_size = _int_env("TINO_V13_CLOSE_RECHECK_BATCH", 4, 1, 12)
+    if batch_size_override is not None:
+        batch_size = max(1, min(batch_size, int(batch_size_override)))
     time_budget = _float_env("TINO_V13_CLOSE_RECHECK_BUDGET_SEC", 35.0, 5.0, 90.0)
+    if time_budget_override is not None:
+        time_budget = max(5.0, min(time_budget, float(time_budget_override)))
     plan = build_close_recheck_plan(now=current, max_tickers=max_tickers)
     candidates: List[str] = list(plan.get("candidate_tickers") or [])
     latest_by_ticker: Dict[str, Dict[str, Any]] = dict(plan.get("latest_by_ticker") or {})
@@ -541,7 +548,11 @@ def run_login_close_recheck(
     st.session_state.pop("close_recheck_halted_until", None)
     if remaining > 0:
         st.session_state["close_recheck_in_progress"] = True
-        st.rerun()
+        # Full-app reruns remove navigation and inputs while the next batch is
+        # running.  The maintenance fragment requests the next bounded pass on
+        # its own timer, so it explicitly disables this legacy rerun.
+        if request_rerun:
+            st.rerun()
 
-    st.session_state["close_recheck_in_progress"] = False
+    st.session_state["close_recheck_in_progress"] = bool(remaining > 0)
     return report
