@@ -2,6 +2,49 @@
   "events": [
     {
       "acknowledged": false,
+      "category": "macro_release_pending",
+      "cooling_count": 0,
+      "event_id": "EV-717A2AC87DC8DC",
+      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
+      "family": "high_impact",
+      "fingerprint": "184e8932c366381c",
+      "first_seen_at": "2026-07-25T05:20:02+00:00",
+      "first_seen_epoch": 1784956802.439899,
+      "last_evidence_epoch": 1785254793.917698,
+      "last_seen_at": "2026-07-28T16:06:33+00:00",
+      "last_seen_epoch": 1785254793.917698,
+      "last_transition_at": "2026-07-28T16:06:33+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 16,
+      "related_fingerprints": [
+        "1a9cc472048ed893",
+        "8c83b1d323182891",
+        "2912cd290264f1d8",
+        "58da6552cf7f8cbd",
+        "5b80e38621eeafe8",
+        "7f7f7c95ddb7032f",
+        "653ef74eda0da6d9",
+        "f6f92ac12f0d6f8a"
+      ],
+      "risk_sign": 0,
+      "scope": "ticker",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/selfemployed.com",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL",
+        "SKHY",
+        "INTC",
+        "MU"
+      ],
+      "status": "active_red",
+      "title": "US Flash PMI Splits As Services Jump And Factories Slip - selfemployed.com",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
+    },
+    {
+      "acknowledged": false,
       "category": "geo_energy_escalation",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
@@ -47,49 +90,6 @@
       "status": "active_red",
       "title": "Global Event Core｜油價快速回落｜WTI -3.92%／Brent -4.33%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
       "transition_reason": "市場衝擊 L2 產業衝擊 0/100｜跨市場事件｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
-    },
-    {
-      "acknowledged": false,
-      "category": "macro_release_pending",
-      "cooling_count": 0,
-      "event_id": "EV-717A2AC87DC8DC",
-      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
-      "family": "high_impact",
-      "fingerprint": "f6f92ac12f0d6f8a",
-      "first_seen_at": "2026-07-25T05:20:02+00:00",
-      "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785249509.583871,
-      "last_seen_at": "2026-07-28T14:38:29+00:00",
-      "last_seen_epoch": 1785249509.583871,
-      "last_transition_at": "2026-07-28T14:38:29+00:00",
-      "peak_severity": 3,
-      "reinforcement_count": 15,
-      "related_fingerprints": [
-        "b5fb07e5c47f23c0",
-        "1a9cc472048ed893",
-        "8c83b1d323182891",
-        "2912cd290264f1d8",
-        "58da6552cf7f8cbd",
-        "5b80e38621eeafe8",
-        "7f7f7c95ddb7032f",
-        "653ef74eda0da6d9"
-      ],
-      "risk_sign": 0,
-      "scope": "ticker",
-      "severity": 3,
-      "source": "GoogleNewsGlobal/Tech Times",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "SKHY",
-        "INTC",
-        "MU"
-      ],
-      "status": "active_red",
-      "title": "Eurozone GDP Flash Estimate Lands Thursday: What ECB September Hike Needs to See - Tech Times",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
     },
     {
       "acknowledged": true,
@@ -170,5 +170,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T16:01:14+00:00"
+  "updated_at": "2026-07-28T16:06:33+00:00"
 }
