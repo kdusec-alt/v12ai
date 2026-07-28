@@ -82,7 +82,7 @@ def _theme():
     .block-container{max-width:1920px;padding:.72rem .34rem .24rem!important;}
     [data-testid="stSidebar"]{background:#07101c!important;}
     [data-testid="stSidebar"] *{color:#eaf6ff!important;}
-    .input-safe-spacer{height:46px;}
+    .input-safe-spacer{height:6px;}
     .stTextInput input{
         background:#071727!important;color:#eaf6ff!important;border:1px solid #1d6f95!important;border-radius:12px!important;
         font-weight:1000!important;font-size:17px!important;min-height:46px!important;box-shadow:0 0 0 1px rgba(54,230,255,.10) inset!important;
@@ -140,7 +140,7 @@ def _theme():
     .stButton{position:relative;z-index:9999!important;}
     .stButton button{
         background:#11151d!important;color:#fff5c4!important;border:1px solid rgba(255,217,106,.45)!important;border-radius:12px!important;
-        font-weight:1000!important;font-size:16px!important;min-height:52px!important;box-shadow:0 10px 28px rgba(0,0,0,.24)!important;
+        font-weight:1000!important;font-size:15px!important;min-height:44px!important;box-shadow:0 6px 18px rgba(0,0,0,.20)!important;
         pointer-events:auto!important;opacity:1!important;
     }
     .stButton button:hover{border-color:#ffe78a!important;background:#17202b!important;transform:translateY(-1px);}
@@ -149,7 +149,8 @@ def _theme():
     .v12bar{border:1px solid rgba(54,230,255,.23);border-radius:12px;padding:7px 12px;margin:2px 0 7px;background:#06101b;font-weight:1000;color:#dff5ff;}
     .bootbox{border:1px solid rgba(255,217,106,.35);border-radius:14px;background:#071727;padding:18px 20px;margin-top:12px;color:#eaf6ff;font-weight:850;line-height:1.6;}
     textarea{font-family:'Consolas','Microsoft JhengHei',monospace!important;color:#eaf6ff!important;background:#071727!important;border:1px solid #15506d!important;}
-    .tino-nav-spacer{height:2px;}
+    .tino-nav-spacer{height:0;}
+    [data-testid="stVerticalBlock"]{gap:.62rem!important;}
     .tino-nav-note{color:#bfe6ff;font-size:12px;font-weight:850;margin:-2px 0 6px;}
     </style>
     """, unsafe_allow_html=True)
@@ -470,21 +471,30 @@ def _render_event_watch_status(forecast) -> None:
         global_payload = global_event_display(dominant)
         global_level = str((global_payload or {}).get("level") or "warning")
         global_message = str((global_payload or {}).get("text") or "").strip()
-        if global_message:
-            if global_level == "error":
-                st.error(global_message)
-            else:
-                st.warning(global_message)
-        event_id = str(dominant.get("event_id") or "")
-        if event_id and st.button(
-            "Admin 已讀並關閉此警示",
-            key=f"ack_global_event_{event_id}",
-            type="secondary",
-        ):
-            if acknowledge_global_event(event_id):
-                st.session_state.pop("event_reassessment_notice", None)
-                st.session_state.pop("event_reassessment_notice_severity", None)
-                st.rerun()
+        banner_slot = st.empty()
+        with banner_slot.container():
+            if global_message:
+                if global_level == "error":
+                    st.error(global_message)
+                else:
+                    st.warning(global_message)
+            event_id = str(dominant.get("event_id") or "")
+            if event_id and st.button(
+                "Admin 已讀並關閉此警示",
+                key=f"ack_global_event_{event_id}",
+                type="secondary",
+            ):
+                if acknowledge_global_event(event_id):
+                    st.session_state.pop("event_reassessment_notice", None)
+                    st.session_state.pop("event_reassessment_notice_severity", None)
+                    try:
+                        global_view = get_global_event_view()
+                        st.session_state["global_event_view"] = global_view
+                    except Exception:
+                        global_view = {"dominant": None, "recent": []}
+                    dominant = {}
+                    banner_slot.empty()
+                    st.toast("警訊已讀並關閉；稽核紀錄仍保留。", icon="✅")
 
     notice = str(st.session_state.get("event_reassessment_notice") or "")
     report = dict(st.session_state.get("last_event_watch_report") or {})

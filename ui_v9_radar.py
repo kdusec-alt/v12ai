@@ -43,13 +43,35 @@ def _strip_duplicate_label(label: str, value: str) -> str:
     return text
 
 
-def _row(label: str, value: str, hot: bool = False, core: bool = False) -> str:
+def _row(label: str, value: str, hot: bool = False, core: bool = False, role: str = "context") -> str:
     cls = "v11054-two-line"
     if hot:
         cls += " hot"
     if core:
         cls += " core"
-    return f"<div class='{cls}'><b>{safe(label)}</b>｜{safe(value)}</div>"
+    cls += f" role-{role}"
+    role_label = {"decision": "仲裁", "event": "事件", "reference": "參考"}.get(role, "環境")
+    return (
+        f"<div class='{cls}'><span class='role-badge'>{role_label}</span>"
+        f"<b>{safe(label)}</b>｜{safe(value)}</div>"
+    )
+
+
+_ROW_ROLES = {
+    "FQC": "decision",
+    "市場風控": "decision",
+    "Quantum 貢獻": "decision",
+    "三大法人": "decision",
+    "資券 / 融資融券": "decision",
+    "外資期貨": "decision",
+    "市場熱度": "decision",
+    "事件/Macro": "event",
+    "Daily Headline": "event",
+    "Policy/Geo": "event",
+    "Company News": "event",
+    "基本面": "reference",
+    "空方成本 / 回補": "reference",
+}
 
 
 def _radar_default(label: str, forecast) -> str:
@@ -82,18 +104,29 @@ def render_radar(st, forecast) -> None:
             val = val.replace("｜詳細原因見 Admin Trace", "").replace("詳細原因見 Admin Trace", "")
         if not val.strip():
             continue
-        rows_html.append(_row(key, val, hot=(key == "三大法人"), core=(key in {"Quantum 貢獻", "三大法人", "資券 / 融資融券", "外資期貨"})))
+        rows_html.append(_row(
+            key,
+            val,
+            hot=(key == "三大法人"),
+            core=(key in {"Quantum 貢獻", "三大法人", "資券 / 融資融券", "外資期貨"}),
+            role=_ROW_ROLES.get(key, "context"),
+        ))
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:#02070c;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei',Arial,sans-serif;color:#eaf6ff}}
-    .right-compact-panel{{background:linear-gradient(180deg,rgba(4,16,28,.98),rgba(3,12,20,.98));border:1px solid rgba(55,230,255,.24);border-radius:16px;padding:5px 7px;min-height:624px;overflow:hidden}}
-    .battle-label{{color:#93c5fd;font-weight:700;font-size:9.2px;letter-spacing:.15px;margin:1px 0 2px 0;line-height:1.02}}
-    .v11051-abc-compact,.v11051-bsi-compact{{padding:3px 6px;margin:2px 0;border-radius:8px;font-size:9.7px;line-height:1.08;font-weight:600;border:1px solid rgba(45,212,191,.22);background:rgba(3,46,54,.52);color:#dffdf7}}
+    .right-compact-panel{{background:linear-gradient(180deg,#07131f,#050d16);border:1px solid rgba(75,183,220,.34);border-radius:14px;padding:6px 8px;min-height:624px;overflow:hidden}}
+    .battle-label{{color:#9bd8f3;font-weight:750;font-size:9.2px;letter-spacing:.15px;margin:1px 0 2px 0;line-height:1.02}}
+    .v11051-abc-compact,.v11051-bsi-compact{{padding:4px 7px;margin:2px 0;border-radius:8px;font-size:9.7px;line-height:1.1;font-weight:620;border:1px solid rgba(45,212,191,.30);background:rgba(8,52,58,.58);color:#e5fffb}}
     .v11051-bsi-compact{{border-color:rgba(255,214,91,.42);background:rgba(33,25,24,.68);color:#fff4c4;white-space:pre-line}}
-    .v11054-two-line{{padding:3px 6px;margin:2px 0;border:1px solid rgba(96,165,250,.18);border-radius:8px;background:rgba(15,23,42,.34);color:#dbeafe;font-size:9.55px;line-height:1.08;font-weight:520;white-space:pre-line;word-break:break-word;overflow:visible}}
+    .v11054-two-line{{padding:3px 6px;margin:2px 0;border:1px solid rgba(96,165,250,.20);border-radius:8px;background:#0a1725;color:#e2effa;font-size:9.55px;line-height:1.1;font-weight:540;white-space:pre-line;word-break:break-word;overflow:visible}}
     .v11054-two-line b{{color:#bfdbfe;margin-right:4px;font-weight:650}}
-    .v11054-two-line.hot,.v11054-two-line.core{{border-color:rgba(255,214,91,.34);background:linear-gradient(90deg,rgba(255,214,91,.07),rgba(15,23,42,.34))}}
+    .v11054-two-line.role-decision{{border-left:3px solid #43d5b0;background:#092022}}
+    .v11054-two-line.role-event{{border-left:3px solid #6aa9ff;background:#0a1828}}
+    .v11054-two-line.role-reference{{border-left:3px solid #d7b65b;background:#1b1810}}
+    .role-badge{{display:inline-block;min-width:25px;margin-right:5px;padding:1px 3px;border-radius:4px;background:rgba(255,255,255,.08);color:#b9cbd9;font-size:7.4px;font-weight:750;text-align:center;vertical-align:1px}}
+    .role-decision .role-badge{{color:#8ef0d3}}.role-event .role-badge{{color:#9bc4ff}}.role-reference .role-badge{{color:#f1d787}}
+    .v11054-two-line.hot,.v11054-two-line.core{{border-color:rgba(67,213,176,.42)}}
     .truth{{margin-top:6px;border:1px solid rgba(255,214,91,.32);border-radius:9px;padding:5px 8px;color:#ffe698;font-weight:650;background:rgba(255,214,91,.08);font-size:10.2px}}
     /* V1065: compact only inside a normal desktop Streamlit column.  At 80%
        browser zoom the iframe becomes wider and this rule naturally disengages. */
