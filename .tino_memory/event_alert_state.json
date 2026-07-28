@@ -35,14 +35,14 @@
         "US"
       ],
       "source_tickers": [
-        "ONDS",
         "TSLL",
         "2308.TW",
         "GLOBAL",
         "MU",
         "MRVL",
         "2330.TW",
-        "FORM"
+        "FORM",
+        "SNDK"
       ],
       "status": "active_red",
       "title": "Global Event Core｜油價快速回落｜WTI -2.69%／Brent -3.25%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
@@ -168,5 +168,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T15:25:41+00:00"
+  "updated_at": "2026-07-28T15:25:43+00:00"
 }
