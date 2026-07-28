@@ -1,6 +1,6 @@
 {
   "created_at_tw": "2026-07-13T17:04:14+08:00",
-  "last_saved_tw": "2026-07-28T17:54:18+08:00",
+  "last_saved_tw": "2026-07-28T18:04:03+08:00",
   "recent_audits": [
     {
       "actual_close": 55.8,
@@ -349527,16 +349527,16 @@
   ],
   "storage_guard": {
     "last_error": null,
-    "last_verify_at_tw": "2026-07-28T17:54:19+08:00",
+    "last_verify_at_tw": "2026-07-28T18:04:05+08:00",
     "last_verify_ok": true,
-    "last_write_at_tw": "2026-07-28T17:54:18+08:00",
+    "last_write_at_tw": "2026-07-28T18:04:03+08:00",
     "last_write_ok": true,
     "migration": {
       "imported_audits": 0,
       "imported_predictions": 0,
       "imported_profiles": 0,
       "imported_watch_symbols": 0,
-      "last_migration_at_tw": "2026-07-28T17:54:18+08:00",
+      "last_migration_at_tw": "2026-07-28T18:04:03+08:00",
       "notes": [],
       "status": "PASS"
     },
@@ -349546,9 +349546,9 @@
       "branch_ready": true,
       "configured": true,
       "error": null,
-      "last_restore_at_tw": "2026-07-28T17:53:37+08:00",
-      "last_sync_at_tw": "2026-07-28T17:54:13+08:00",
-      "last_verified_at_tw": "2026-07-28T17:54:17+08:00",
+      "last_restore_at_tw": "2026-07-28T18:03:37+08:00",
+      "last_sync_at_tw": "2026-07-28T18:03:56+08:00",
+      "last_verified_at_tw": "2026-07-28T18:04:02+08:00",
       "legacy_nested_recovered": [],
       "memory_dir": ".tino_memory",
       "missing_files": [],
@@ -349565,14 +349565,14 @@
           "remote_rows": 271
         },
         "event_alert_state.json": {
-          "canonical_remote_bytes": 5682,
+          "canonical_remote_bytes": 5633,
           "changed": false,
           "legacy_nested_bytes": 0,
-          "local_bytes_after": 5682,
-          "local_bytes_before": 5682,
+          "local_bytes_after": 5633,
+          "local_bytes_before": 5633,
           "local_items_before": 3,
           "merged_items": 3,
-          "remote_bytes": 5682,
+          "remote_bytes": 5633,
           "remote_items": 3
         },
         "prediction_log.jsonl": {
@@ -349598,14 +349598,14 @@
           "remote_items": 20
         },
         "tino_memory_ledger.json": {
-          "canonical_remote_bytes": 13562536,
+          "canonical_remote_bytes": 13649358,
           "changed": false,
           "legacy_nested_bytes": 0,
-          "local_bytes_after": 13649358,
-          "local_bytes_before": 13649358,
+          "local_bytes_after": 13670246,
+          "local_bytes_before": 13670246,
           "local_items_before": 8,
           "merged_items": 8,
-          "remote_bytes": 13562536,
+          "remote_bytes": 13649358,
           "remote_items": 8
         },
         "v13_research/close_recheck.jsonl": {
@@ -349664,126 +349664,102 @@
           "remote_rows": 4
         },
         "v13_research/research_seed.jsonl": {
-          "canonical_remote_bytes": 1867088,
-          "changed": true,
+          "canonical_remote_bytes": 1870016,
+          "changed": false,
           "legacy_nested_bytes": 0,
           "local_bytes_after": 1870016,
-          "local_bytes_before": 1869784,
+          "local_bytes_before": 1870016,
           "local_rows_before": 716,
           "merged_rows": 716,
-          "remote_bytes": 1867088,
-          "remote_rows": 715
+          "remote_bytes": 1870016,
+          "remote_rows": 716
         }
       },
       "remote_files": {
         "audit_log.jsonl": {
           "bytes": 927313,
-          "checked_at_tw": "2026-07-28T17:53:41+08:00",
+          "checked_at_tw": "2026-07-28T18:03:41+08:00",
           "rows": 271,
           "sha": "27257c43caa9",
           "verified": true
         },
         "event_alert_state.json": {
-          "bytes": 5682,
-          "checked_at_tw": "2026-07-28T17:54:17+08:00",
+          "bytes": 5633,
+          "checked_at_tw": "2026-07-28T18:04:02+08:00",
           "rows": null,
-          "sha": "f50e3ba12b19",
+          "sha": "a585465a03bb",
           "verified": true
         },
         "prediction_log.jsonl": {
           "bytes": 13113333,
-          "checked_at_tw": "2026-07-28T17:53:40+08:00",
+          "checked_at_tw": "2026-07-28T18:03:41+08:00",
           "rows": 715,
           "sha": "af52d485ac31",
           "verified": true
         },
         "ticker_profiles.json": {
           "bytes": 212296,
-          "checked_at_tw": "2026-07-28T17:53:42+08:00",
+          "checked_at_tw": "2026-07-28T18:03:42+08:00",
           "rows": null,
           "sha": "a59ab675e3c5",
           "verified": true
         },
         "tino_memory_ledger.json": {
-          "bytes": 13649358,
-          "checked_at_tw": "2026-07-28T17:53:56+08:00",
+          "bytes": 13670246,
+          "checked_at_tw": "2026-07-28T18:03:56+08:00",
           "rows": null,
-          "sha": "16b8cfee7bcf",
+          "sha": "d73fb3c544c4",
           "verified": true
         },
         "v13_research/close_recheck.jsonl": {
           "bytes": 224990,
-          "checked_at_tw": "2026-07-28T17:54:16+08:00",
+          "checked_at_tw": "2026-07-28T18:04:01+08:00",
           "rows": 85,
           "sha": "3120b84a6db9",
           "verified": true
         },
         "v13_research/close_recheck_state.json": {
           "bytes": 568,
-          "checked_at_tw": "2026-07-28T17:54:16+08:00",
+          "checked_at_tw": "2026-07-28T18:04:01+08:00",
           "rows": null,
           "sha": "74c07f2dec65",
           "verified": true
         },
         "v13_research/detection_event.jsonl": {
           "bytes": 583227,
-          "checked_at_tw": "2026-07-28T17:54:15+08:00",
+          "checked_at_tw": "2026-07-28T18:04:00+08:00",
           "rows": 716,
           "sha": "222909c92789",
           "verified": true
         },
-        "v13_research/environment_genome.jsonl": {
-          "bytes": 120959,
-          "checked_at_tw": "2026-07-28T17:50:40+08:00",
-          "rows": 236,
-          "sha": "d0e3aaa944a8",
-          "verified": true
-        },
         "v13_research/genome_snapshot.jsonl": {
           "bytes": 1532975,
-          "checked_at_tw": "2026-07-28T17:54:14+08:00",
+          "checked_at_tw": "2026-07-28T18:03:59+08:00",
           "rows": 716,
           "sha": "86718f9bf77a",
           "verified": true
         },
         "v13_research/macro_event.jsonl": {
           "bytes": 7037,
-          "checked_at_tw": "2026-07-28T17:54:16+08:00",
+          "checked_at_tw": "2026-07-28T18:04:02+08:00",
           "rows": 4,
           "sha": "3fd2c6f72813",
           "verified": true
         },
         "v13_research/research_seed.jsonl": {
           "bytes": 1870016,
-          "checked_at_tw": "2026-07-28T17:54:15+08:00",
+          "checked_at_tw": "2026-07-28T18:03:58+08:00",
           "rows": 716,
           "sha": "ab94e9e81b50",
-          "verified": false
-        },
-        "v13_research/shadow_phenotype.jsonl": {
-          "bytes": 1607584,
-          "checked_at_tw": "2026-07-28T17:50:49+08:00",
-          "rows": 715,
-          "sha": "6e9ea8d52b43",
-          "verified": true
-        },
-        "v13_research/ticker_genome.jsonl": {
-          "bytes": 545437,
-          "checked_at_tw": "2026-07-28T17:50:45+08:00",
-          "rows": 715,
-          "sha": "fe826dad7b4f",
           "verified": true
         }
       },
       "repo": "kdusec-alt/v12ai",
-      "restored_files": [
-        "v13_research/research_seed.jsonl"
-      ],
+      "restored_files": [],
       "shrink_warnings": [],
       "status": "PASS",
       "synced_files": [
-        "tino_memory_ledger.json",
-        "v13_research/research_seed.jsonl"
+        "tino_memory_ledger.json"
       ]
     },
     "storage_mode": "github_remote_if_configured_else_local_runtime"
