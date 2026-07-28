@@ -24,7 +24,7 @@ class EmergingSessionV1070Tests(unittest.TestCase):
                 "phase_1500": tw._tw_session_phase(at(15, 0)),
                 "phase_1506": tw._tw_session_phase(at(15, 6)),
             }
-        cls.fetch = install_emerging_session_v1070(probe)
+        cls.fetch = staticmethod(install_emerging_session_v1070(probe))
 
     def ticker(self, symbol: str, exchange: str):
         return TickerInfo(
