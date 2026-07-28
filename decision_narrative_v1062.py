@@ -60,7 +60,14 @@ def build_ai_decision_narrative_v1062(*args, **kwargs) -> Dict[str, Any]:
     )
 
     evidence = str(result.get("evidence_line") or "").strip()
-    result["evidence_line"] = f"{evidence}；{shock_text}" if evidence else shock_text
+    if str(result.get("schema") or "") == "TINO_DECISION_THESIS_V1072":
+        # The thesis ledger already owns one macro_event family.  Keep the
+        # shock as a bounded risk overlay without counting or narrating the
+        # same event a second time.
+        result["evidence_line"] = evidence
+        result["market_shock_counted_separately"] = False
+    else:
+        result["evidence_line"] = f"{evidence}；{shock_text}" if evidence else shock_text
 
     axis = str(result.get("axis") or "").strip("｜")
     result["axis"] = f"{axis}｜市場衝擊L{shock_level}" if axis else f"市場衝擊L{shock_level}"

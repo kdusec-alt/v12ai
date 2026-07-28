@@ -611,7 +611,7 @@ def _render_market_command(forecast) -> None:
         <div class="mc-head">🌐 大盤智能判斷｜{market_label}<span>{html.escape(str(result.get('label') or '等待確認'))}</span></div>
         <div class="mc-facts">{html.escape(facts)}</div>{event_line}
         <div class="mc-action">現在建議：{html.escape(str(result.get('action') or '等待確認'))}
-        <small>可信度 {int(result.get('confidence') or 0)}%</small></div></div>""",
+        <small>方向判定可信度 {int(result.get('confidence') or 0)}%</small></div></div>""",
         unsafe_allow_html=True,
     )
 

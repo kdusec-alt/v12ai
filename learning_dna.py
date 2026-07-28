@@ -42,6 +42,9 @@ def prediction_dna(forecast: FinalForecast, direction: Dict[str, Any], card: Dic
     dominant_share = abs(dominant_value) / gross if gross > 1e-9 else 0.0
     price_meta = dict(card.get("_price_meta") or {})
     micro = dict(card.get("_market_microstructure") or {})
+    thesis = dict(card.get("_decision_thesis") or card.get("_decision_narrative") or {})
+    trust = dict(card.get("_prediction_trust") or {})
+    price_truth = dict(card.get("_price_truth") or {})
     return {
         "schema": "TINO_PREDICTION_DNA_V1",
         "ticker": forecast.ticker.resolved_symbol,
@@ -76,6 +79,40 @@ def prediction_dna(forecast: FinalForecast, direction: Dict[str, Any], card: Dic
             "emerging_grace": bool(price_meta.get("emerging_price_grace")),
         },
         "microstructure": micro,
+        "decision_thesis": {
+            "schema": thesis.get("schema"),
+            "state": thesis.get("state"),
+            "action_mode": thesis.get("action_mode"),
+            "entry_permission": thesis.get("entry_permission"),
+            "buy_now": thesis.get("buy_now"),
+            "preferred_entry": thesis.get("preferred_entry"),
+            "second_entry": thesis.get("second_entry"),
+            "confirmation": thesis.get("confirmation"),
+            "invalidation": thesis.get("invalidation"),
+            "dominant_evidence": thesis.get("dominant_evidence"),
+            "counter_evidence": thesis.get("counter_evidence"),
+            "evidence_families_counted": list(thesis.get("evidence_families_counted") or []),
+            "earnings_state": dict(thesis.get("earnings_evidence") or {}).get("state"),
+            "earnings_forward_priority": dict(thesis.get("earnings_evidence") or {}).get("forward_priority"),
+        },
+        "prediction_trust": {
+            "severity": trust.get("severity"),
+            "error_pct": trust.get("error_pct"),
+            "direction_hit": trust.get("direction_hit"),
+            "confidence_cut": trust.get("confidence_cut"),
+            "maturity_cap": trust.get("maturity_cap"),
+            "target_trade_date": trust.get("target_trade_date"),
+        },
+        "price_truth": {
+            "schema": price_truth.get("schema"),
+            "session": price_truth.get("session"),
+            "return_label": price_truth.get("return_label"),
+            "current_reference_close": price_truth.get("current_reference_close"),
+            "formal_close": price_truth.get("formal_close"),
+            "formal_previous_close": price_truth.get("formal_previous_close"),
+            "vwap_scope": price_truth.get("vwap_scope"),
+            "basis_consistent": price_truth.get("basis_consistent"),
+        },
         "event_macro": str((forecast.radar or {}).get("事件/Macro") or ""),
         "policy_geo": str((forecast.radar or {}).get("Policy/Geo") or ""),
     }

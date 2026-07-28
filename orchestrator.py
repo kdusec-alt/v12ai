@@ -27,6 +27,9 @@ from price_guard import apply_market_bounds, validate_price_frame
 from truth_guard import truth_to_main_label
 from data_sources_market_heat import fetch_tw_market_heat, market_heat_radar_line
 from bubble_radar import assess_bubble_risk, bubble_radar_line
+from price_truth_v1072 import attach_price_truth, price_truth, scoped_vwap_state
+from prediction_trust_v1072 import assess_prediction_trust
+from earnings_intelligence_v1072 import assess_earnings_evidence
 try:
     from decision_narrative import build_ai_decision_narrative
 except Exception:
@@ -101,11 +104,8 @@ def _ssot_vwap_state(price: PriceFrame | None) -> str:
     """VWAP must be calculated from SSOT numeric fields, never parsed from text."""
     if price is None:
         return "VWAP觀察"
-    snap = _price_snapshot(price)
     try:
-        last = float(snap.get("last", price.last))
-        vwap = float(snap.get("vwap", price.vwap))
-        return "VWAP 上方" if last >= vwap else "VWAP 下方"
+        return scoped_vwap_state(price)
     except Exception:
         return "VWAP 上方" if price.last >= price.vwap else "VWAP 下方"
 
@@ -394,11 +394,51 @@ def _news_summary(news_items: List[NewsItem]) -> Dict[str, object]:
     news_items = news_items or []
     accepted = [n for n in news_items if abs(float(n.score)) >= 0.06]
     ignored = max(0, len(news_items) - len(accepted))
-    score = sum(float(n.score) for n in accepted)
+    # A neutral-score "guidance in line" headline can still explain a high-bar
+    # selloff when paired with an adverse price reaction. Preserve that factual
+    # horizon instead of dropping it at the generic sentiment threshold.
+    earnings = assess_earnings_evidence(news_items)
+    earnings_rows = [
+        n for n in accepted
+        if "earnings" in str(getattr(n, "tag", "") or "").lower()
+        or any(
+            token in str(getattr(n, "title", "") or "").lower()
+            for token in ("earnings", "guidance", "outlook", "revenue", "eps", "財報", "財測", "展望")
+        )
+    ]
+    non_earnings = [n for n in accepted if n not in earnings_rows]
+    score = sum(float(n.score) for n in non_earnings)
+    if earnings.get("accepted"):
+        earnings_signal = {
+            "backward_beat_forward_miss": -0.18,
+            "backward_beat_high_bar_reset": -0.16,
+            "forward_miss": -0.18,
+            "backward_miss": -0.12,
+            "beat_and_raise": 0.18,
+            "forward_raise": 0.16,
+            "backward_beat_only": 0.10,
+        }.get(str(earnings.get("state") or ""), 0.0)
+        # One earnings event family, one bounded contribution, regardless of
+        # how many publishers repeat the same beat/guidance story.
+        score += earnings_signal
     tags = "、".join(sorted({n.tag for n in accepted})[:3]) if accepted else "headline_neutral"
-    top = accepted[0].title if accepted else (news_items[0].title if news_items else "新聞待同步")
+    top = (
+        str(earnings.get("headline") or "")
+        if earnings.get("forward_priority")
+        else accepted[0].title if accepted else (news_items[0].title if news_items else "新聞待同步")
+    )
     bias = max(min(score * 0.08, 0.04), -0.04)
-    return {"count": len(news_items), "accepted": len(accepted), "ignored": ignored, "score": score, "tags": tags, "top": top, "bias": bias}
+    return {
+        "count": len(news_items),
+        "accepted": len(accepted),
+        "ignored": ignored,
+        "score": score,
+        "tags": tags,
+        "top": top,
+        "bias": bias,
+        "earnings": earnings,
+        "earnings_family_counted_once": bool(earnings.get("accepted")),
+    }
 
 
 def _directional_company_news(news_items: List[NewsItem]) -> List[NewsItem]:
@@ -609,7 +649,7 @@ def _price_regime_line(price: PriceFrame, raw: RawForecast) -> str:
     except Exception:
         ret20, ma20_gap = 0.0, 0.0
     overheat = ret20 >= 35.0 or ma20_gap >= 18.0
-    if vtxt == "VWAP 下方":
+    if "下方" in vtxt:
         bias = "偏弱"
         action = "防守優先｜等回測確認"
     elif overheat:
@@ -720,8 +760,10 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
     # entry levels, direction, confidence, or forecast values.
     bubble = bubble if isinstance(bubble, dict) else {}
     displayed_score = clamp(float(score), -100.0, 100.0)
-    chg = last - float(price.previous_close or last)
-    chgp = chg / float(price.previous_close or last) * 100 if float(price.previous_close or last) else 0.0
+    truth = price_truth(price)
+    reference = float(truth.get("current_reference_close") or price.previous_close or last)
+    chg = last - reference
+    chgp = chg / reference * 100 if reference else 0.0
     price_meta = ((price.context or {}).get("price_meta") or {})
     card = {
         "標題": head, "主訊息": one, "低接第一批": round(low1, 2), "低接第二批": "暫停" if pause_second else round(low2, 2),
@@ -732,6 +774,8 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "資料標題": words["info"], "開盤": round(float(price.open), 2), "現價": round(last, 2),
         "最高": round(float(price.high), 2), "最低": round(float(price.low), 2),
         "漲跌": round(chg, 2), "漲跌幅": round(chgp, 2), "VWAP位置": _ssot_vwap_state(price),
+        "漲跌標籤": str(truth.get("return_label") or "漲跌"),
+        "價格範圍標籤": str(truth.get("range_label") or "今日"),
         "價格時間": price_meta.get("label", ""),
         # Admin-only payload. UI panels ignore underscore keys; do not render this in V9 front stage.
         "_price_meta": price_meta,
@@ -742,6 +786,9 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "_direction_engine": direction.to_dict() if direction is not None else {},
         "_quantum_overlay": overlay,
         "_decision_narrative": narrative,
+        "_decision_thesis": narrative,
+        "_price_truth": truth,
+        "_prediction_trust": (price.context or {}).get("prediction_trust_v1072", {}),
         "_bubble_radar": bubble,
     }
     if bool(price_meta.get("decision_blocked")):
@@ -774,7 +821,7 @@ def _deep_report(price: PriceFrame, raw: RawForecast, final: Dict[str, float], d
 市場模式：{_session_words(price)['mode'] if price.ticker.market=='TW' else _us_session_words(price)['mode']}｜信心 {confidence:.0f}%
 市場分流：{market_note}
 【2｜戰術雷達來源】
-Fair Value：{radar.get('Fair Value')}
+技術情境價格帶（非基本面估值）：{radar.get('Fair Value')}
 ABC：{radar.get('ABC 多空情境')}
 BSI / Short：{radar.get('BSI 借券空方')}
 FQC：{radar.get('FQC')}
@@ -977,6 +1024,12 @@ def _us_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None =
     use = company + [x for x in industry if x not in company]
     top = _us_news_top_text(use, 2)
     if top:
+        earnings = assess_earnings_evidence(use)
+        if earnings.get("accepted") and earnings.get("forward_priority"):
+            return (
+                f"Company News｜{price.ticker.resolved_symbol}｜財報仲裁｜"
+                f"{earnings.get('text')}｜主證據 {earnings.get('headline')}"
+            )
         level, score, pos, neg = _us_news_strength(use)
         themes = _us_news_themes(use)
         tone = '偏多事件' if pos > neg else ('偏空/風險事件' if neg > pos else '事件觀察')
@@ -1155,6 +1208,34 @@ def _quantum_contribution_line(direction: DirectionResult | None) -> str:
     return "｜".join(parts) + f"｜方向總分 {score:+.1f} → {gate}"
 
 
+def _data_coverage(price: PriceFrame, news_items: List[NewsItem]) -> float:
+    """Visible source coverage, deliberately separate from judgement confidence."""
+    context = price.context if isinstance(price.context, dict) else {}
+    history_ok = len(list(price.recent_closes or [])) >= 20
+    price_ok = bool(getattr(price.truth, "accepted", False)) and bool(
+        price_truth(price).get("basis_consistent")
+    )
+    if price.ticker.market == "US":
+        checks = (
+            (price_ok, 35.0),
+            (bool((context.get("macro") or {}).get("accepted")), 20.0),
+            (bool((context.get("short") or {}).get("accepted")), 15.0),
+            (bool((context.get("fundamental") or {}).get("accepted")), 15.0),
+            (bool(news_items), 10.0),
+            (history_ok, 5.0),
+        )
+    else:
+        checks = (
+            (price_ok, 30.0),
+            (_formal_ok(context.get("inst", {})), 20.0),
+            (_formal_ok(context.get("margin", {})), 15.0),
+            (bool((context.get("macro") or {}).get("accepted")), 15.0),
+            (bool(news_items), 10.0),
+            (history_ok, 10.0),
+        )
+    return sum(weight for available, weight in checks if available)
+
+
 def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem], direction: DirectionResult | None = None) -> Dict[str, str]:
     sm=_signal_map(signals); inst=price.context.get('inst',{}); margin=price.context.get('margin',{}); bsi=price.context.get('bsi',{}); macro=price.context.get('macro',{}); futures=price.context.get('futures',{}); fundamental=price.context.get('fundamental',{}); proxy={}
     etf_note = 'ETF Mode｜不套 EPS / 個股財報 / 個股 BSI；只看 price、VWAP、volume、NAV/溢折價、成分股、市場風險' if price.ticker.asset_type == 'etf' else ''
@@ -1162,7 +1243,7 @@ def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
     abc=f"A突破 {raw.raw_abc['A']:.0f}%｜上緣 {raw.raw_t1_high:.2f}　B回測 {raw.raw_abc['B']:.0f}%｜風險低點 {raw.raw_t1_low:.2f}　C防守 {raw.raw_abc['C']:.0f}%"
     market_line=f"市場｜{_price_regime_line(price,raw)}｜{trend_radar_line(price)}"
     rows={
-      'Fair Value':f"保守 {price.last-price.atr14:.2f}｜中性 {price.last:.2f}｜樂觀 {price.last+price.atr14:.2f}",
+      'Fair Value':f"下緣情境 {price.last-price.atr14:.2f}｜現價基準 {price.last:.2f}｜上緣情境 {price.last+price.atr14:.2f}",
       'ABC 多空情境':abc,
       'BSI 借券空方': etf_note or _bsi_line(bsi, proxy),
       'FQC':f"技術面｜{'尚未止穩' if price.last < price.vwap else '買盤延續'}｜{_ssot_vwap_state(price)}",
@@ -1179,14 +1260,17 @@ def _tw_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       '三大法人':_inst_radar_line(inst, None),
       '資券 / 融資融券': etf_note or _margin_radar_line(margin, None),
       '左側籌碼摘要':_chip_summary(inst, margin, bsi),
-      '資料源':truth_to_main_label(price.truth).replace('fallback','price memory').replace('Fallback','price memory'), 'Confidence':f"{confidence:.0f}%"
+      '資料源':truth_to_main_label(price.truth).replace('fallback','price memory').replace('Fallback','price memory'),
+      'Coverage':f"{_data_coverage(price, news_items):.0f}%",
+      'Direction Confidence':f"{confidence:.0f}%",
+      'Confidence':f"{confidence:.0f}%"
     }
     return {k:_main_clean(v) for k,v in rows.items()}
 def _us_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem], direction: DirectionResult | None = None) -> Dict[str, str]:
     sm=_signal_map(signals); fqc=sm.get('FQC')
     abc=f"A突破 {raw.raw_abc['A']:.0f}%｜上緣 {raw.raw_t1_high:.2f}　B回測 {raw.raw_abc['B']:.0f}%｜風險低點 {raw.raw_t1_low:.2f}　C防守 {raw.raw_abc['C']:.0f}%"
     rows={
-      'Fair Value':f"保守 {price.last-price.atr14:.2f}｜中性 {price.last:.2f}｜樂觀 {price.last+price.atr14:.2f}",
+      'Fair Value':f"下緣情境 {price.last-price.atr14:.2f}｜現價基準 {price.last:.2f}｜上緣情境 {price.last+price.atr14:.2f}",
       'ABC 多空情境':abc,
       'BSI 借券空方':_us_bsi_line(price),
       'FQC':f"{fqc.signal if fqc else 'FQC觀察'}｜強度 {abs(price.last-price.vwap)/max(price.atr14,0.01)*10:.1f}%｜上緣 {raw.raw_t1_high:.2f}｜下緣 {raw.raw_t1_low:.2f}｜{_ssot_vwap_state(price)}",
@@ -1202,7 +1286,10 @@ def _us_radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], 
       '三大法人':_us_inst_dashboard(price),
       '資券 / 融資融券':_us_margin_dashboard(price),
       '左側籌碼摘要':f"Short/FQC：{_us_persona_line(price)}｜{_us_short_line(price, raw).split('｜')[-1]}｜美股不套用台股 BSI，以 VWAP / FQC / 量價確認。",
-      'US Persona':_us_persona_line(price), '資料源':'資料源：已驗證', 'Confidence':f"{confidence:.0f}%"
+      'US Persona':_us_persona_line(price), '資料源':'資料源：已驗證',
+      'Coverage':f"{_data_coverage(price, news_items):.0f}%",
+      'Direction Confidence':f"{confidence:.0f}%",
+      'Confidence':f"{confidence:.0f}%"
     }
     return {k:_main_clean(v) for k,v in rows.items()}
 def _radar(price: PriceFrame, raw: RawForecast, signals: List[SignalPacket], confidence: float, news_items: List[NewsItem], direction: DirectionResult | None = None) -> Dict[str, str]:
@@ -1220,7 +1307,38 @@ def _apply_v9_path_guard(price: PriceFrame, raw: RawForecast, final_t1: float, f
     high=max(guarded, min(float(high), last + min(max(atr*2.0, last*0.028), last*0.08)))
     low=min(guarded, max(float(low), last - min(max(atr*2.0, last*0.028), last*0.08)))
     return round(guarded,2), round(high,2), round(low,2)
+
+
+def _apply_prediction_trust_band(
+    price: PriceFrame,
+    final_t1: float,
+    final_high: float,
+    final_low: float,
+    trust: Dict[str, object],
+) -> tuple[float, float]:
+    """Widen uncertainty after a miss without moving the T1 point forecast."""
+    multiplier = max(1.0, min(1.75, float(trust.get("range_width_multiplier") or 1.0)))
+    if multiplier <= 1.0:
+        return final_high, final_low
+    upper_width = max(float(final_high) - float(final_t1), float(price.atr14) * 0.35)
+    lower_width = max(float(final_t1) - float(final_low), float(price.atr14) * 0.35)
+    widened_high = apply_market_bounds(
+        float(final_t1) + upper_width * multiplier,
+        price.last,
+        price.ticker.market,
+        price.ticker.price_limit_pct,
+    )
+    widened_low = apply_market_bounds(
+        float(final_t1) - lower_width * multiplier,
+        price.last,
+        price.ticker.market,
+        price.ticker.price_limit_pct,
+    )
+    return round(max(float(final_t1), widened_high), 2), round(min(float(final_t1), widened_low), 2)
+
+
 def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Optional[List[NewsItem]] = None, extra_signals: Optional[List[SignalPacket]] = None) -> FinalForecast:
+    attach_price_truth(price)
     ok, reason = validate_price_frame(price)
     if not ok:
         return _stop_forecast(price, reason)
@@ -1282,6 +1400,18 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
     direction = build_direction_forecast(price, signals, news_items)
     raw = replace(raw, raw_abc=direction.abc())
 
+    # Immediate trust response is deliberately separate from long-term weight
+    # learning.  It reads the latest official T+1 audit, cannot change forecast
+    # prices and only narrows confidence/entry permission after a material miss.
+    truth_payload = price_truth(price)
+    trust = assess_prediction_trust(
+        price.ticker.resolved_symbol,
+        price.ticker.market,
+        str(truth_payload.get("current_trade_date") or price.price_date or ""),
+    )
+    if isinstance(price.context, dict):
+        price.context["prediction_trust_v1072"] = trust
+
     raw_adjustments = [signal_price_adjustment(signal, price) for signal in signals]
     total_adjustment, _ = cap_total_adjustment(raw_adjustments, price)
     base_t1 = apply_market_bounds(raw.raw_t1 + total_adjustment, price.last, price.ticker.market, price.ticker.price_limit_pct)
@@ -1324,10 +1454,18 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
     price_meta = (price.context or {}).get("price_meta", {}) if isinstance((price.context or {}).get("price_meta", {}), dict) else {}
     if bool(price_meta.get("limited_price_mode")):
         confidence = clamp(confidence - 8.0, MIN_CONFIDENCE, MAX_CONFIDENCE)
+    confidence = clamp(
+        confidence - float(trust.get("confidence_cut") or 0.0),
+        MIN_CONFIDENCE,
+        MAX_CONFIDENCE,
+    )
 
     final_high = apply_market_bounds(max(final_t1, raw.raw_t1_high), price.last, price.ticker.market, price.ticker.price_limit_pct)
     final_low = apply_market_bounds(min(final_t1, raw.raw_t1_low), price.last, price.ticker.market, price.ticker.price_limit_pct)
     final_t1, final_high, final_low = _apply_v9_path_guard(price, raw, final_t1, final_high, final_low)
+    final_high, final_low = _apply_prediction_trust_band(
+        price, final_t1, final_high, final_low, trust
+    )
     recon = raw.raw_t1 + sum(step.adjustment for step in steps)
     if abs(recon - final_t1) > 0.0001:
         steps.append(TraceStep('V9 Path Guard', 'TW/US market route price guard', round(final_t1 - recon, 4), 0.0, True, 'V9 前台路徑守門；避免台股權值被高Beta/美股風險打成假崩跌', 'orchestrator', price.truth.date))
