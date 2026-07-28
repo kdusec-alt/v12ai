@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import unittest
 
 import data_sources_tw as tw
-from emerging_session_v1070 import install_emerging_session_v1070
+from emerging_session_v1070 import emerging_session_phase, install_emerging_session_v1070
 from models import TickerInfo
 
 
@@ -16,16 +16,6 @@ def at(hour: int, minute: int):
 
 
 class EmergingSessionV1070Tests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        def probe(ticker):
-            return {
-                "phase_1434": tw._tw_session_phase(at(14, 34)),
-                "phase_1500": tw._tw_session_phase(at(15, 0)),
-                "phase_1506": tw._tw_session_phase(at(15, 6)),
-            }
-        cls.fetch = staticmethod(install_emerging_session_v1070(probe))
-
     def ticker(self, symbol: str, exchange: str):
         return TickerInfo(
             raw=symbol.split(".")[0], resolved_symbol=symbol, name=symbol,
@@ -33,21 +23,28 @@ class EmergingSessionV1070Tests(unittest.TestCase):
             currency="TWD", price_limit_pct=None if exchange == "TPEX_EMERGING" else 0.10,
         )
 
-    def test_emerging_is_intraday_until_1500(self):
-        result = self.fetch(self.ticker("6586.TWO", "TPEX_EMERGING"))
-        self.assertEqual(result["phase_1434"], "intraday")
-        self.assertEqual(result["phase_1500"], "close_confirm")
-        self.assertEqual(result["phase_1506"], "after_close")
+    def test_official_emerging_session_boundaries(self):
+        self.assertEqual(emerging_session_phase(at(14, 34)), "intraday")
+        self.assertEqual(emerging_session_phase(at(15, 0)), "close_confirm")
+        self.assertEqual(emerging_session_phase(at(15, 6)), "after_close")
 
-    def test_tpex_main_board_still_closes_at_1330(self):
-        result = self.fetch(self.ticker("5483.TWO", "TPEX"))
-        self.assertEqual(result["phase_1434"], "after_close")
-        self.assertEqual(result["phase_1500"], "after_close")
+    def test_installed_router_keeps_tpex_main_board_after_close(self):
+        def probe(ticker):
+            return tw._tw_session_phase(at(14, 34))
 
-    def test_symbol_context_does_not_leak_between_calls(self):
-        self.fetch(self.ticker("6586.TWO", "TPEX_EMERGING"))
-        result = self.fetch(self.ticker("5483.TWO", "TPEX"))
-        self.assertEqual(result["phase_1434"], "after_close")
+        fetch = install_emerging_session_v1070(probe)
+        emerging = fetch(self.ticker("6586.TWO", "TPEX_EMERGING"))
+        main_board = fetch(self.ticker("5483.TWO", "TPEX"))
+        self.assertEqual(emerging, "intraday")
+        self.assertEqual(main_board, "after_close")
+
+    def test_symbol_context_does_not_leak(self):
+        def probe(ticker):
+            return tw._tw_session_phase(at(14, 34))
+
+        fetch = install_emerging_session_v1070(probe)
+        fetch(self.ticker("6586.TWO", "TPEX_EMERGING"))
+        self.assertEqual(fetch(self.ticker("5483.TWO", "TPEX")), "after_close")
 
 
 if __name__ == "__main__":
