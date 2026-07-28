@@ -6270,15 +6270,15 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-07-29T06:22:56+08:00",
     "approved_bias": 0.0,
-    "audit_count": 3,
-    "avg_abs_error_pct": 4.1465,
+    "audit_count": 4,
+    "avg_abs_error_pct": 3.7462,
     "avg_direction_brier": 0.470509,
     "avg_downside_tail_breach_pct": 0.0,
     "close_range_hit_rate": 1.0,
     "direction_audit_count": 2,
     "direction_hit_rate": 0.0,
     "error_type_counts": {
-      "under_prediction": 3
+      "under_prediction": 4
     },
     "factor_learning": {
       "Short Float": {
@@ -6467,13 +6467,13 @@
       }
     },
     "last_actual_direction": "UP",
-    "last_close_in_predicted_range": true,
+    "last_close_in_predicted_range": null,
     "last_defense_stop_touched": false,
     "last_direction_hit": false,
     "last_dominant_force": "趨勢",
-    "last_dominant_force_hit": false,
+    "last_dominant_force_hit": null,
     "last_downside_tail_breach_pct": 0.0,
-    "last_error_pct": 3.959,
+    "last_error_pct": 2.5453,
     "last_error_type": "under_prediction",
     "last_predicted_direction": "DOWN",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
@@ -6482,7 +6482,7 @@
     "range_audit_count": 2,
     "suggested_bias": 0.0,
     "ticker": "FORM",
-    "updated_at_tw": "2026-07-29T06:26:42+08:00"
+    "updated_at_tw": "2026-07-29T06:26:51+08:00"
   },
   "GLW": {
     "active_family_count": 0,
