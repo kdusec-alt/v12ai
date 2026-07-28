@@ -142,6 +142,15 @@ def build_decision_thesis(
         str(news.get("global_text") or "宏觀事件無明確方向"),
         available=bool(news.get("global_available")),
     ))
+    causal = dict(news.get("causal") or {})
+    if causal.get("accepted"):
+        register(_row(
+            "event_timing",
+            "事件時間",
+            0,
+            str(causal.get("causal_text") or "事件與價格時間待交叉確認"),
+            role="safety",
+        ))
     register(_row(
         "positioning",
         "籌碼／部位",
@@ -169,6 +178,15 @@ def build_decision_thesis(
     company_sign = int(news.get("company_sign") or 0)
     earnings = dict(news.get("earnings") or {})
     earnings_state = str(earnings.get("state") or "")
+    causal_available = bool(causal.get("accepted"))
+    causal_state = str(causal.get("causal_state") or "")
+    causal_gate = str(causal.get("entry_gate") or "normal")
+    event_price_comparable = (
+        bool(causal.get("can_compare_to_price"))
+        if causal_available
+        else True
+    )
+    event_materiality = _num(causal.get("dominant_materiality"))
     independent_negative = [
         row["label"]
         for row in ledger.values()
@@ -185,6 +203,14 @@ def build_decision_thesis(
     high_miss = str(trust.get("severity") or "") == "high"
     active_us = market == "US" and session in {"pre_market", "intraday", "after_hours"} and bool(
         truth.get("live_session_quote")
+    )
+    earnings_reaction_supported = bool(
+        event_price_comparable
+        or (
+            active_us
+            and causal_state == "event_time_unverified"
+            and earnings.get("adverse_price_reaction_in_news")
+        )
     )
     repricing_threshold = -max(4.0, _num(getattr(price, "atr14", 0.0)) / max(_num(getattr(price, "previous_close", 0.0)), 0.01) * 80.0)
 
@@ -204,6 +230,17 @@ def build_decision_thesis(
         entry_permission = "blocked"
         action_mode = "data_wait"
         dominant = "價格、基準價或時段區間未通過一致性驗證"
+    elif causal_state == "event_awaiting_market_reaction":
+        state = "event_awaiting_market_reaction"
+        title = "AI進場決策卡｜重大事件已公布｜現有價格尚未驗證"
+        axis = "事件時間因果閘門｜價格形成於事件前｜等待首次反應"
+        entry_permission = "blocked"
+        action_mode = "event_first_reaction"
+        dominant = str(causal.get("company_text") or causal.get("causal_text") or "")
+        counter = (
+            f"{move_label} {day_pct:+.2f}% 是事件公布前形成，"
+            "不能用來宣稱市場已接受或否決這則新聞"
+        )
     elif severe_miss and (day_pct <= -3.0 or trend_break):
         state = "forecast_cooldown"
         title = "AI進場決策卡｜價格結構破壞＋模型失準冷卻"
@@ -212,9 +249,18 @@ def build_decision_thesis(
         action_mode = "cooldown"
         dominant = f"{price_text}；{trust.get('reason')}"
         counter = "即使仍在長期均線上方，也不足以解除短期模型冷卻"
+    elif causal_state == "scheduled_event_pending":
+        state = "company_event_pending"
+        title = "AI進場決策卡｜公司事件尚未公布｜不預設方向"
+        axis = "公司事件前｜縮小部位｜公布後重新查詢"
+        entry_permission = "conditional"
+        action_mode = "event_wait"
+        dominant = str(causal.get("company_text") or "公司事件尚未正式公布")
+        counter = "事件前價格只能反映預期，不能當作財報／財測結果"
     elif (
         (active_us or market == "TW")
         and day_pct <= -4.0
+        and earnings_reaction_supported
         and earnings_state in {
             "backward_beat_forward_miss",
             "backward_beat_high_bar_reset",
@@ -236,6 +282,19 @@ def build_decision_thesis(
             if earnings.get("backward_positive")
             else "公司長期題材仍需與正式盤承接交叉確認"
         )
+    elif (
+        causal_available
+        and causal_state in {"event_reaction_in_progress", "event_price_confirming"}
+        and causal_gate == "wait_15_30m"
+        and event_materiality >= 0.68
+    ):
+        state = "event_reaction_in_progress"
+        title = "AI進場決策卡｜公司事件首輪反應中｜等待15–30分鐘"
+        axis = "事件後首次交易｜承接未完成｜不搶第一根"
+        entry_permission = "blocked"
+        action_mode = "event_reaction_wait"
+        dominant = str(causal.get("company_text") or causal.get("causal_text") or "")
+        counter = "首輪跳空或急拉急殺尚未形成完整量價結構"
     elif active_us and day_pct <= repricing_threshold:
         state = "session_repricing"
         title = f"AI進場決策卡｜{truth.get('session_scope')}重定價｜先等正式盤驗證"
@@ -252,7 +311,7 @@ def build_decision_thesis(
         action_mode = "confirmation_only"
         dominant = f"{price_text}；但{trend_text}"
         counter = "時段買盤是正面反證，若正式盤續守 VWAP 並站回 MA20，空頭反彈假設失效"
-    elif (trend_break or strong_down) and company_sign > 0:
+    elif (trend_break or strong_down) and company_sign > 0 and event_price_comparable:
         state = "good_news_rejected"
         title = "AI進場決策卡｜公司利多未獲價格確認｜暫停低接"
         axis = "利多失效｜價格優先｜等待收復"
@@ -276,7 +335,7 @@ def build_decision_thesis(
         action_mode = "pullback_or_confirmation"
         dominant = price_text
         counter = f"中期結構仍弱：{trend_text}"
-    elif strong_up and company_sign < 0:
+    elif strong_up and company_sign < 0 and event_price_comparable:
         state = "bad_news_absorbed"
         title = "AI進場決策卡｜公司利空未壓低價格｜強勢吸收"
         axis = "公司利空吸收｜價格優先｜回測確認"
@@ -352,11 +411,31 @@ def build_decision_thesis(
 
     if state == "price_truth_blocked":
         message = f"{session_prefix}：價格基準尚未同源，暫停買進；即時價、參考收盤與時段高低同步後重算。"
+    elif state == "event_awaiting_market_reaction":
+        next_window = "下一個正式交易時段" if market == "TW" else "下一個可交易時段"
+        message = (
+            f"{session_prefix}：公司重大事件已公布，但{move_label} {day_pct:+.2f}% "
+            "形成於事件之前，不能寫成利多未買單或利空已吸收。"
+            f"現在不買；等{next_window}先交易 15–30 分鐘、不再破低並站回 "
+            f"{_fmt(confirmation)} 才重新評估，跌破 {_fmt(invalid)} 取消。"
+        )
     elif state == "forecast_cooldown":
         message = (
             f"{session_prefix}：{move_label} {day_pct:+.2f}%，且{trust.get('reason')}；"
             f"{_fmt(preferred)} 只列觀察支撐，不是買點。至少先停止破低並站回 {_fmt(confirmation)}，"
             f"跌破 {_fmt(invalid)} 持續取消計畫。"
+        )
+    elif state == "company_event_pending":
+        message = (
+            f"{session_prefix}：公司事件尚未正式公布，目前價格只反映預期；"
+            f"公布後重新查詢新聞與價格。站穩 {_fmt(confirmation)} 只可小量確認，"
+            f"跌破 {_fmt(invalid)} 取消。"
+        )
+    elif state == "event_reaction_in_progress":
+        message = (
+            f"{session_prefix}：公司事件已進入交易價格，但首輪反應尚未完成；"
+            f"先等 15–30 分鐘不再破低且守住時段 VWAP，再站回 {_fmt(confirmation)} "
+            f"才小量確認，跌破 {_fmt(invalid)} 取消。"
         )
     elif state == "session_repricing":
         next_window = "下一個正式盤" if session == "after_hours" else "正式開盤後"
@@ -449,7 +528,7 @@ def build_decision_thesis(
     evidence_rows = [row for row in ledger.values() if row.get("available")]
     evidence_line = "；".join(f"{row['label']} {row['text']}" for row in evidence_rows)
     return {
-        "schema": "TINO_DECISION_THESIS_V1072",
+        "schema": "TINO_DECISION_THESIS_V1073",
         "state": state,
         "title": title,
         "message": message,
@@ -476,6 +555,7 @@ def build_decision_thesis(
         "trend": trend.to_dict(),
         "prediction_trust": trust,
         "earnings_evidence": earnings,
+        "news_causal": causal,
         # Formal direction probabilities and T0/T1 prices stay immutable.
         "narrative_only": True,
         "decision_gate_only": True,
