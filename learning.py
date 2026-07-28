@@ -917,6 +917,7 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
         if t and t not in tickers:
             tickers.append(t)
     tickers = tickers[:max_tickers]
+    selected_tickers = set(tickers)
     actuals: Dict[str, Dict[str, Any]] = {}
     errors: List[Dict[str, Any]] = []
     for t in tickers:
@@ -929,6 +930,12 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
     audited_foreign: List[Dict[str, Any]] = []
     for r in t1_rows.values():
         t = str(r.get("ticker") or "")
+        # Only evaluate rows included in this bounded fetch batch.  Previous
+        # code evaluated every pending row against a snapshot map containing
+        # only ``max_tickers`` symbols, falsely reporting all deferred symbols
+        # as official-close errors.
+        if t not in selected_tickers:
+            continue
         snap = dict(actuals.get(t) or {})
         target_date = str(r.get("target_trade_date") or "")
         if not actual_matches_target(snap, target_date):
@@ -947,6 +954,8 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
         ))
     for r in today_rows.values():
         t = str(r.get("ticker") or "")
+        if t not in selected_tickers:
+            continue
         snap = dict(actuals.get(t) or {})
         target_date = (
             str(r.get("target_trade_date") or "")

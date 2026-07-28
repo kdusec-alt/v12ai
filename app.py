@@ -265,7 +265,9 @@ try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
     orchestrate = _load_required("orchestrator", "orchestrate")
 
-    render_admin = _load_required("ui_admin", "render_admin")
+    render_admin, run_admin_auto_audit_cycle = _load_required(
+        "ui_admin", "render_admin", "run_admin_auto_audit_cycle"
+    )
     render_battle_panel = _load_required("ui_v9_battle_panel", "render_battle_panel")
     render_deep_report = _load_required("ui_v9_deep_report", "render_deep_report")
     render_input = _load_required("ui_v9_input", "render_input")
@@ -619,6 +621,100 @@ else:
             _render_event_watch_status(forecast)
 
 
+def _is_fragment_rerun() -> bool:
+    """Return True only for a real partial fragment rerun.
+
+    A decorated fragment is also called once during every full-app render.
+    Heavy maintenance must never run in that initial call because Streamlit
+    removes not-yet-rendered navigation and disables the page until it returns.
+    """
+    try:
+        try:
+            from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+        except ImportError:
+            from streamlit.runtime.scriptrunner.script_run_context import get_script_run_ctx
+        try:
+            ctx = get_script_run_ctx(suppress_warning=True)
+        except TypeError:
+            ctx = get_script_run_ctx()
+        # Streamlit 1.40.x records standalone partial runs here.  Keep the
+        # older attribute fallback for compatibility with earlier fragment
+        # internals, but never infer a fragment rerun merely because this
+        # function is wrapped by @st.fragment during a full app run.
+        fragment_ids = getattr(ctx, "fragment_ids_this_run", None)
+        if fragment_ids:
+            return True
+        return bool(getattr(ctx, "current_fragment_id", None))
+    except Exception:
+        return False
+
+
+def _admin_maintenance_fragment_body() -> None:
+    """Run one idle-time learning/close batch without blocking the full UI."""
+    if not bool(st.session_state.get("admin_authenticated", False)):
+        return
+    if not _is_fragment_rerun():
+        # Full render: arm the timer but perform zero disk/network work.
+        return
+    if str(st.session_state.get("main_view") or "analysis") != "analysis":
+        return
+    if st.session_state.get("forecast") is not None:
+        # Active analysis and its five-minute event/market fragment have
+        # priority. Daily evolution resumes automatically on the idle home.
+        return
+
+    phase = int(st.session_state.get("tino_background_maintenance_phase") or 0)
+    st.session_state["tino_background_maintenance_phase"] = phase + 1
+    try:
+        if phase % 2 == 0:
+            report = run_admin_auto_audit_cycle(st, max_tickers_per_market=1)
+            st.session_state["last_background_maintenance"] = {
+                "task": "auto_audit",
+                "status": "done",
+                "audited": int((report or {}).get("audited") or 0),
+                "remaining": int((report or {}).get("remaining") or 0),
+                "errors": int((report or {}).get("errors") or 0),
+            }
+        else:
+            close_report = run_login_close_recheck(
+                st,
+                analyzer=run_analysis,
+                snapshot_builder=forecast_snapshot,
+                log_writer=log_prediction,
+                research_capture=capture_prediction_seed,
+                macro=str(st.session_state.get("tino_admin_macro") or "neutral"),
+                live_data=bool(st.session_state.get("tino_admin_live_data", True)),
+                request_rerun=False,
+                batch_size_override=1,
+                time_budget_override=15.0,
+            )
+            st.session_state["last_close_recheck_report"] = close_report
+            st.session_state["last_background_maintenance"] = {
+                "task": "close_recheck",
+                "status": str((close_report or {}).get("status") or "unknown"),
+                "remaining": int((close_report or {}).get("remaining") or 0),
+                "errors": int((close_report or {}).get("errors") or 0),
+            }
+    except Exception as exc:
+        st.session_state["last_background_maintenance"] = {
+            "task": "auto_audit" if phase % 2 == 0 else "close_recheck",
+            "status": "degraded",
+            "reason": f"{type(exc).__name__}: {exc}",
+        }
+        _log_exception("background_maintenance_failed_safe", exc)
+
+
+if hasattr(st, "fragment"):
+    _admin_maintenance_fragment = st.fragment(
+        run_every=str(os.environ.get("TINO_ADMIN_MAINTENANCE_INTERVAL", "2m") or "2m")
+    )(_admin_maintenance_fragment_body)
+else:
+    def _admin_maintenance_fragment() -> None:
+        # Older Streamlit builds have no safe partial-rerun isolation. Keep the
+        # database intact and defer work instead of blocking the whole page.
+        return
+
+
 def _render_forecast(forecast):
     """Render forecast with crash-forensics checkpoints.
 
@@ -695,11 +791,11 @@ def main():
         except Exception as _mem_exc:
             st.session_state["memory_init_report"] = {"status": "FAIL", "error": f"{type(_mem_exc).__name__}: {_mem_exc}"}
     # RC4.2 Stability Contract:
-    # Main quote/render reruns never execute Auto Audit.  Controlled small-batch
-    # execution lives only in the Admin Learning Center.
+    # Main quote/render reruns never execute Auto Audit. Controlled one-ticker
+    # cycles live only in the Admin maintenance fragment.
     st.session_state["auto_audit_time_guard"] = {
-        "status": "guarded_admin_only",
-        "reason": "Main render is read-only; Learning Center runs bounded Auto Audit",
+        "status": "fragment_admin_only",
+        "reason": "Main render is read-only; idle Admin fragment runs bounded Auto Audit",
     }
     if "forecast" not in st.session_state:
         st.session_state.forecast = None
@@ -709,41 +805,10 @@ def main():
     _boot_print("render_admin_start")
     macro, auto, live, debug = render_admin(st, st.session_state.forecast)
     _boot_print("render_admin_done")
-
-    # V13 controlled close recheck: after authenticated Admin login and the
-    # Taiwan 17:00 data window, re-analyse only today's already-queried TW
-    # tickers.  The sidecar is bounded, one-shot per ticker/day and may never
-    # alter an existing V12 forecast object or Decision output.
-    if bool(st.session_state.get("admin_authenticated", False)):
-        try:
-            close_report = run_login_close_recheck(
-                st,
-                analyzer=run_analysis,
-                snapshot_builder=forecast_snapshot,
-                log_writer=log_prediction,
-                research_capture=capture_prediction_seed,
-                macro=macro,
-                live_data=live,
-            )
-            st.session_state["last_close_recheck_report"] = close_report
-            close_status = str((close_report or {}).get("status") or "")
-            if close_status in {"complete", "partial"}:
-                st.sidebar.info(
-                    "收盤重檢｜"
-                    f"正式寫入 {(close_report or {}).get('formal_written', 0)}｜"
-                    f"情境更新 {(close_report or {}).get('context_updated', 0)}｜"
-                    f"無變化 {(close_report or {}).get('unchanged', 0)}｜"
-                    f"待資料 {(close_report or {}).get('waiting_institution', 0)}｜"
-                    f"錯誤 {(close_report or {}).get('errors', 0)}"
-                )
-        except Exception as _close_recheck_exc:
-            st.session_state["last_close_recheck_report"] = {
-                "status": "degraded",
-                "reason": f"{type(_close_recheck_exc).__name__}: {_close_recheck_exc}",
-                "research_only": True,
-                "decision_influence": False,
-            }
-            _log_exception("close_recheck_failed_safe", _close_recheck_exc)
+    # Store only scalar controls for the idle maintenance fragment.  Auto Audit
+    # and Close Recheck must never execute before navigation/input render.
+    st.session_state["tino_admin_macro"] = macro
+    st.session_state["tino_admin_live_data"] = bool(live)
 
     _boot_print("render_nav_start")
     main_view = _render_main_nav()
@@ -751,6 +816,7 @@ def main():
 
     if main_view == "watch":
         render_watch_center(st)
+        _admin_maintenance_fragment()
         return
     if main_view == "learning":
         # RC4.7 Learning Core isolation: a malformed historical memory row or
@@ -763,6 +829,7 @@ def main():
             if bool(st.session_state.get("admin_authenticated", False)):
                 with st.expander("Admin 診斷", expanded=False):
                     st.code(_learning_trace)
+        _admin_maintenance_fragment()
         return
     if main_view == "research":
         # V13 Research isolation: bounded local reads only.  Any research UI
@@ -775,6 +842,7 @@ def main():
             if bool(st.session_state.get("admin_authenticated", False)):
                 with st.expander("Admin 診斷", expanded=False):
                     st.code(_research_ui_trace)
+        _admin_maintenance_fragment()
         return
 
     _boot_print("render_input_start")
@@ -912,6 +980,7 @@ def main():
 
     if debug:
         st.caption("Debug：主畫面不顯示工程字串；錯誤只在此區或 Admin Console 顯示。")
+    _admin_maintenance_fragment()
 
 # Streamlit executes this file as a script.  Call main unconditionally so a
 # runner-specific __name__ value can never leave the page blank.

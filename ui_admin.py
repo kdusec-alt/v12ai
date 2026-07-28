@@ -5,6 +5,7 @@ import gc
 import hmac
 import os
 import html
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -165,19 +166,47 @@ def _file_status_rows() -> List[Dict[str, Any]]:
     return rows
 
 
-def _run_admin_auto_audit_maintenance(st) -> None:
+def _render_admin_auto_audit_status(st) -> None:
+    """Render only compact persisted status; never start network work here."""
+    summary = st.session_state.get("tino_admin_auto_audit_summary")
+    if isinstance(summary, dict) and summary:
+        audited = int(summary.get("audited") or 0)
+        errors = int(summary.get("errors") or 0)
+        remaining = int(summary.get("remaining") or 0)
+        markets = str(summary.get("markets") or "")
+        if errors:
+            st.sidebar.warning(
+                f"Auto Audit 分段維護｜新增 {audited}｜待處理 {remaining}｜"
+                f"暫緩 {errors}｜{markets}"
+            )
+        elif audited:
+            st.sidebar.success(
+                f"Auto Audit 分段完成｜新增 {audited}｜待處理 {remaining}｜{markets}"
+            )
+        elif remaining:
+            st.sidebar.info(f"Auto Audit 排程中｜待處理 {remaining}｜{markets}")
+        else:
+            st.sidebar.caption(f"Auto Audit：目前無新增樣本｜{markets}")
+    else:
+        st.sidebar.caption("Auto Audit：Admin 登入後自動分段執行，不阻塞主畫面。")
+
+
+def run_admin_auto_audit_cycle(st, *, max_tickers_per_market: int = 1) -> Dict[str, Any]:
     """Run a tiny close-time audit once per market/date in this Admin session.
 
-    This intentionally has no worker, timer, pandas object or full-log cache.
-    Before market close it performs only a clock check.  After close it scans a
-    bounded JSONL tail and audits at most three tickers for the due market.
-    Any failure is isolated to this sidebar status and can never take down the
-    main Streamlit application.
+    V1071 hotfix contract: this function is called only by a Streamlit fragment,
+    never from ``render_admin`` or the full-app render path.  It processes one
+    market and a very small ticker batch, records progress, then yields.  Due
+    rows remain scheduled until the bounded pending summary reaches zero.
     """
     attempted = st.session_state.get("tino_admin_auto_audit_attempted")
     if not isinstance(attempted, dict):
         attempted = {}
         st.session_state["tino_admin_auto_audit_attempted"] = attempted
+    retry_after = st.session_state.get("tino_admin_auto_audit_retry_after")
+    if not isinstance(retry_after, dict):
+        retry_after = {}
+        st.session_state["tino_admin_auto_audit_retry_after"] = retry_after
 
     try:
         from auto_audit_scheduler import (
@@ -188,20 +217,22 @@ def _run_admin_auto_audit_maintenance(st) -> None:
         guard = maybe_run_auto_audit_time_guard(markets=["TW", "US"], execute=False)
         due_markets: List[str] = []
         due_keys: Dict[str, str] = {}
+        now_epoch = time.time()
         for market, meta in (guard.get("markets") or {}).items():
             if not isinstance(meta, dict) or not bool(meta.get("ready")):
                 continue
             trade_date = str(meta.get("trade_date") or "")
             key = f"{market}:{trade_date}"
             due_keys[str(market)] = key
-            if not attempted.get(key):
+            if not attempted.get(key) and now_epoch >= float(retry_after.get(key) or 0):
                 due_markets.append(str(market))
 
+        # Never fetch two markets in the same fragment pass.
+        due_markets = due_markets[:1]
         if due_markets:
-            st.sidebar.info("Learning 維護中：收盤後安全小批次…")
             result = execute_due_auto_audit_once(
                 markets=due_markets,
-                max_tickers_per_market=3,
+                max_tickers_per_market=max(1, min(int(max_tickers_per_market), 2)),
                 scan_limit=300,
                 apply_safe_learning=True,
             )
@@ -209,6 +240,7 @@ def _run_admin_auto_audit_maintenance(st) -> None:
             market_rows = result.get("markets") or {}
             audited = 0
             pending = 0
+            remaining = 0
             errors = 0
             statuses: List[str] = []
             for market in due_markets:
@@ -218,16 +250,24 @@ def _run_admin_auto_audit_maintenance(st) -> None:
                 statuses.append(f"{market}:{status}")
                 audited += int(row.get("audited_t1") or 0) + int(row.get("audited_today") or 0)
                 pending += int(row.get("pending_t1") or 0) + int(row.get("pending_today") or 0)
+                remaining += int(row.get("remaining_t1") or 0) + int(row.get("remaining_today") or 0)
                 errors += int(row.get("errors") or 0)
-                # Busy is transient; allow the next rerun to retry. Every other
-                # result is marked once for this Admin browser session.
-                if status != "busy":
+                key = due_keys.get(market, market)
+                if status in {"nothing_pending"} or (
+                    status == "done" and remaining == 0 and errors == 0
+                ):
                     attempted[due_keys.get(market, market)] = status
+                    retry_after.pop(key, None)
+                elif status != "busy":
+                    # Official closes and third-party data can settle later.
+                    # Keep the date pending and retry without spinning.
+                    retry_after[key] = now_epoch + (15 * 60 if errors else 2 * 60)
 
             st.session_state["tino_admin_auto_audit_summary"] = {
                 "markets": ", ".join(statuses),
                 "audited": audited,
                 "pending": pending,
+                "remaining": remaining,
                 "errors": errors,
                 "attempt_at_tw": str(result.get("attempt_at_tw") or guard.get("attempt_at_tw") or ""),
             }
@@ -237,19 +277,14 @@ def _run_admin_auto_audit_maintenance(st) -> None:
             del result
             gc.collect()
 
-        summary = st.session_state.get("tino_admin_auto_audit_summary")
-        if isinstance(summary, dict) and summary:
-            audited = int(summary.get("audited") or 0)
-            errors = int(summary.get("errors") or 0)
-            markets = str(summary.get("markets") or "")
-            if errors:
-                st.sidebar.warning(f"Auto Audit 已安全完成｜新增 {audited}｜錯誤 {errors}｜{markets}")
-            elif audited:
-                st.sidebar.success(f"Auto Audit 完成｜新增 {audited} 筆｜{markets}")
-            else:
-                st.sidebar.caption(f"Auto Audit：目前無新增樣本｜{markets}")
-        else:
-            st.sidebar.caption("Auto Audit：登入後僅於收盤時段檢查；每市場最多3檔。")
+        return dict(st.session_state.get("tino_admin_auto_audit_summary") or {
+            "markets": "",
+            "audited": 0,
+            "pending": 0,
+            "remaining": 0,
+            "errors": 0,
+            "attempt_at_tw": str(guard.get("attempt_at_tw") or ""),
+        })
     except Exception as exc:
         # Remember only a short scalar error. Never keep tracebacks or payloads
         # in session_state, and never let maintenance crash the application.
@@ -257,11 +292,12 @@ def _run_admin_auto_audit_maintenance(st) -> None:
             "markets": "",
             "audited": 0,
             "pending": 0,
+            "remaining": 0,
             "errors": 1,
             "attempt_at_tw": "",
         }
-        st.sidebar.warning(f"Auto Audit 維護暫緩：{type(exc).__name__}")
         gc.collect()
+        return dict(st.session_state["tino_admin_auto_audit_summary"])
 
 
 def _learning_panel(st, forecast):
@@ -371,7 +407,9 @@ def render_admin(st, forecast):
         return "neutral", False, True, False
 
     st.session_state["learning_log_enabled"] = True
-    _run_admin_auto_audit_maintenance(st)
+    # Status only. Network/audit work is isolated in app.py's timed fragment so
+    # navigation, inputs and buttons always render before daily maintenance.
+    _render_admin_auto_audit_status(st)
 
     macro = st.sidebar.selectbox("Macro 手動偏壓", ["neutral", "bullish", "bearish"], index=0)
     auto = st.sidebar.checkbox("Auto Analyze", value=False, help="預設關閉，避免開頁就抓外部資料。")
