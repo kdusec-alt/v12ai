@@ -48,6 +48,45 @@ class MarketCommandV1071Tests(unittest.TestCase):
         self.assertIn("html", imported_modules)
         self.assertIn("html.escape(", renderer_source)
 
+    def test_market_command_is_independent_from_admin_event_watch(self):
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        event_body = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_event_watch_fragment_body"
+        )
+        market_body = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_market_command_fragment_body"
+        )
+        main_body = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "main"
+        )
+        event_source = ast.get_source_segment(source, event_body) or ""
+        market_source = ast.get_source_segment(source, market_body) or ""
+        main_source = ast.get_source_segment(source, main_body) or ""
+
+        self.assertNotIn("_render_market_command(", event_source)
+        self.assertIn("_render_market_command(", market_source)
+        self.assertIn("_market_command_fragment()", main_source)
+        self.assertNotIn(
+            'if bool(st.session_state.get("admin_authenticated", False)):\n'
+            "            _market_command_fragment()",
+            main_source,
+        )
+
+    def test_market_command_supports_us_market_family(self):
+        row = assess_market_command(
+            "US",
+            {"sox": -2.0, "nq": -1.0, "qqq": -0.8, "vix": 21.0},
+        )
+        self.assertEqual(row["market"], "US")
+        self.assertGreaterEqual(len(row["facts"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
