@@ -72,9 +72,14 @@ def _install_fragment_safe_admin_ack() -> None:
         completed = bool(original(event_id))
         if not completed:
             return False
-        # The button is inside Streamlit's five-minute fragment.  Refresh only
-        # that fragment; if the installed Streamlit version rejects scoped
-        # reruns, return false so app.py does not execute its legacy full rerun.
+        # Never force a rerun from the fragment's widget callback.  Streamlit
+        # can dispatch that callback before the ScriptRunContext has a fully
+        # initialised SessionInfo, which produced:
+        # "Tried to use SessionInfo before it was initialized".
+        #
+        # Persist the acknowledgement and refresh the local projection only.
+        # app.py hides the banner in the current pass; the regular fragment
+        # timer keeps all later views in sync.
         try:
             import streamlit as st
             st.session_state.pop("event_reassessment_notice", None)
@@ -83,13 +88,9 @@ def _install_fragment_safe_admin_ack() -> None:
                 st.session_state["global_event_view"] = lifecycle.get_global_event_view()
             except Exception:
                 pass
-            try:
-                st.rerun(scope="fragment")
-            except (RuntimeError, TypeError):
-                pass
         except Exception:
             pass
-        return False
+        return True
 
     lifecycle.acknowledge_global_event = acknowledge_global_event_v1068
     lifecycle._v1068_admin_ack_installed = True

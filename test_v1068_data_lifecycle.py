@@ -53,10 +53,14 @@ class V1068DataLifecycleTests(unittest.TestCase):
         self.assertEqual(idle["level"], "idle")
         self.assertIn("正常待命", idle["detail"])
 
-    def test_admin_ack_patch_uses_fragment_scope_and_skips_legacy_full_rerun(self):
+    def test_admin_ack_patch_avoids_rerun_before_sessioninfo_initializes(self):
         source = (ROOT / "v1068_runtime_patches.py").read_text(encoding="utf-8")
-        self.assertIn('st.rerun(scope="fragment")', source)
-        self.assertIn("return False", source)
+        start = source.index("def acknowledge_global_event_v1068")
+        end = source.index("lifecycle.acknowledge_global_event =", start)
+        callback = source[start:end]
+        self.assertNotIn("st.rerun", callback)
+        self.assertIn("get_global_event_view()", callback)
+        self.assertIn("return True", callback)
         self.assertIn("_install_fragment_safe_admin_ack", source)
 
     def test_research_health_uses_high_contrast_metrics(self):
