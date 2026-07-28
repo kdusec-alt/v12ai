@@ -37,7 +37,8 @@
         "GLOBAL",
         "SKHY",
         "INTC",
-        "MU"
+        "MU",
+        "SNDK"
       ],
       "status": "active_red",
       "title": "US Flash PMI Splits As Services Jump And Factories Slip - selfemployed.com",
@@ -170,5 +171,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T16:06:33+00:00"
+  "updated_at": "2026-07-28T16:06:36+00:00"
 }
