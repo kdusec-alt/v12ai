@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from models import TickerInfo
-from config import TW_PRICE_LIMIT_PCT, TWO_PRICE_LIMIT_PCT
+from exchange_rule_engine_v1069 import ticker_with_exchange_rule
 
 TW_NAME_MAP = {
     "2337": ("旺宏", "2337.TW", "TWSE"),
@@ -16,6 +16,7 @@ TW_NAME_MAP = {
     "6586": ("醣基", "6586.TWO", "TPEX_EMERGING"),
     "5483": ("中美晶", "5483.TWO", "TPEX"),
     "3264": ("欣銓", "3264.TWO", "TPEX"),
+    "3163": ("波若威", "3163.TWO", "TPEX"),
     "00919": ("群益台灣精選高息", "00919.TW", "TWSE"),
     "2308": ("台達電", "2308.TW", "TWSE"),
     "3037": ("欣興", "3037.TW", "TWSE"),
@@ -27,9 +28,10 @@ TW_NAME_MAP = {
 # A small hard guard for codes known to be TPEx/OTC so a plain numeric input
 # like 3264 will not be silently normalized to 3264.TW.  The resolver can be
 # expanded later with an official TWSE/TPEx symbol map, but these overrides
-# prevent the exact failure where 3264 欣銓 was queried as a listed stock and
+# prevent the exact failure where a TPEx code was queried as a listed stock and
 # fell through to a synthetic/default price.
 TPEX_CODE_OVERRIDES = {
+    "3163",  # 波若威
     "3264",  # 欣銓
     "5483",  # 中美晶
     "6586",  # 醣基 / 興櫃類，仍使用 .TWO 查價
@@ -48,6 +50,7 @@ TW_NAME_ALIAS = {
     "力積電": "6770",
     "醣基": "6586",
     "欣銓": "3264",
+    "波若威": "3163",
     "中美晶": "5483", "SAS": "5483",
     "台達電": "2308",
     "欣興": "3037", "欣興電子": "3037",
@@ -65,7 +68,7 @@ US_NAME_MAP = {
     "TSM": ("Taiwan Semiconductor", "TSM", "NYSE"),
 }
 
-ETF_CODES = {"00919", "0050", "00918", "00929", "00981A", "009823", "00997A"}
+ETF_CODES = {"00919", "0050", "00918", "00929", "00981A", "009823", "00997A", "00631L"}
 
 
 def _clean(raw: str) -> str:
@@ -86,6 +89,11 @@ def _split_tw_suffix(text: str) -> tuple[str, str | None]:
     return text, None
 
 
+def _with_rule(ticker: TickerInfo, quote_name: str = "") -> TickerInfo:
+    """Attach a conservative exchange rule; `.TWO` alone never disables limits."""
+    return ticker_with_exchange_rule(ticker, quote_name=quote_name)
+
+
 def resolve_ticker(raw: str) -> TickerInfo:
     text = _clean(raw)
     if not text:
@@ -103,9 +111,9 @@ def resolve_ticker(raw: str) -> TickerInfo:
             name, symbol, exchange = mapped
         else:
             # Unknown numeric Taiwan symbols default to TWSE only after the
-            # explicit TPEx override check.  Unknown codes are still validated
+            # explicit TPEx override check. Unknown codes are still validated
             # later by Price Truth Guard, so missing official quotes cannot
-            # become fake 100/103/97 fallback forecasts.
+            # become fake fallback forecasts.
             default_suffix = ".TWO" if base in TPEX_CODE_OVERRIDES else ".TW"
             ex = "TPEX_EMERGING" if base in EMERGING_CODE_OVERRIDES else ("TPEX" if default_suffix == ".TWO" else "TWSE")
             name, symbol, exchange = base, f"{base}{default_suffix}", ex
@@ -115,28 +123,40 @@ def resolve_ticker(raw: str) -> TickerInfo:
             exchange = "TPEX_EMERGING" if base in EMERGING_CODE_OVERRIDES else "TPEX"
         elif explicit_suffix == ".TW":
             if base in TPEX_CODE_OVERRIDES:
-                # Known TPEx codes must not be forced into .TW; this is a
-                # market-resolver correction, not a user-facing engineering string.
                 symbol = f"{base}.TWO"
                 exchange = "TPEX_EMERGING" if base in EMERGING_CODE_OVERRIDES else "TPEX"
             else:
                 symbol, exchange = f"{base}.TW", "TWSE"
 
         asset_type = "etf" if base in ETF_CODES or base.startswith("00") else "stock"
-        pct = TWO_PRICE_LIMIT_PCT if symbol.endswith(".TWO") else TW_PRICE_LIMIT_PCT
-        return TickerInfo(raw=raw, resolved_symbol=symbol, name=name, market="TW", asset_type=asset_type, exchange=exchange, currency="TWD", price_limit_pct=pct)
+        ticker = TickerInfo(
+            raw=raw,
+            resolved_symbol=symbol,
+            name=name,
+            market="TW",
+            asset_type=asset_type,
+            exchange=exchange,
+            currency="TWD",
+            price_limit_pct=None,
+        )
+        return _with_rule(ticker)
 
     symbol = text.split(".")[0]
     name, resolved, exchange = US_NAME_MAP.get(symbol, (symbol, symbol, "US"))
-    return TickerInfo(raw=raw, resolved_symbol=resolved, name=name, market="US", asset_type="stock", exchange=exchange, currency="USD", price_limit_pct=None)
+    return _with_rule(TickerInfo(
+        raw=raw,
+        resolved_symbol=resolved,
+        name=name,
+        market="US",
+        asset_type="stock",
+        exchange=exchange,
+        currency="USD",
+        price_limit_pct=None,
+    ))
 
 
 def is_unmapped_tw_numeric(raw: str) -> bool:
-    """True only for a plain numeric Taiwan code not covered by the local map.
-
-    This allows the data layer to try TWSE and TPEx once without overriding an
-    explicit .TW/.TWO request or a known exchange mapping.
-    """
+    """True only for a plain numeric Taiwan code not covered by the local map."""
     text = _clean(raw)
     if not text or text.endswith(".TW") or text.endswith(".TWO"):
         return False
@@ -160,8 +180,13 @@ def alternate_tw_ticker(ticker: TickerInfo) -> TickerInfo | None:
         resolved, exchange = f"{code}.TW", "TWSE"
     else:
         return None
-    return TickerInfo(
-        raw=ticker.raw, resolved_symbol=resolved, name=ticker.name, market="TW",
-        asset_type=ticker.asset_type, exchange=exchange, currency="TWD",
-        price_limit_pct=TWO_PRICE_LIMIT_PCT if resolved.endswith(".TWO") else TW_PRICE_LIMIT_PCT,
-    )
+    return _with_rule(TickerInfo(
+        raw=ticker.raw,
+        resolved_symbol=resolved,
+        name=ticker.name,
+        market="TW",
+        asset_type=ticker.asset_type,
+        exchange=exchange,
+        currency="TWD",
+        price_limit_pct=None,
+    ))

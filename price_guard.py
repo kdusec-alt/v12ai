@@ -5,6 +5,7 @@ import math
 import os
 from typing import Optional, Tuple
 from models import PriceFrame
+from exchange_rule_engine_v1069 import tw_daily_price_bounds
 
 
 def is_valid_number(value) -> bool:
@@ -57,9 +58,16 @@ def round_to_tick(price: float, market: str) -> float:
 
 
 def apply_market_bounds(value: float, previous_close: float, market: str, price_limit_pct: Optional[float]) -> float:
+    """Clamp to the market's static daily range when one exists.
+
+    Taiwan upper/lower limits require directional tick rounding: the upper limit
+    cannot exceed reference*(1+pct), while the lower limit cannot be below
+    reference*(1-pct).  Ordinary nearest rounding can produce an invalid order
+    tick at the boundary, so V1069 delegates the exact bounds to the exchange
+    rule engine.  US and no-static-limit Taiwan products remain unchanged.
+    """
     v = float(value)
     if market == "TW" and price_limit_pct and previous_close > 0:
-        upper = previous_close * (1 + price_limit_pct)
-        lower = previous_close * (1 - price_limit_pct)
+        lower, upper = tw_daily_price_bounds(float(previous_close), float(price_limit_pct))
         v = min(max(v, lower), upper)
     return round_to_tick(v, market)
