@@ -13,6 +13,7 @@ from models import PriceFrame, NewsItem, TickerInfo
 from data_sources_tw import fetch_tw_price, fetch_tw_news
 from data_sources_us import fetch_us_price, fetch_us_news
 from data_sources_etf import fetch_etf_price, fetch_etf_news
+from exchange_rule_engine_v1069 import attach_exchange_rule_context
 
 try:
     from global_event_scanner import fetch_global_event_news, ensure_global_macro_calendar
@@ -94,16 +95,46 @@ def _price_usable(frame: PriceFrame | None) -> bool:
     )
 
 
+def _attach_exchange_rule(frame: PriceFrame) -> PriceFrame:
+    """Add a read-only exchange-rule snapshot without changing forecast inputs."""
+    if frame is None:
+        return frame
+    try:
+        context = dict(getattr(frame, "context", {}) or {})
+        meta = context.get("price_meta") if isinstance(context.get("price_meta"), dict) else {}
+        source = str(meta.get("source") or getattr(getattr(frame, "truth", None), "source", "") or "")
+        closes = list(getattr(frame, "recent_closes", []) or [])
+        historical_previous_close = closes[-2] if len(closes) >= 2 else None
+        frame.context = attach_exchange_rule_context(
+            context,
+            frame.ticker,
+            reference_price=frame.previous_close,
+            current_price=frame.last,
+            reference_source=source,
+            historical_previous_close=historical_previous_close,
+            market_status=frame.market_status,
+            price_date=frame.price_date,
+            quote_name=frame.ticker.name,
+        )
+    except Exception:
+        # Rules are a safety annotation. Failure must not take a verified quote
+        # or the stable V12 analysis path offline.
+        pass
+    return frame
+
+
 def _fetch_by_ticker(ticker: TickerInfo) -> PriceFrame:
     # Taiwan ETFs keep the dedicated TW route. US ETFs must stay on the US
     # pipeline because their quote/news/fund metadata are not compatible with
     # TWSE/TPEX sources. Asset type may be upgraded dynamically after Yahoo
     # metadata is read, so this branch must remain market-aware.
     if ticker.market == "TW" and ticker.asset_type == "etf":
-        return fetch_etf_price(ticker)
-    if ticker.market == "TW":
-        return fetch_tw_price(ticker)
-    return fetch_us_price(ticker)
+        frame = fetch_etf_price(ticker)
+    elif ticker.market == "TW":
+        frame = fetch_tw_price(ticker)
+    else:
+        frame = fetch_us_price(ticker)
+    return _attach_exchange_rule(frame)
 
 
 def fetch_price(raw_ticker: str) -> PriceFrame:
