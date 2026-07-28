@@ -2,6 +2,50 @@
   "events": [
     {
       "acknowledged": false,
+      "category": "macro_release_pending",
+      "cooling_count": 0,
+      "event_id": "EV-717A2AC87DC8DC",
+      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
+      "family": "high_impact",
+      "fingerprint": "e5198c2ef5893bd2",
+      "first_seen_at": "2026-07-25T05:20:02+00:00",
+      "first_seen_epoch": 1784956802.439899,
+      "last_evidence_epoch": 1785269614.308872,
+      "last_seen_at": "2026-07-28T20:13:34+00:00",
+      "last_seen_epoch": 1785269614.308872,
+      "last_transition_at": "2026-07-28T20:13:34+00:00",
+      "peak_severity": 3,
+      "reinforcement_count": 17,
+      "related_fingerprints": [
+        "8c83b1d323182891",
+        "2912cd290264f1d8",
+        "58da6552cf7f8cbd",
+        "5b80e38621eeafe8",
+        "7f7f7c95ddb7032f",
+        "653ef74eda0da6d9",
+        "f6f92ac12f0d6f8a",
+        "184e8932c366381c"
+      ],
+      "risk_sign": 0,
+      "scope": "ticker",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/Trade Brains",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL",
+        "SKHY",
+        "INTC",
+        "MU",
+        "SNDK"
+      ],
+      "status": "active_red",
+      "title": "India’s Growth Loses Momentum as Services Cool; Will Manufacturing Carry the Economy? - Trade Brains",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
+    },
+    {
+      "acknowledged": false,
       "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
@@ -47,50 +91,6 @@
       "status": "active_red",
       "title": "Trump Administration’s New Section 301 Tariffs Reach Nearly All U.S. Imports - JD Supra",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
-    },
-    {
-      "acknowledged": false,
-      "category": "macro_release_pending",
-      "cooling_count": 0,
-      "event_id": "EV-717A2AC87DC8DC",
-      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
-      "family": "high_impact",
-      "fingerprint": "184e8932c366381c",
-      "first_seen_at": "2026-07-25T05:20:02+00:00",
-      "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785254793.917698,
-      "last_seen_at": "2026-07-28T16:06:33+00:00",
-      "last_seen_epoch": 1785254793.917698,
-      "last_transition_at": "2026-07-28T16:06:33+00:00",
-      "peak_severity": 3,
-      "reinforcement_count": 16,
-      "related_fingerprints": [
-        "1a9cc472048ed893",
-        "8c83b1d323182891",
-        "2912cd290264f1d8",
-        "58da6552cf7f8cbd",
-        "5b80e38621eeafe8",
-        "7f7f7c95ddb7032f",
-        "653ef74eda0da6d9",
-        "f6f92ac12f0d6f8a"
-      ],
-      "risk_sign": 0,
-      "scope": "ticker",
-      "severity": 3,
-      "source": "GoogleNewsGlobal/selfemployed.com",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "SKHY",
-        "INTC",
-        "MU",
-        "SNDK"
-      ],
-      "status": "active_red",
-      "title": "US Flash PMI Splits As Services Jump And Factories Slip - selfemployed.com",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
     },
     {
       "acknowledged": true,
@@ -171,5 +171,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T20:03:15+00:00"
+  "updated_at": "2026-07-28T20:13:34+00:00"
 }
