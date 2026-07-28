@@ -40,11 +40,10 @@ def _ma_title_piece(label: str, value, gap) -> str:
     if value in (None, "", "--") or gap in (None, "", "--"):
         return f"{label}資料不足"
     try:
-        g = float(gap)
+        float(gap)
     except Exception:
         return f"{label}資料不足"
-    # gap 是「現價相對均線的距離」，不是均線本身的漲跌方向。
-    return f"{label} {_title_price(value)}｜距離 {_title_pct(g)}"
+    return f"{label} {_title_price(value)}｜距離 {_title_pct(gap)}"
 
 
 def _strip_compare_prefix(text: object, *prefixes: str) -> str:
@@ -59,22 +58,60 @@ def _header_trend_line(forecast) -> str:
     tags = list(getattr(forecast, "tags", []) or [])
     streak_raw = str(tags[0]) if tags else "盤勢觀察"
     mode = ""
-    for m in ("盤中參考", "盤前參考", "盤後參考", "休市參考"):
-        if m in streak_raw:
-            mode = m
-            streak_raw = streak_raw.replace(f"｜{m}", "").replace(m, "")
+    for item in ("盤中參考", "盤前參考", "盤後參考", "休市參考"):
+        if item in streak_raw:
+            mode = item
+            streak_raw = streak_raw.replace(f"｜{item}", "").replace(item, "")
             break
     snap = {}
     try:
         snap = ((forecast.decision_card or {}).get("_trend_snapshot") or {})
     except Exception:
         snap = {}
-    ma20 = _ma_title_piece("MA20", snap.get("ma20"), snap.get("ma20_gap_pct"))
-    ma60 = _ma_title_piece("MA60", snap.get("ma60"), snap.get("ma60_gap_pct"))
-    parts = [streak_raw.strip("｜ ") or "盤勢觀察", ma20, ma60]
+    parts = [
+        streak_raw.strip("｜ ") or "盤勢觀察",
+        _ma_title_piece("MA20", snap.get("ma20"), snap.get("ma20_gap_pct")),
+        _ma_title_piece("MA60", snap.get("ma60"), snap.get("ma60_gap_pct")),
+    ]
     if mode:
         parts.append(mode)
     return " │ ".join(parts)
+
+
+def _compact_evidence_piece(text: object, *, segments: int = 2, max_chars: int = 82) -> str:
+    """Return a readable evidence headline without destroying the full payload."""
+    raw = " ".join(str(text or "").replace("\n", " ").split())
+    if not raw:
+        return ""
+    output = []
+    seen = set()
+    for part in raw.replace(" | ", "｜").split("｜"):
+        value = part.strip(" ｜")
+        if not value:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(value)
+        if len(output) >= max(1, int(segments)):
+            break
+    summary = "｜".join(output) or raw
+    return summary if len(summary) <= max_chars else summary[: max_chars - 1].rstrip() + "…"
+
+
+def _compact_evidence_summary(evidence: object, market: object, chip: object, market_code: str) -> str:
+    parts = []
+    evidence_piece = _compact_evidence_piece(evidence, segments=2, max_chars=88)
+    market_piece = _compact_evidence_piece(market, segments=1, max_chars=54)
+    chip_piece = _compact_evidence_piece(chip, segments=1, max_chars=48)
+    if evidence_piece:
+        parts.append(evidence_piece)
+    if market_piece:
+        parts.append(f"市場 {market_piece}")
+    if chip_piece:
+        parts.append(f"{'Short' if market_code == 'US' else '籌碼'} {chip_piece}")
+    return "｜".join(parts) or "等待價格、海外市場與籌碼確認"
 
 
 def render_battle_panel(st, forecast):
@@ -122,7 +159,6 @@ def render_battle_panel(st, forecast):
     consistency = dict(readiness.get("price_consistency") or {})
     if consistency.get("consistent"):
         readiness_items.append("<span class='ok'>✓ 操作價格已同步</span>")
-    # 價格等待路徑已在 summary 說明；下方只保留兩個最重要的條件，避免卡片肥大。
     for row in list(readiness.get("conditions") or [])[:2]:
         ok = bool(row.get("ok"))
         cls = "ok" if ok else "wait"
@@ -137,16 +173,17 @@ def render_battle_panel(st, forecast):
     evidence_raw = str(d.get("證據鏈", "") or "")
     market_raw = str(p.radar.get("市場風控", "") or "")
     chip_raw = str(p.radar.get("左側籌碼摘要", "") or "")
+    evidence_summary_raw = _compact_evidence_summary(evidence_raw, market_raw, chip_raw, str(t.market or ""))
+    evidence_summary = safe(evidence_summary_raw)
     evidence = safe(evidence_raw)
     market = safe(market_raw)
     chip = safe(chip_raw)
-    evidence_tooltip = safe(f"AI證據：{evidence_raw}｜市場：{market_raw}｜籌碼：{chip_raw}")
 
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei',Arial,sans-serif;color:#edf7ff}}
-    .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:612px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow:hidden}}
+    .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:612px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow-x:hidden;overflow-y:auto;scrollbar-width:thin}}
     .head{{border-bottom:1px solid rgba(55,230,255,.22);padding-bottom:5px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,318px);gap:8px;align-items:start}}
     h1{{margin:0;color:#fff;font-size:20px;font-weight:900;letter-spacing:.01em}}.streak{{margin-top:1px;color:{'#6dffb1' if header_streak_positive else '#ff6f8e'};font-weight:800;font-size:11px}}
     .fvleft{{border:1px solid rgba(45,212,191,.28);background:linear-gradient(135deg,rgba(6,78,59,.18),rgba(2,18,30,.55));border-radius:11px;padding:5px 8px;color:#ecfeff;font-size:10.3px;line-height:1.12;font-weight:650}}
@@ -159,12 +196,14 @@ def render_battle_panel(st, forecast):
     .entrysummary{{margin-top:1px;color:#eaf7ff;font-size:10.2px;font-weight:780;line-height:1.12}}.entryfacts{{margin-top:2px;display:flex;gap:4px 9px;flex-wrap:wrap;font-size:9px;font-weight:750}}.entryfacts .ok{{color:#7dffbd}}.entryfacts .wait{{color:#ffd27a}}
     .decision{{margin-top:5px;border:1px solid rgba(255,211,78,.48);border-radius:12px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:5px 7px}}
     .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}.main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:11.6px;line-height:1.10;font-weight:850;padding:5px 8px;margin-bottom:4px}}
-    /* V1067: reserve two complete text lines and a separate gap before the price strip.
-       WebKit line-clamp clipped the second line descenders and visually collided with
-       the price bar at 100% zoom.  A fixed two-line viewport keeps both TW and US text
-       readable while the title attribute still exposes the complete evidence chain. */
-    .decision-evidence{{border-left:3px solid #ff6f8e;padding:3px 0 3px 7px;color:#dff2ff;font-size:9.1px;font-weight:650;line-height:1.22;display:block;height:31px;overflow:hidden;cursor:help;margin-bottom:4px}}
-    .decision-evidence b{{color:#8fd7ff}}.sep{{color:#6d8ca5;padding:0 3px}}
+    .evidence-summary{{border-left:3px solid #ff6f8e;padding:3px 6px 3px 7px;color:#dff2ff;background:rgba(4,18,30,.72);font-size:9.4px;font-weight:700;line-height:1.22;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0 6px 6px 0}}
+    .evidence-summary b{{color:#8fd7ff;margin-right:4px}}
+    .evidence-details{{margin:2px 0 4px 3px;color:#bfe8ff;font-size:9px}}
+    .evidence-details summary{{cursor:pointer;color:#8fd7ff;font-weight:850;list-style:none;user-select:none}}
+    .evidence-details summary::-webkit-details-marker{{display:none}}
+    .evidence-details summary::before{{content:'＋ ';color:#ffd96a}}.evidence-details[open] summary::before{{content:'－ '}}
+    .evidence-full{{margin-top:3px;padding:6px 8px;border:1px solid rgba(85,170,255,.28);border-radius:8px;background:#06111d;color:#e9f6ff;line-height:1.35;font-size:9.2px;max-height:150px;overflow:auto}}
+    .evidence-full b{{color:#9bdcff}}
     .pricebar{{margin-top:0;border:1px solid rgba(85,170,255,.28);background:#071727;border-radius:9px;display:grid;grid-template-columns:1.35fr 1.15fr 1.15fr .95fr .95fr;overflow:hidden;clear:both}}
     .priceitem{{min-width:0;padding:4px 6px;border-right:1px solid rgba(85,170,255,.18);font-size:9.7px;font-weight:760;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.priceitem:last-child{{border-right:0}}.priceitem b{{color:#9bdcff;margin-right:3px;font-size:9.2px}}
     .t1{{margin-top:5px;border-top:1px solid rgba(55,230,255,.18);padding-top:4px}}.tl{{font-size:10.8px;color:#9bdcff;font-weight:800}}.tm{{font-size:15.8px;line-height:1.0;color:#5ff4ff;font-weight:900}}.ts{{color:#d8f2ff;font-weight:650;font-size:10.3px}}
@@ -173,7 +212,8 @@ def render_battle_panel(st, forecast):
       h1{{font-size:18.2px}}.streak{{font-size:10px}}.fvleft{{padding:4px 7px;font-size:9.5px;line-height:1.08}}.fvleft b{{font-size:8.7px}}.fvnote{{font-size:8.1px}}
       .info{{margin-top:4px;padding:4px 7px;font-size:10.4px;line-height:1.08}}.ptime{{font-size:8.6px}}
       .entrylamp{{margin-top:4px;padding:5px 7px}}.entrytop{{gap:6px}}.entrytop .name{{font-size:11.5px}}.entrytop .score{{font-size:16.5px}}.entrytop .state{{font-size:10.5px}}.entrysummary{{font-size:9.4px}}.entryfacts{{font-size:8.3px;gap:2px 7px}}
-      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.4px;padding:4px 7px;margin-bottom:3px;line-height:1.06}}.decision-evidence{{font-size:8.3px;line-height:1.18;height:27px;padding:2px 0 2px 6px;margin-bottom:4px}}
+      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.4px;padding:4px 7px;margin-bottom:3px;line-height:1.06}}
+      .evidence-summary{{font-size:8.6px;padding:3px 5px 3px 6px}}.evidence-details{{font-size:8.3px;margin-bottom:3px}}.evidence-full{{font-size:8.5px;max-height:130px}}
       .priceitem{{padding:3px 4px;font-size:8.7px}}.priceitem b{{font-size:8.2px;margin-right:2px}}
       .t1{{margin-top:4px;padding-top:3px}}.tl{{font-size:9.9px}}.tm{{font-size:14.6px}}.ts{{font-size:9.3px}}
     }}
@@ -187,7 +227,8 @@ def render_battle_panel(st, forecast):
       <div class='decision'>
         <div class='dt'>AI決策｜{decision_title}</div>
         <div class='main'>{main_message}</div>
-        <div class='decision-evidence' title='{evidence_tooltip}'><b>證據</b> {evidence}<span class='sep'>｜</span><b>市場</b> {market}<span class='sep'>｜</span><b>{'Short' if t.market == 'US' else '籌碼'}</b> {chip}</div>
+        <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>證據摘要</b>{evidence_summary}</div>
+        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
         <div class='pricebar'>
           <div class='priceitem' title='第一批與第二批低接價'><b>低接</b>{fmt(d.get('低接第一批'))}／{fmt(d.get('低接第二批'))}</div>
           <div class='priceitem' title='{safe(d.get('攻擊'))}'><b>攻擊</b>{safe(d.get('攻擊'))}</div>
