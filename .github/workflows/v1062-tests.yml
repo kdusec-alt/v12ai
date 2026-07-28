@@ -1,4 +1,4 @@
-name: V1062-V1067 targeted tests
+name: V1062-V1068 targeted tests
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - agent/responsive-desktop-v1065
       - agent/compact-decision-panel-v1066
       - agent/decision-evidence-spacing-v1067
+      - agent/data-lifecycle-research-ui-v1068
   pull_request:
     branches:
       - main
@@ -32,8 +33,10 @@ jobs:
         run: python -m unittest -v test_low_entry_readiness_v1065.py
       - name: Run V1066 compact decision panel contract
         run: python -m unittest -v test_compact_decision_panel_v1066.py
-      - name: Run V1067 decision evidence spacing contract
+      - name: Run V1067 and V1068 evidence UI contracts
         run: python -m unittest -v test_decision_evidence_spacing_v1067.py
+      - name: Run V1068 data lifecycle and research status tests
+        run: python -m unittest -v test_v1068_data_lifecycle.py
       - name: Run event and low-entry tests
         run: |
           python -m unittest -v \

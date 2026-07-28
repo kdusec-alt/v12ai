@@ -11,23 +11,23 @@ class DecisionEvidenceSpacingV1067Tests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
 
-    def test_evidence_uses_fixed_two_line_viewport_without_webkit_box_clamp(self):
-        self.assertIn(".decision-evidence", self.source)
-        self.assertIn("display:block", self.source)
-        self.assertIn("height:31px", self.source)
-        self.assertIn("line-height:1.22", self.source)
-        self.assertNotIn("display:-webkit-box", self.source)
-        self.assertNotIn("-webkit-box-orient:vertical", self.source)
+    def test_evidence_is_a_short_summary_with_expandable_full_payload(self):
+        self.assertIn("def _compact_evidence_summary", self.source)
+        self.assertIn("class='evidence-summary'", self.source)
+        self.assertIn("<details class='evidence-details'>", self.source)
+        self.assertIn("展開完整 AI 證據", self.source)
+        self.assertIn("max-height:150px", self.source)
 
-    def test_price_bar_is_separated_from_evidence(self):
-        self.assertIn("margin-bottom:4px", self.source)
+    def test_old_fixed_height_clipping_is_removed(self):
+        self.assertNotIn("height:31px", self.source)
+        self.assertNotIn("height:27px", self.source)
+        self.assertNotIn("class='decision-evidence'", self.source)
+        self.assertNotIn("-webkit-line-clamp", self.source)
+
+    def test_price_bar_remains_a_separate_row(self):
         self.assertIn(".pricebar{{margin-top:0", self.source)
         self.assertIn("clear:both", self.source)
-
-    def test_compact_desktop_preserves_two_complete_lines(self):
-        self.assertIn("height:27px", self.source)
-        self.assertIn("line-height:1.18", self.source)
-        self.assertIn("padding:2px 0 2px 6px", self.source)
+        self.assertIn("</details>\n        <div class='pricebar'>", self.source)
 
 
 if __name__ == "__main__":

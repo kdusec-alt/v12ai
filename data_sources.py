@@ -60,6 +60,13 @@ except Exception:
     pass
 
 try:
+    from v1068_runtime_patches import install_v1068_runtime_patches
+    install_v1068_runtime_patches()
+except Exception:
+    # Additive safety layer: a failure must never take price/news routes offline.
+    pass
+
+try:
     from ui_event_status_v1062 import inject_event_status_css
 except Exception:
     def inject_event_status_css():
