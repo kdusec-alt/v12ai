@@ -897,7 +897,7 @@ def main():
     should_run = bool((analyze and symbol) or auto_ready or watch_ready or event_ready)
     if should_run:
         try:
-            with st.status("分析中：價格 / 法人 / 資券 / 模型", expanded=False):
+            with st.status("分析中：價格 / 當下新聞 / 法人 / 資券 / 模型", expanded=False):
                 if not symbol:
                     st.session_state.forecast = None
                     st.session_state.last_error = ""
