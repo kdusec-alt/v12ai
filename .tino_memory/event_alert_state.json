@@ -7,29 +7,29 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "71624d59216b8cf9",
+      "fingerprint": "f2480f59e64ef7b8",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785244541.284483,
-      "last_seen_at": "2026-07-28T13:15:41+00:00",
-      "last_seen_epoch": 1785244541.284483,
-      "last_transition_at": "2026-07-28T13:15:41+00:00",
+      "last_evidence_epoch": 1785245660.619415,
+      "last_seen_at": "2026-07-28T13:34:20+00:00",
+      "last_seen_epoch": 1785245660.619415,
+      "last_transition_at": "2026-07-28T13:34:20+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 119,
+      "reinforcement_count": 120,
       "related_fingerprints": [
-        "3d877ccfe8e241ac",
         "6cedaf599d8a70f7",
         "34fffef8c317d244",
         "5d9289dbcc56a14c",
         "a0c6319cafc340e6",
         "00c202b701d5d2a4",
         "71dda054fdc98153",
-        "2dae1e430c53f618"
+        "2dae1e430c53f618",
+        "71624d59216b8cf9"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 3,
-      "source": "GoogleNewsGlobal/Norton Rose Fulbright",
+      "source": "GoogleNewsGlobal/Whalesbook",
       "source_markets": [
         "GLOBAL",
         "US"
@@ -45,7 +45,7 @@
         "2330.TW"
       ],
       "status": "active_red",
-      "title": "USTR formally implements forced labor tariffs | Latin America | Global law firm - Norton Rose Fulbright",
+      "title": "US Imposes 10% Tariff on Indian Imports: Sector Impact Analyzed - Whalesbook",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
@@ -168,5 +168,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T13:15:41+00:00"
+  "updated_at": "2026-07-28T13:34:20+00:00"
 }
