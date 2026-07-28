@@ -1,4 +1,4 @@
-name: V1062-V1069 targeted tests
+name: V1062-V1070 targeted tests
 
 on:
   push:
@@ -10,6 +10,7 @@ on:
       - agent/decision-evidence-spacing-v1067
       - agent/data-lifecycle-research-ui-v1068
       - agent/exchange-rule-reachability-v1069
+      - agent/emerging-session-v1070
   pull_request:
     branches:
       - main
@@ -40,6 +41,8 @@ jobs:
         run: python -m unittest -v test_v1068_data_lifecycle.py
       - name: Run V1069 exchange-rule and reachability tests
         run: python -m unittest -v test_exchange_rule_v1069.py
+      - name: Run V1070 emerging session tests
+        run: python -m unittest -v test_emerging_session_v1070.py
       - name: Run event and low-entry tests
         run: |
           python -m unittest -v \

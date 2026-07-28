@@ -16,6 +16,12 @@ from data_sources_etf import fetch_etf_price, fetch_etf_news
 from exchange_rule_engine_v1069 import attach_exchange_rule_context
 
 try:
+    from emerging_session_v1070 import install_emerging_session_v1070
+    fetch_tw_price = install_emerging_session_v1070(fetch_tw_price)
+except Exception:
+    pass
+
+try:
     from global_event_scanner import fetch_global_event_news, ensure_global_macro_calendar
 except Exception:
     def fetch_global_event_news(*, force_refresh: bool = False):
@@ -113,9 +119,6 @@ def _attach_exchange_rule(frame: PriceFrame) -> PriceFrame:
             price_date=frame.price_date,
             quote_name=frame.ticker.name,
         )
-        # Orchestrator already copies price_meta into the Admin-only decision-card
-        # payload. Nesting the same snapshot here lets the low-entry UI read it
-        # without changing the FinalForecast schema or formal forecast values.
         meta["exchange_rule"] = dict(decorated.get("exchange_rule") or {})
         decorated["price_meta"] = meta
         frame.context = decorated
