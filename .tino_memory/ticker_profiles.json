@@ -4086,8 +4086,8 @@
   "6770.TW": {
     "active_family_count": 12,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-07-28T16:56:22+08:00",
-    "approved_bias": -0.005,
+    "approved_at_tw": "2026-07-28T17:16:07+08:00",
+    "approved_bias": -0.0075,
     "audit_count": 47,
     "avg_abs_error_pct": 4.1679,
     "avg_direction_brier": 0.304928,
