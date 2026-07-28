@@ -64,7 +64,6 @@ try:
     from v1068_runtime_patches import install_v1068_runtime_patches
     install_v1068_runtime_patches()
 except Exception:
-    # Additive safety layer: a failure must never take price/news routes offline.
     pass
 
 try:
@@ -73,8 +72,6 @@ except Exception:
     def inject_event_status_css():
         return None
 
-# Process-local routing cache. It contains only compact TickerInfo objects and
-# avoids probing both exchanges again during the subsequent fetch_news call.
 _RESOLVED_ROUTE_CACHE: Dict[str, TickerInfo] = {}
 
 
@@ -101,11 +98,11 @@ def _attach_exchange_rule(frame: PriceFrame) -> PriceFrame:
         return frame
     try:
         context = dict(getattr(frame, "context", {}) or {})
-        meta = context.get("price_meta") if isinstance(context.get("price_meta"), dict) else {}
+        meta = dict(context.get("price_meta") or {}) if isinstance(context.get("price_meta"), dict) else {}
         source = str(meta.get("source") or getattr(getattr(frame, "truth", None), "source", "") or "")
         closes = list(getattr(frame, "recent_closes", []) or [])
         historical_previous_close = closes[-2] if len(closes) >= 2 else None
-        frame.context = attach_exchange_rule_context(
+        decorated = attach_exchange_rule_context(
             context,
             frame.ticker,
             reference_price=frame.previous_close,
@@ -116,18 +113,18 @@ def _attach_exchange_rule(frame: PriceFrame) -> PriceFrame:
             price_date=frame.price_date,
             quote_name=frame.ticker.name,
         )
+        # Orchestrator already copies price_meta into the Admin-only decision-card
+        # payload. Nesting the same snapshot here lets the low-entry UI read it
+        # without changing the FinalForecast schema or formal forecast values.
+        meta["exchange_rule"] = dict(decorated.get("exchange_rule") or {})
+        decorated["price_meta"] = meta
+        frame.context = decorated
     except Exception:
-        # Rules are a safety annotation. Failure must not take a verified quote
-        # or the stable V12 analysis path offline.
         pass
     return frame
 
 
 def _fetch_by_ticker(ticker: TickerInfo) -> PriceFrame:
-    # Taiwan ETFs keep the dedicated TW route. US ETFs must stay on the US
-    # pipeline because their quote/news/fund metadata are not compatible with
-    # TWSE/TPEX sources. Asset type may be upgraded dynamically after Yahoo
-    # metadata is read, so this branch must remain market-aware.
     if ticker.market == "TW" and ticker.asset_type == "etf":
         frame = fetch_etf_price(ticker)
     elif ticker.market == "TW":
@@ -138,8 +135,6 @@ def _fetch_by_ticker(ticker: TickerInfo) -> PriceFrame:
 
 
 def fetch_price(raw_ticker: str) -> PriceFrame:
-    # Ensure the shared macro calendar includes scheduled Global Event Core rows
-    # before any TW/US price context is built. Offline tests remain unchanged.
     try:
         ensure_global_macro_calendar()
     except Exception:
@@ -155,9 +150,6 @@ def fetch_price(raw_ticker: str) -> PriceFrame:
         _RESOLVED_ROUTE_CACHE[key] = getattr(primary, "ticker", ticker)
         return primary
 
-    # Unknown plain numeric code: only probe the other Taiwan market if the
-    # primary route is unusable. This keeps normal analysis fast and prevents
-    # an unknown TPEx/emerging code from being silently treated as TWSE.
     if _price_usable(primary):
         _RESOLVED_ROUTE_CACHE[key] = getattr(primary, "ticker", ticker)
         return primary
@@ -177,7 +169,6 @@ def _news_identity(item: NewsItem) -> str:
 
 
 def _merge_news(primary: List[NewsItem], global_rows: List[NewsItem], limit: int = 24) -> List[NewsItem]:
-    """Put market-wide events first without duplicating company/news routes."""
     out: List[NewsItem] = []
     seen: set[str] = set()
     for item in [*(global_rows or []), *(primary or [])]:
@@ -192,9 +183,7 @@ def _merge_news(primary: List[NewsItem], global_rows: List[NewsItem], limit: int
 
 
 def fetch_news(raw_ticker: str, force_refresh: bool = False) -> List[NewsItem]:
-    # The five-minute status line is operational state, not muted helper text.
     inject_event_status_css()
-
     key = _cache_key(raw_ticker)
     ticker = _RESOLVED_ROUTE_CACHE.get(key) or resolve_ticker(raw_ticker)
     if ticker.market == "TW" and ticker.asset_type == "etf":
@@ -204,9 +193,6 @@ def fetch_news(raw_ticker: str, force_refresh: bool = False) -> List[NewsItem]:
     else:
         primary = fetch_us_news(ticker, force_refresh=force_refresh)
 
-    # Independent route: the watcher sees oil/tariff/PMI even when the headline
-    # never names the active stock. V1062 attaches both ticker exposure DNA and
-    # a strong market-shock level so oil spikes/war outrank ordinary headlines.
     try:
         global_rows = fetch_global_event_news(force_refresh=force_refresh)
         global_rows = annotate_global_event_news(ticker, global_rows)
