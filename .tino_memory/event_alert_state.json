@@ -1,7 +1,8 @@
 {
   "events": [
     {
-      "acknowledged": false,
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-28T08:27:59+00:00",
       "category": "macro_release_pending",
       "cooling_count": 0,
       "event_id": "EV-717A2AC87DC8DC",
@@ -13,7 +14,7 @@
       "last_evidence_epoch": 1785208252.061843,
       "last_seen_at": "2026-07-28T03:10:52+00:00",
       "last_seen_epoch": 1785208252.061843,
-      "last_transition_at": "2026-07-28T03:10:52+00:00",
+      "last_transition_at": "2026-07-28T08:27:59+00:00",
       "peak_severity": 3,
       "reinforcement_count": 14,
       "related_fingerprints": [
@@ -40,7 +41,7 @@
       ],
       "status": "active_red",
       "title": "The Impact of Strong US Economic Data on Australian Markets - thebull.com.au",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
       "acknowledged": false,
@@ -167,5 +168,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-28T08:27:24+00:00"
+  "updated_at": "2026-07-28T08:27:59+00:00"
 }
