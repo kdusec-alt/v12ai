@@ -694,7 +694,12 @@ def _structured_scheduled_row(
     ticker = getattr(price, "ticker", None)
     name = _clean(getattr(ticker, "name", "") or getattr(ticker, "resolved_symbol", ""))
     event_label = raw_date[:10] if event_day is not None else f"T-{days}d"
+    earnings_session = _clean(fundamental.get("earnings_session"))
+    earnings_taipei = _clean(fundamental.get("earnings_taipei"))
+    timing = "｜".join(value for value in (earnings_session, earnings_taipei) if value)
     title = f"{name} 財報／法說預定於 {event_label} 公布"
+    if timing:
+        title = f"{title}｜{timing}"
     return {
         "index": -1,
         "key": hashlib.sha1(
@@ -721,6 +726,8 @@ def _structured_scheduled_row(
         "scheduled": True,
         "event_date": raw_date[:10],
         "event_days": days,
+        "event_session": earnings_session,
+        "event_taipei": earnings_taipei,
     }
 
 

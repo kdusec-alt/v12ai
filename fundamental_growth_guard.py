@@ -328,10 +328,15 @@ def build_us_fundamental_context(
     peg = _num(info.get("pegRatio"))
     next_date = info.get("nextEarningsDate") or info.get("earningsDate") or ""
     days = _num(info.get("earningsDays"))
+    earnings_session = _text(info.get("earningsSession"))
+    earnings_taipei = _text(info.get("earningsTaipei"))
+    earnings_calendar_source = _text(info.get("earningsCalendarSource"))
 
     source = "YahooFinance quoteSummary"
     if quarterly_ok:
         source += " + fundamentals-timeseries"
+    if earnings_calendar_source:
+        source += f" + {earnings_calendar_source}"
 
     return {
         "accepted": bool(eps is not None or revenue is not None or pe is not None or ps is not None),
@@ -367,6 +372,9 @@ def build_us_fundamental_context(
         "peg": peg,
         "next_earnings": str(next_date or ""),
         "earnings_days": int(days) if days is not None else None,
+        "earnings_session": earnings_session,
+        "earnings_taipei": earnings_taipei,
+        "earnings_calendar_source": earnings_calendar_source,
         "growth_semantics": "universal_truth_guard_v2",
         "quarterly_source_date": revenue_date or _text(quarterly.get("latest_gaap_eps_date")),
     }
