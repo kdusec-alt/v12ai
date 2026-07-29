@@ -7,29 +7,29 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "05a828cdfe09d03e",
+      "fingerprint": "d71dc936d9c1bb22",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785365087.871263,
-      "last_seen_at": "2026-07-29T22:44:47+00:00",
-      "last_seen_epoch": 1785365087.871263,
-      "last_transition_at": "2026-07-29T22:44:47+00:00",
+      "last_evidence_epoch": 1785366288.063171,
+      "last_seen_at": "2026-07-29T23:04:48+00:00",
+      "last_seen_epoch": 1785366288.063171,
+      "last_transition_at": "2026-07-29T23:04:48+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 169,
+      "reinforcement_count": 170,
       "related_fingerprints": [
-        "9d21ab20a26aa55d",
         "5aca86baf11f168d",
         "8dda43f40b52a2f0",
         "a34cb1de507cee41",
         "a4d0aae0c742f5fb",
         "c55694aed05d0036",
         "567aac78dd375604",
-        "d11d7b7d14625e06"
+        "d11d7b7d14625e06",
+        "05a828cdfe09d03e"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 4,
-      "source": "GoogleNewsGlobal/Fana News -",
+      "source": "GoogleNewsGlobal/tradingkey.com",
       "source_markets": [
         "GLOBAL",
         "US"
@@ -45,7 +45,7 @@
         "INTC"
       ],
       "status": "active_red",
-      "title": "Global oil prices jump nearly 7% on Middle East supply disruption fears - Fana News -",
+      "title": "Oil Prices Surge as Brent Jumps Over 6% Following Houthi Tanker Attack and US-Saudi Strikes in Iraq - tradingkey.com",
       "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
@@ -209,5 +209,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T22:44:47+00:00"
+  "updated_at": "2026-07-29T23:04:48+00:00"
 }
