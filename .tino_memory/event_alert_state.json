@@ -4,54 +4,6 @@
       "acknowledged": false,
       "category": "geo_energy_escalation",
       "cooling_count": 0,
-      "event_id": "EV-FE4B47983D28AA",
-      "event_key": "global:geopolitical:general_geo",
-      "family": "geopolitical",
-      "fingerprint": "5aca86baf11f168d",
-      "first_seen_at": "2026-07-24T14:16:34+00:00",
-      "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785357197.997352,
-      "last_seen_at": "2026-07-29T20:33:17+00:00",
-      "last_seen_epoch": 1785357197.997352,
-      "last_transition_at": "2026-07-29T20:33:17+00:00",
-      "peak_severity": 4,
-      "reinforcement_count": 162,
-      "related_fingerprints": [
-        "bc00e3226119af2f",
-        "88a88450312f2b9e",
-        "4531efb22450c551",
-        "fc2ba7f3183e850e",
-        "0ea8d587d8a49de1",
-        "02eab497843897e3",
-        "4fc7f7e0719fb79a",
-        "9d21ab20a26aa55d"
-      ],
-      "risk_sign": -1,
-      "scope": "global",
-      "severity": 4,
-      "source": "GoogleNewsGlobal/وكالة الانباء الاردنية",
-      "source_markets": [
-        "GLOBAL",
-        "US"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "MU",
-        "MRVL",
-        "2330.TW",
-        "FORM",
-        "SNDK",
-        "AMD",
-        "INTC"
-      ],
-      "status": "active_red",
-      "title": "Global oil prices jump nearly 7% on Middle East supply disruption fears - وكالة الانباء الاردنية",
-      "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
-    },
-    {
-      "acknowledged": false,
-      "category": "geo_energy_escalation",
-      "cooling_count": 0,
       "event_id": "EV-8EF02DA37AF306",
       "event_key": "global:geopolitical:iran_middle_east",
       "family": "geopolitical",
@@ -91,6 +43,54 @@
       "status": "active_red",
       "title": "Global Event Core｜中東/美伊供應風險推升油價｜WTI +6.76%／Brent +7.35%｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
       "transition_reason": "市場衝擊 L5 極端市場衝擊 40/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+    },
+    {
+      "acknowledged": false,
+      "category": "geo_trade_controls",
+      "cooling_count": 0,
+      "event_id": "EV-FE4B47983D28AA",
+      "event_key": "global:geopolitical:general_geo",
+      "family": "geopolitical",
+      "fingerprint": "8dda43f40b52a2f0",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1785360258.071684,
+      "last_seen_at": "2026-07-29T21:24:18+00:00",
+      "last_seen_epoch": 1785360258.071684,
+      "last_transition_at": "2026-07-29T21:24:18+00:00",
+      "peak_severity": 4,
+      "reinforcement_count": 163,
+      "related_fingerprints": [
+        "88a88450312f2b9e",
+        "4531efb22450c551",
+        "fc2ba7f3183e850e",
+        "0ea8d587d8a49de1",
+        "02eab497843897e3",
+        "4fc7f7e0719fb79a",
+        "9d21ab20a26aa55d",
+        "5aca86baf11f168d"
+      ],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/kvue.com",
+      "source_markets": [
+        "GLOBAL",
+        "US"
+      ],
+      "source_tickers": [
+        "GLOBAL",
+        "MU",
+        "MRVL",
+        "2330.TW",
+        "FORM",
+        "SNDK",
+        "AMD",
+        "INTC"
+      ],
+      "status": "active_red",
+      "title": "Editorial Roundup: United States - kvue.com",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
       "acknowledged": false,
@@ -207,5 +207,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T20:38:47+00:00"
+  "updated_at": "2026-07-29T21:24:18+00:00"
 }
