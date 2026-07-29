@@ -60,6 +60,19 @@ class LowEntryReadinessTests(unittest.TestCase):
         self.assertEqual(result["color"], "green")
         self.assertEqual(result["label"], "低接成熟")
 
+    def test_blocked_thesis_never_labels_near_support_as_entry_hit(self):
+        item = forecast(last=98.2, first=98, second=95)
+        item.decision_card["_decision_thesis"] = {
+            "state": "session_repricing",
+            "entry_permission": "blocked",
+            "message": "盤中正在重新定價，暫停買進",
+        }
+        result = assess_low_entry_readiness(item)
+        self.assertEqual(result["color"], "red")
+        self.assertIn("價格已接近觀察支撐，但目前不是買點", result["conditions"][0]["text"])
+        self.assertFalse(result["conditions"][0]["ok"])
+        self.assertNotIn("接近第一批低接區", result["conditions"][0]["text"])
+
     def test_wait_when_event_and_foreign_selling_remain(self):
         rows = [Row(
             "Reuters", "2026-07-27T14:00:00+08:00", -0.18,
