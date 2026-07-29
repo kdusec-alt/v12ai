@@ -4,6 +4,49 @@
       "acknowledged": false,
       "category": "geo_energy_escalation",
       "cooling_count": 0,
+      "event_id": "EV-8EF02DA37AF306",
+      "event_key": "global:geopolitical:iran_middle_east",
+      "family": "geopolitical",
+      "fingerprint": "03b439314a25bcb3",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1785340830.337876,
+      "last_seen_at": "2026-07-29T16:00:30+00:00",
+      "last_seen_epoch": 1785340830.337876,
+      "last_transition_at": "2026-07-29T16:00:30+00:00",
+      "peak_severity": 4,
+      "reinforcement_count": 16,
+      "related_fingerprints": [
+        "6eb58a5a77a05712",
+        "d5e90c5b00ecda5b",
+        "83b0633721a1a6f2",
+        "51e8fc4f6632e6be",
+        "80f17bf3c698c0c0",
+        "1791420e3b58f9e5",
+        "1028fbd89e84a37d",
+        "abfdc71d83b8e15e"
+      ],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 4,
+      "source": "TINO_GlobalEventCore_YahooFinance",
+      "source_markets": [
+        "GLOBAL"
+      ],
+      "source_tickers": [
+        "GLOBAL",
+        "SKHY",
+        "SNDK",
+        "2330.TW"
+      ],
+      "status": "active_red",
+      "title": "Global Event Core｜中東/美伊供應風險推升油價｜WTI +6.76%／Brent +7.35%｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
+      "transition_reason": "市場衝擊 L5 極端市場衝擊 40/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+    },
+    {
+      "acknowledged": false,
+      "category": "geo_energy_escalation",
+      "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
@@ -46,49 +89,6 @@
       ],
       "status": "active_red",
       "title": "WTI Oil surges 7% as Middle East war and supply risks fuel rally - FXStreet",
-      "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
-    },
-    {
-      "acknowledged": false,
-      "category": "geo_energy_escalation",
-      "cooling_count": 0,
-      "event_id": "EV-8EF02DA37AF306",
-      "event_key": "global:geopolitical:iran_middle_east",
-      "family": "geopolitical",
-      "fingerprint": "abfdc71d83b8e15e",
-      "first_seen_at": "2026-07-24T14:16:34+00:00",
-      "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785338403.494861,
-      "last_seen_at": "2026-07-29T15:20:03+00:00",
-      "last_seen_epoch": 1785338403.494861,
-      "last_transition_at": "2026-07-29T15:20:03+00:00",
-      "peak_severity": 4,
-      "reinforcement_count": 15,
-      "related_fingerprints": [
-        "e5bd67e6ffcef44c",
-        "6eb58a5a77a05712",
-        "d5e90c5b00ecda5b",
-        "83b0633721a1a6f2",
-        "51e8fc4f6632e6be",
-        "80f17bf3c698c0c0",
-        "1791420e3b58f9e5",
-        "1028fbd89e84a37d"
-      ],
-      "risk_sign": -1,
-      "scope": "global",
-      "severity": 4,
-      "source": "GoogleNewsGlobal/finance.biggo.com",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "SKHY",
-        "SNDK",
-        "2330.TW"
-      ],
-      "status": "active_red",
-      "title": "Middle East Situation Shifts Dramatically in a Day; Trump Threatens to 'Hit' Iran, International Oil Prices Surge Over 7% - finance.biggo.com",
       "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
@@ -175,5 +175,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T15:55:30+00:00"
+  "updated_at": "2026-07-29T16:00:30+00:00"
 }
