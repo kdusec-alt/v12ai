@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from datetime import date, datetime, time, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import math
@@ -1737,13 +1738,14 @@ def _tw_news_recent_enough(pub: str, title: str = "", query: str = "") -> bool:
         return False
 
 
-def _google_news(query: str, limit: int = 12) -> List[NewsItem]:
+def _google_news(query: str, limit: int = 12, window_days: int = 60) -> List[NewsItem]:
     try:
         import requests
-        # Query still allows up to 60d so financial event rows can be captured,
-        # then per-title TTL below removes stale non-financial rows.
+        # Search families use independent time windows.  A fresh earnings release
+        # must not compete with sixty days of generic stock commentary.
         current_year = max(2026, datetime.now(ZoneInfo("UTC")).year)
-        q = f"({query}) {current_year} after:{current_year}-01-01 when:60d"
+        days = max(1, min(int(window_days or 60), 60))
+        q = f"({query}) {current_year} after:{current_year}-01-01 when:{days}d"
         url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": q, "hl": "zh-TW", "gl": "TW", "ceid": "TW:zh-Hant"})
         text = requests.get(url, timeout=4, headers={"User-Agent": "Mozilla/5.0 TINO-RC24-TW-NewsTimeGuard"}).text
         root = ET.fromstring(text)
@@ -1757,7 +1759,14 @@ def _google_news(query: str, limit: int = 12) -> List[NewsItem]:
                 continue
             seen.add(title)
             score, tag = _score_news(title)
-            items.append(NewsItem("GoogleNewsTW", _tw_news_time_label(pub), score, tag, title, link))
+            source_node = item.find("source")
+            publisher = re.sub(
+                r"\s+",
+                " ",
+                source_node.text if source_node is not None and source_node.text else "",
+            ).strip()
+            source = f"GoogleNewsTW/{publisher}" if publisher else "GoogleNewsTW"
+            items.append(NewsItem(source, _tw_news_time_label(pub), score, tag, title, link))
             if len(items) >= limit:
                 break
         return items
@@ -1800,6 +1809,97 @@ def _tw_company_news_relevant(ticker: TickerInfo, item: NewsItem) -> bool:
 def _retag_tw_news(item: NewsItem, prefix: str) -> NewsItem:
     tag = str(item.tag or "headline_neutral")
     return NewsItem(item.source, item.time, item.score, f"{prefix}{tag}", item.title, item.link)
+
+
+def _tw_company_query_plan(ticker: TickerInfo) -> List[Tuple[str, str, int, int]]:
+    """Build bounded, generic company-news searches by evidence family."""
+    name = re.sub(r"\s+", " ", str(ticker.name or "")).strip()
+    code = _code(ticker.resolved_symbol)
+    subject = f'"{name}" {code}' if name else code
+    return [
+        (
+            "earnings",
+            f"{subject} (財報 OR 自結 OR 季報 OR EPS OR 每股盈餘 OR 獲利 OR 稅後純益 OR 毛利率 OR 法說)",
+            7,
+            8,
+        ),
+        (
+            "forward",
+            f"{subject} (展望 OR 財測 OR 下一季 OR 接單 OR 訂單 OR 需求 OR 稼動率 OR 資本支出)",
+            14,
+            6,
+        ),
+        (
+            "forward_risk",
+            f"{subject} (財測下修 OR 展望下修 OR 降評 OR 下修目標價 OR 訂單取消 OR 延後拉貨 OR 需求放緩 OR 增資 OR 監管調查)",
+            14,
+            6,
+        ),
+        (
+            "analyst",
+            f"{subject} (大摩 OR 小摩 OR 摩根士丹利 OR 摩根大通 OR 目標價 OR 升評 OR 降評)",
+            30,
+            5,
+        ),
+        ("company_update", f"{subject} 股票", 3, 6),
+    ]
+
+
+def _tw_news_source_rank(source: str) -> int:
+    text = str(source or "").lower()
+    if any(k in text for k in ("公開資訊觀測站", "mops", "公司公告", "官方")):
+        return 4
+    if any(
+        k in text
+        for k in (
+            "中央社", "工商時報", "經濟日報", "moneydj", "鉅亨",
+            "財訊快報", "數位時代", "商業周刊", "今周刊",
+        )
+    ):
+        return 3
+    if any(k in text for k in ("yahoo", "聯合新聞", "自由財經", "時報資訊")):
+        return 2
+    return 1
+
+
+def _tw_news_sort_key(item: NewsItem) -> Tuple[str, int, float]:
+    return (
+        str(getattr(item, "time", "") or ""),
+        _tw_news_source_rank(str(getattr(item, "source", "") or "")),
+        abs(float(getattr(item, "score", 0.0) or 0.0)),
+    )
+
+
+def _select_tw_company_news(
+    rows_by_family: Dict[str, List[NewsItem]],
+    *,
+    limit: int = 8,
+) -> List[NewsItem]:
+    """Reserve evidence slots so one noisy family cannot starve another."""
+    caps = {
+        "earnings": 3,
+        "forward": 2,
+        "forward_risk": 2,
+        "analyst": 1,
+        "company_update": 2,
+    }
+    selected: List[NewsItem] = []
+    seen: set[str] = set()
+    for family in ("earnings", "forward_risk", "forward", "analyst", "company_update"):
+        rows = sorted(rows_by_family.get(family, []), key=_tw_news_sort_key, reverse=True)
+        used = 0
+        for item in rows:
+            key = re.sub(r"\s+", " ", str(item.title or "")).strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            selected.append(item)
+            used += 1
+            if used >= caps[family] or len(selected) >= limit:
+                break
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 def _global_tw_macro_geo_news(force_refresh: bool = False) -> List[NewsItem]:
@@ -1850,32 +1950,34 @@ def fetch_tw_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
     for item in _global_tw_macro_geo_news(force_refresh=force_refresh)[:6]:
         _add(item)
 
-    queries = [
-        f"{ticker.name} {_code(ticker.resolved_symbol)} 股票",
-        f"{ticker.name} (財測下修 OR 展望下修 OR 降評 OR 下修目標價 OR 減碼 OR 賣出 OR 訂單取消 OR 延後拉貨 OR 需求放緩 OR 增資 OR 監管調查)",
-        f"{ticker.name} 法說 EPS 營收 下一季 展望 毛利率",
-        f"{ticker.name} (大摩 OR 小摩 OR 摩根士丹利 OR 摩根大通 OR 目標價 OR 升評 OR 降評)",
-    ]
-    for query in queries:
-        for item in _google_news(query, 8):
-            if _tw_company_news_relevant(ticker, item):
-                # Preserve the validated entity in the tag so the downstream
-                # causal layer can independently verify that this row belongs
-                # to the requested company.  Search-route membership alone is
-                # not proof of company causality.
-                _add(_retag_tw_news(
-                    item,
-                    f"tw_company_{_code(ticker.resolved_symbol)}_",
-                ))
-        if len(out) >= 16:
-            break
+    rows_by_family: Dict[str, List[NewsItem]] = {}
+    query_plan = _tw_company_query_plan(ticker)
+    with ThreadPoolExecutor(max_workers=min(5, len(query_plan))) as executor:
+        pending = {
+            executor.submit(_google_news, query, query_limit, window_days): family
+            for family, query, window_days, query_limit in query_plan
+        }
+        for future in as_completed(pending):
+            family = pending[future]
+            try:
+                fetched = list(future.result() or [])
+            except Exception:
+                fetched = []
+            accepted: List[NewsItem] = []
+            for item in fetched:
+                if not _tw_company_news_relevant(ticker, item):
+                    continue
+                prefix = f"tw_company_{_code(ticker.resolved_symbol)}_{family}_"
+                accepted.append(_retag_tw_news(item, prefix))
+            rows_by_family[family] = accepted
 
-    reserved = [item for item in out if "tw_daily_" in str(item.tag)][:5]
-    reserved_keys = {re.sub(r"\s+", " ", item.title).strip().lower() for item in reserved}
+    for item in _select_tw_company_news(rows_by_family, limit=8):
+        _add(item)
+
+    reserved = [item for item in out if "tw_daily_" in str(item.tag)][:4]
     company = [
         item for item in out
-        if re.sub(r"\s+", " ", item.title).strip().lower() not in reserved_keys
+        if "tw_daily_" not in str(item.tag)
     ]
-    company = sorted(company, key=lambda n: (abs(float(n.score)), str(n.time)), reverse=True)
-    final = (reserved + company)[:12]
+    final = (reserved + company[:8])[:12]
     return final or _fallback_news(ticker)

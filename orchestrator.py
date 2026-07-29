@@ -1138,7 +1138,11 @@ def _us_fundamental_line(price: PriceFrame, news_items: List[NewsItem] | None = 
         if pe is not None: parts.append(f"PE {float(pe):.2f}")
         if f.get('forward_pe') is not None: parts.append(f"Forward PE {float(f.get('forward_pe')):.2f}")
         if f.get('ps') is not None: parts.append(f"PS {float(f.get('ps')):.2f}")
-        if nxt: parts.append(f"下次財報 {nxt}")
+        earnings_session = str(f.get('earnings_session') or '')
+        earnings_taipei = str(f.get('earnings_taipei') or '')
+        if nxt:
+            timing = "｜".join(x for x in (earnings_session, earnings_taipei) if x)
+            parts.append(f"下次財報 {nxt}" + (f"｜{timing}" if timing else ""))
         if days is not None: parts.append(f"財報倒數 {days}天")
         if not f.get('qoq_verified'):
             parts.append("QoQ未取得正式季度序列，不計分")

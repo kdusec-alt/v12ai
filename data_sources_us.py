@@ -26,6 +26,7 @@ except Exception:
 from truth_guard import make_truth, parse_date_safe
 from quantum_market_context import fetch_market_proxy_context
 from fundamental_growth_guard import fetch_us_quarterly_metrics, build_us_fundamental_context, detect_us_asset_type
+from earnings_calendar_guard_v1076 import merge_us_earnings_calendar
 try:
     from macro_event_calendar import build_macro_context
 except Exception:
@@ -170,16 +171,24 @@ def _get_us_info(symbol: str) -> Dict[str, object]:
     if os.environ.get('TINO_OFFLINE_TEST') == '1':
         return _merge_public_memory(symbol, {})
     info = {}
+    ticker_obj = None
     try:
         import yfinance as yf
-        info = dict(yf.Ticker(symbol).get_info() or {})
+        ticker_obj = yf.Ticker(symbol)
+        info = dict(ticker_obj.get_info() or {})
     except Exception:
         try:
             import yfinance as yf
-            info = dict(yf.Ticker(symbol).info or {})
+            ticker_obj = ticker_obj or yf.Ticker(symbol)
+            info = dict(ticker_obj.info or {})
         except Exception:
             info = {}
     info = _merge_public_memory(symbol, info)
+    # V1076 Earnings Calendar Truth Guard: get_info() often omits the next
+    # earnings event even while calendar/get_earnings_dates still has it.
+    # Merge public memory first so its date receives a fresh dynamic countdown;
+    # live calendar routes still outrank that fallback.
+    info = merge_us_earnings_calendar(symbol, info, ticker_obj=ticker_obj)
     # ETFs do not have one-company quarterly revenue/EPS.  Skip the extra
     # fundamentals request entirely to keep the universal route lightweight.
     if detect_us_asset_type(info) != "etf":

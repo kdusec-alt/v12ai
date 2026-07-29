@@ -169,6 +169,35 @@ def _narrative(frame: PriceFrame, news, label: str = "DOWN"):
 
 
 class NewsCausalIntelligenceV1073Tests(unittest.TestCase):
+    def test_delta_q2_release_after_close_waits_for_next_market_reaction(self):
+        frame = _tw_frame(
+            symbol="2308.TW",
+            name="台達電",
+            price_date="2026-07-29",
+            status="after_close",
+            last=1495.0,
+            previous=1580.0,
+        )
+        news = [
+            NewsItem(
+                "GoogleNewsTW/工商時報",
+                "2026-07-29 14:04",
+                0.24,
+                "tw_company_2308_earnings_bullish_event",
+                "台達電Q2營收、獲利創高 EPS提高至9.68元",
+                "",
+            )
+        ]
+        result = analyze_news_causality(
+            frame,
+            news,
+            now=datetime(2026, 7, 29, 14, 38, tzinfo=TAIPEI),
+        )
+        self.assertEqual(result["dominant_family"], "earnings_package")
+        self.assertEqual(result["causal_state"], "event_awaiting_market_reaction")
+        self.assertFalse(result["can_compare_to_price"])
+        self.assertIn("等待下一交易時段首次反應", result["causal_text"])
+
     def test_broad_ustr_headline_cannot_become_yageo_company_risk(self):
         frame = _tw_frame(
             symbol="2327.TW",
