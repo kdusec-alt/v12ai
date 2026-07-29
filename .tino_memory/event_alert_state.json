@@ -35,14 +35,14 @@
         "US"
       ],
       "source_tickers": [
-        "TSLL",
         "2308.TW",
         "GLOBAL",
         "MU",
         "MRVL",
         "2330.TW",
         "FORM",
-        "SNDK"
+        "SNDK",
+        "AMD"
       ],
       "status": "active_red",
       "title": "Oil Prices Surge as Brent Jumps Over 6% Following Houthi Tanker Attack and US-Saudi Strikes in Iraq - TradingKey",
@@ -175,5 +175,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T14:26:38+00:00"
+  "updated_at": "2026-07-29T14:26:40+00:00"
 }
