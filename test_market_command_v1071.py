@@ -87,6 +87,20 @@ class MarketCommandV1071Tests(unittest.TestCase):
         self.assertEqual(row["market"], "US")
         self.assertGreaterEqual(len(row["facts"]), 2)
 
+    def test_coverage_is_not_presented_as_directional_hit_rate(self):
+        row = assess_market_command(
+            "TW",
+            {"tx_night": -1.0, "tsm_adr": -1.2, "sox": -2.0, "nq": -0.8, "vix": 24.0},
+            radar={"市場風控": "偏空"},
+        )
+        self.assertEqual(row["confidence_semantics"], "data_coverage_only")
+        self.assertEqual(row["coverage"], row["confidence"])
+        self.assertIn("跨市場", row["thesis"])
+
+        source = (ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn("市場資料覆蓋度", source)
+        self.assertNotIn("方向判定可信度", source)
+
 
 if __name__ == "__main__":
     unittest.main()

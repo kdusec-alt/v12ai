@@ -370,6 +370,81 @@ class DecisionThesisScenarioTests(unittest.TestCase):
         self.assertEqual(len(families), len(set(families)))
         self.assertEqual(families.count("macro_event"), 1)
 
+    def test_cross_market_selloff_is_explained_as_beta_not_fake_company_news(self):
+        frame = _frame(
+            market="TW", symbol="2337.TW", last=90, previous=100,
+            high=99, low=89.5, vwap=95,
+            closes=[118 - i * 0.7 for i in range(22)] + [100, 90],
+            status="after_close", atr=4.0,
+            context={
+                "macro": {
+                    "accepted": True, "source": "UNIT",
+                    "sox": -6.39, "nq": -2.8, "mu": -7.1,
+                },
+            },
+        )
+        result = _narrative(frame, "DOWN")
+        self.assertEqual(result["state"], "macro_beta_selloff")
+        self.assertIn("產業 Beta", result["message"])
+        self.assertIn("未找到足以證明公司長期投資論點破壞", result["message"])
+        self.assertTrue(result["analyst_view"]["no_fabricated_causality"])
+
+    def test_verified_company_risk_outranks_generic_repricing_template(self):
+        context = {
+            "price_meta": {
+                "session": "intraday", "regular_close": 100.0,
+                "formal_previous_close": 100.0, "session_reference_close": 100.0,
+                "extended_accepted": True, "vwap_accepted": True,
+                "history_scope": "formal_daily_only",
+            },
+            "us_session": {
+                "accepted": True, "last": 91.0, "high": 98.0,
+                "low": 90.5, "vwap": 94.0,
+            },
+            "news_causal_v1073": {
+                "accepted": True,
+                "selected_count": 1,
+                "company_family_count": 1,
+                "global_family_count": 0,
+                "company_score": -0.24,
+                "global_score": 0.0,
+                "combined_score": -0.24,
+                "company_sign": -1,
+                "global_sign": 0,
+                "cause_priority": "company",
+                "causal_state": "event_price_confirming",
+                "entry_gate": "normal",
+                "can_compare_to_price": True,
+                "dominant_materiality": 0.9,
+                "dominant_headline": "公司下修全年營收財測",
+                "company_text": "公司事件與事件後價格同向｜主事件《下修全年營收財測》",
+                "global_text": "宏觀／政策背景無新主導事件",
+                "earnings": {},
+            },
+        }
+        frame = _frame(
+            market="US", symbol="TEST", last=91, previous=100,
+            high=98, low=90.5, vwap=94,
+            closes=[80 + i for i in range(21)], status="intraday",
+            context=context, atr=4.0,
+        )
+        result = _narrative(frame, "DOWN")
+        self.assertEqual(result["state"], "company_risk_confirmed")
+        self.assertIn("下修全年營收財測", result["message"])
+        self.assertIn("基本面預期", result["message"])
+        self.assertNotIn("目前沒有經時間驗證的新公司事件", result["message"])
+
+    def test_unexplained_breakdown_explicitly_refuses_to_invent_cause(self):
+        frame = _frame(
+            market="TW", symbol="2327.TW", last=92, previous=100,
+            high=99, low=91.5, vwap=96,
+            closes=[120 - i * 0.8 for i in range(22)] + [100, 92],
+            status="after_close", atr=4.0,
+        )
+        result = _narrative(frame, "DOWN")
+        self.assertEqual(result["state"], "trend_break")
+        self.assertIn("不能虛構基本面利空", result["message"])
+
 
 class PredictionTrustTests(unittest.TestCase):
     def setUp(self):

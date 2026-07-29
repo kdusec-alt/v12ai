@@ -50,6 +50,11 @@ def _fmt(value: float) -> str:
     return f"{float(value):,.2f}"
 
 
+def _clip(value: Any, limit: int = 92) -> str:
+    text = " ".join(str(value or "").replace("\n", " ").split()).strip("｜； ")
+    return text if len(text) <= limit else text[: max(1, limit - 1)].rstrip() + "…"
+
+
 def _repricing_wait_text(session: str) -> str:
     """Describe the next verification step without contradicting the live session."""
     status = str(session or "").strip().lower()
@@ -206,12 +211,36 @@ def build_decision_thesis(
     causal_available = bool(causal.get("accepted"))
     causal_state = str(causal.get("causal_state") or "")
     causal_gate = str(causal.get("entry_gate") or "normal")
+    cause_priority = str(causal.get("cause_priority") or "")
     event_price_comparable = (
         bool(causal.get("can_compare_to_price"))
         if causal_available
         else True
     )
     event_materiality = _num(causal.get("dominant_materiality"))
+    dominant_event = dict(causal.get("dominant_event") or {})
+    dominant_event_score = _num(
+        dominant_event.get("effective_score"),
+        _num(dominant_event.get("semantic_score")),
+    )
+    company_text = _clip(news.get("company_text") or causal.get("company_text"), 96)
+    company_headline = _clip(causal.get("dominant_headline"), 58)
+    global_text = _clip(news.get("global_text") or causal.get("global_text"), 82)
+    overseas_text = _clip(overseas.get("text"), 72)
+    positioning_text = _clip(positioning.get("text"), 72)
+    company_available = bool(news.get("company_available"))
+    global_sign = int(news.get("global_sign") or 0)
+    overseas_sign = int(overseas.get("sign") or 0)
+    positioning_sign = int(positioning.get("sign") or 0)
+    fresh_company_event = bool(
+        company_available
+        and causal_state not in {
+            "event_context_only",
+            "event_time_unverified",
+            "no_company_event",
+            "",
+        }
+    )
     independent_negative = [
         row["label"]
         for row in ledger.values()
@@ -320,22 +349,75 @@ def build_decision_thesis(
         action_mode = "event_reaction_wait"
         dominant = str(causal.get("company_text") or causal.get("causal_text") or "")
         counter = "首輪跳空或急拉急殺尚未形成完整量價結構"
+    elif (
+        (trend_break or strong_down or (active_us and day_pct <= repricing_threshold))
+        and (company_sign > 0 or causal_state == "positive_event_rejected")
+        and event_price_comparable
+        and fresh_company_event
+    ):
+        state = "good_news_rejected"
+        title = "AI進場決策卡｜公司利多遭價格否決｜估值預期下修"
+        axis = "利多未被接受｜價格否決優先｜等待收復"
+        entry_permission = "blocked"
+        action_mode = "reclaim_only"
+        dominant = price_text
+        counter = company_text or "公司新聞偏多"
+    elif (
+        (trend_break or strong_down or (active_us and day_pct <= repricing_threshold))
+        and (
+            company_sign < 0
+            or (
+                causal_state == "event_price_confirming"
+                and dominant_event_score < 0
+            )
+        )
+        and event_price_comparable
+        and fresh_company_event
+        and cause_priority == "company"
+    ):
+        state = "company_risk_confirmed"
+        title = "AI進場決策卡｜公司風險獲價格確認｜基本面預期重估"
+        axis = "公司事件主導｜價格同向確認｜等待風險溢價收斂"
+        entry_permission = "blocked"
+        action_mode = "reclaim_only"
+        dominant = company_text or price_text
+        counter = "若價格快速收復確認價，才代表事件衝擊可能已被過度反映"
+    elif (
+        (trend_break or strong_down or (active_us and day_pct <= repricing_threshold))
+        and (overseas_sign < 0 or global_sign < 0)
+        and not fresh_company_event
+    ):
+        state = "macro_beta_selloff"
+        title = "AI進場決策卡｜產業風險外溢｜Beta去槓桿主導"
+        axis = "跨市場共振｜公司主因未確認｜先管理曝險"
+        entry_permission = "blocked" if day_pct <= -4.0 else "conditional"
+        action_mode = "reclaim_only"
+        dominant = overseas_text or global_text or price_text
+        counter = "尚未找到足以證明公司長期投資論點已破壞的新公司事件"
+    elif (
+        (trend_break or strong_down)
+        and positioning_sign < 0
+        and not fresh_company_event
+    ):
+        state = "positioning_selloff"
+        title = "AI進場決策卡｜籌碼去風險｜價格與部位同向轉弱"
+        axis = "資金撤退｜非單一新聞｜等待賣壓收斂"
+        entry_permission = "blocked" if day_pct <= -4.0 else "conditional"
+        action_mode = "reclaim_only"
+        dominant = positioning_text or price_text
+        counter = "尚無新公司事件足以單獨解釋本輪跌勢"
     elif active_us and day_pct <= repricing_threshold:
         state = "session_repricing"
         title = f"AI進場決策卡｜{_repricing_title_scope(session, truth.get('session_scope'))}"
         axis = (
-            "正式盤中重定價｜等待止穩與收復"
+            "正式盤中重定價｜公司主因待確認｜等待止穩與收復"
             if session == "intraday"
-            else "延長盤重定價｜不把延長盤低點當低接"
+            else "延長盤重定價｜公司主因待確認｜不把延長盤低點當低接"
         )
         entry_permission = "blocked"
         action_mode = "session_wait"
         dominant = price_text
-        counter = (
-            "正式盤仍在重新定價，接近支撐不代表跌勢已停止"
-            if session == "intraday"
-            else "正式盤尚未形成承接，延長盤 VWAP 不能代表全天"
-        )
+        counter = "目前未驗證出足以主導本輪波動的新公司事件，不能用舊新聞硬解釋今天價格"
     elif active_us and day_pct > 0.5 and above_vwap and structural_bear:
         state = "session_countertrend_rebound"
         title = f"AI進場決策卡｜{truth.get('session_scope')}反彈已收復VWAP｜結構尚未翻多"
@@ -344,22 +426,14 @@ def build_decision_thesis(
         action_mode = "confirmation_only"
         dominant = f"{price_text}；但{trend_text}"
         counter = "時段買盤是正面反證，若正式盤續守 VWAP 並站回 MA20，空頭反彈假設失效"
-    elif (trend_break or strong_down) and company_sign > 0 and event_price_comparable:
-        state = "good_news_rejected"
-        title = "AI進場決策卡｜公司利多未獲價格確認｜暫停低接"
-        axis = "利多失效｜價格優先｜等待收復"
-        entry_permission = "blocked"
-        action_mode = "reclaim_only"
-        dominant = price_text
-        counter = str(news.get("company_text") or "公司新聞偏多")
     elif trend_break or strong_down:
         state = "trend_break"
-        title = "AI進場決策卡｜價格結構破壞｜防守優先"
-        axis = "結構破壞｜觀察支撐不是買點"
+        title = "AI進場決策卡｜價格結構破壞｜主因尚待驗證"
+        axis = "價格警訊成立｜不虛構公司利空｜等待收復"
         entry_permission = "blocked" if day_pct <= -6.0 or high_miss else "conditional"
         action_mode = "reclaim_only"
         dominant = price_text
-        counter = "必須先停止破低並收復確認價，才有資格談反彈"
+        counter = "未找到足以解釋本輪下跌的新公司事件；先視為價格／流動性警訊"
     elif strong_up and structural_bear:
         state = "countertrend_breakout"
         title = "AI進場決策卡｜下降趨勢中的強勢反攻｜尚未全面翻多"
@@ -368,7 +442,11 @@ def build_decision_thesis(
         action_mode = "pullback_or_confirmation"
         dominant = price_text
         counter = f"中期結構仍弱：{trend_text}"
-    elif strong_up and company_sign < 0 and event_price_comparable:
+    elif (
+        strong_up
+        and (company_sign < 0 or causal_state == "negative_event_absorbed")
+        and event_price_comparable
+    ):
         state = "bad_news_absorbed"
         title = "AI進場決策卡｜公司利空未壓低價格｜強勢吸收"
         axis = "公司利空吸收｜價格優先｜回測確認"
@@ -472,8 +550,9 @@ def build_decision_thesis(
         )
     elif state == "session_repricing":
         message = (
-            f"{session_prefix}：{move_label} {day_pct:+.2f}% 且位於{truth.get('session_scope')}弱側，市場正在重新定價；"
-            f"現在不接。{_repricing_wait_text(session)}，並站回 {_fmt(confirmation)} 才小量確認，"
+            f"{session_prefix}：{move_label} {day_pct:+.2f}% 且位於{truth.get('session_scope')}弱側，"
+            "價格已進入風險重定價，但目前沒有經時間驗證的新公司事件可作主因；"
+            f"不能拿舊新聞補理由。現在不接，{_repricing_wait_text(session)}，並站回 {_fmt(confirmation)} 才小量確認，"
             f"跌破 {_fmt(invalid)} 取消計畫。"
         )
     elif state == "earnings_expectation_reset":
@@ -495,12 +574,44 @@ def build_decision_thesis(
             f"現在不買；等{opening_wait} 15–30 分鐘不再破低並站回 {_fmt(confirmation)} 才小量確認，"
             f"跌破 {_fmt(invalid)} 取消。"
         )
-    elif state in {"trend_break", "good_news_rejected"}:
-        rejection = "公司利多出現但價格未買單；" if state == "good_news_rejected" else ""
+    elif state == "good_news_rejected":
         message = (
-            f"{session_prefix}：{rejection}{move_label} {day_pct:+.2f}% 且價格結構受損；"
-            f"{_fmt(preferred)} 只看是否止穩，不直接買。重新站回 {_fmt(confirmation)} 才能小量確認，"
+            f"{session_prefix}：公司利多《{company_headline or company_text or '已驗證公司事件'}》已進入可交易價格；"
+            f"但{move_label} {day_pct:+.2f}% 顯示價格未買單，現在交易的是更高的隱含預期或估值壓縮，"
+            f"不是新聞標題本身。{_fmt(preferred)} 只列觀察支撐，收復 {_fmt(confirmation)} 才重新評估，"
             f"跌破 {_fmt(invalid)} 取消計畫。"
+        )
+    elif state == "company_risk_confirmed":
+        message = (
+            f"{session_prefix}：公司級負面事件《{company_headline or company_text or '負面事件'}》已獲價格確認；"
+            f"{move_label} {day_pct:+.2f}% 與事件方向同向，"
+            "本輪優先視為基本面預期／風險溢價重估，而非一般大盤雜訊；"
+            f"{_fmt(preferred)} 不是便宜的充分證據。先停止破低並收復 {_fmt(confirmation)} 才重評，"
+            f"跌破 {_fmt(invalid)} 維持取消。"
+        )
+    elif state == "macro_beta_selloff":
+        driver = overseas_text or global_text or "跨市場風險代理同步轉弱"
+        message = (
+            f"{session_prefix}：本輪弱勢較符合跨市場風險外溢（{driver}），"
+            f"{move_label} {day_pct:+.2f}% 反映產業 Beta／風險預算被下調；"
+            "目前未找到足以證明公司長期投資論點破壞的新公司事件。"
+            f"{_fmt(preferred)} 僅作觀察，停止破低並收復 {_fmt(confirmation)} 才能小量確認，"
+            f"跌破 {_fmt(invalid)} 取消。"
+        )
+    elif state == "positioning_selloff":
+        message = (
+            f"{session_prefix}：{positioning_text or '籌碼／部位轉弱'}與{move_label} {day_pct:+.2f}% 同向，"
+            "目前較像資金去風險，而非單一新聞造成的基本面定論；"
+            f"要先看到賣壓收斂、不再破低並收復 {_fmt(confirmation)}，{_fmt(preferred)} 才有承接意義，"
+            f"跌破 {_fmt(invalid)} 取消。"
+        )
+    elif state == "trend_break":
+        message = (
+            f"{session_prefix}：{move_label} {day_pct:+.2f}% 已確認價格結構受損，"
+            "但未找到足以解釋本輪下跌的新公司事件；現階段只能把它定義為價格／流動性警訊，"
+            "不能虛構基本面利空。"
+            f"{_fmt(preferred)} 只看止穩，收復 {_fmt(confirmation)} 才重新評估，"
+            f"跌破 {_fmt(invalid)} 取消。"
         )
     elif state == "session_countertrend_rebound":
         message = (
@@ -559,8 +670,17 @@ def build_decision_thesis(
 
     evidence_rows = [row for row in ledger.values() if row.get("available")]
     evidence_line = "；".join(f"{row['label']} {row['text']}" for row in evidence_rows)
+    analyst_cause = {
+        "company_risk_confirmed": "company_event",
+        "good_news_rejected": "company_expectation_gap",
+        "earnings_expectation_reset": "earnings_forward_reset",
+        "macro_beta_selloff": "cross_market_beta",
+        "positioning_selloff": "positioning_flow",
+        "session_repricing": "price_repricing_unattributed",
+        "trend_break": "price_break_unattributed",
+    }.get(state, cause_priority or "price")
     return {
-        "schema": "TINO_DECISION_THESIS_V1073",
+        "schema": "TINO_DECISION_THESIS_V1074",
         "state": state,
         "title": title,
         "message": message,
@@ -588,6 +708,17 @@ def build_decision_thesis(
         "prediction_trust": trust,
         "earnings_evidence": earnings,
         "news_causal": causal,
+        "analyst_view": {
+            "primary_driver": dominant,
+            "counter_evidence": counter,
+            "cause_priority": analyst_cause,
+            "view_change": (
+                f"收復 {_fmt(confirmation)} 後重評；跌破 {_fmt(invalid)} 維持失效"
+                if entry_permission == "blocked"
+                else f"站穩 {_fmt(confirmation)} 確認；跌破 {_fmt(invalid)} 失效"
+            ),
+            "no_fabricated_causality": True,
+        },
         # Formal direction probabilities and T0/T1 prices stay immutable.
         "narrative_only": True,
         "decision_gate_only": True,
