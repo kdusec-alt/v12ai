@@ -103,7 +103,7 @@
       "last_evidence_epoch": 1785269614.308872,
       "last_seen_at": "2026-07-28T20:13:34+00:00",
       "last_seen_epoch": 1785269614.308872,
-      "last_transition_at": "2026-07-28T20:13:34+00:00",
+      "last_transition_at": "2026-07-29T02:18:13+00:00",
       "peak_severity": 3,
       "reinforcement_count": 17,
       "related_fingerprints": [
@@ -118,7 +118,7 @@
       ],
       "risk_sign": 0,
       "scope": "ticker",
-      "severity": 3,
+      "severity": 2,
       "source": "GoogleNewsGlobal/Trade Brains",
       "source_markets": [
         "GLOBAL"
@@ -130,9 +130,9 @@
         "MU",
         "SNDK"
       ],
-      "status": "active_red",
+      "status": "cooling",
       "title": "India’s Growth Loses Momentum as Services Cool; Will Manufacturing Carry the Economy? - Trade Brains",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
+      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
     },
     {
       "acknowledged": true,
@@ -174,5 +174,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T01:32:17+00:00"
+  "updated_at": "2026-07-29T02:18:13+00:00"
 }
