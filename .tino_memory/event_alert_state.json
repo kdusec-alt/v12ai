@@ -78,14 +78,14 @@
         "US"
       ],
       "source_tickers": [
-        "2308.TW",
         "GLOBAL",
         "MU",
         "MRVL",
         "2330.TW",
         "FORM",
         "SNDK",
-        "AMD"
+        "AMD",
+        "INTC"
       ],
       "status": "active_red",
       "title": "| US tariff double hit puts Vietnam's $17 bn apparel trade at risk - Fibre2Fashion",
@@ -175,5 +175,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T15:35:03+00:00"
+  "updated_at": "2026-07-29T15:35:04+00:00"
 }
