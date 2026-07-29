@@ -169,6 +169,109 @@ def _narrative(frame: PriceFrame, news, label: str = "DOWN"):
 
 
 class NewsCausalIntelligenceV1073Tests(unittest.TestCase):
+    def test_broad_ustr_headline_cannot_become_yageo_company_risk(self):
+        frame = _tw_frame(
+            symbol="2327.TW",
+            name="國巨",
+            last=90.0,
+            previous=100.0,
+        )
+        news = [
+            NewsItem(
+                "GoogleNewsTW",
+                "2026-07-28 10:00",
+                -0.22,
+                "tw_company_bearish_regulatory_legal",
+                "USTR opens forced-labor Section 301 investigations into various economies",
+                "",
+            )
+        ]
+        result = analyze_news_causality(
+            frame,
+            news,
+            now=datetime(2026, 7, 28, 16, 0, tzinfo=TAIPEI),
+        )
+        self.assertEqual(result["company_family_count"], 0)
+        self.assertEqual(result["cause_priority"], "global_context")
+        self.assertEqual(result["causal_state"], "no_fresh_company_event")
+        self.assertEqual(
+            result["selected_global_events"][0]["scope_reason"],
+            "broad_event_without_company_entity",
+        )
+
+    def test_structured_company_calendar_becomes_pending_catalyst(self):
+        frame = _us_frame(symbol="GLW")
+        frame.context["fundamental"] = {
+            "accepted": True,
+            "source": "YahooFinance quoteSummary",
+            "next_earnings": "2026-07-31",
+            "earnings_days": 2,
+        }
+        result = analyze_news_causality(
+            frame,
+            [],
+            now=datetime(2026, 7, 29, 10, 0, tzinfo=TAIPEI),
+        )
+        self.assertEqual(result["causal_state"], "scheduled_event_pending")
+        self.assertEqual(result["cause_priority"], "company")
+        self.assertTrue(result["dominant_entity_verified"])
+        self.assertIn("2026-07-31", result["dominant_headline"])
+
+    def test_new_scheduled_event_outranks_older_earnings_article(self):
+        frame = _tw_frame(
+            symbol="2454.TW",
+            name="聯發科",
+            price_date="2026-07-29",
+            status="intraday",
+            last=94.0,
+            previous=100.0,
+            timestamp="2026-07-29T14:00:00+08:00",
+        )
+        news = [
+            NewsItem(
+                "Archive", "2026-07-27 09:00", 0.12,
+                "tw_company_2454_bullish_earnings",
+                "聯發科 Q1 earnings beat estimates", "",
+            ),
+            NewsItem(
+                "Official", "2026-07-29 12:00", 0.0,
+                "tw_company_2454_scheduled",
+                "聯發科法說會將於 7 月 31 日召開", "",
+            ),
+        ]
+        result = analyze_news_causality(
+            frame,
+            news,
+            now=datetime(2026, 7, 29, 14, 5, tzinfo=TAIPEI),
+        )
+        self.assertEqual(result["causal_state"], "scheduled_event_pending")
+        self.assertEqual(result["dominant_family"], "scheduled_event")
+        self.assertIn("7 月 31 日", result["dominant_headline"])
+
+    def test_memory_competition_is_industry_narrative_not_company_event(self):
+        frame = _us_frame(symbol="MU", last=92.0, regular_close=100.0)
+        news = [
+            NewsItem(
+                "IndustryWire", "2026-07-29 03:00", -0.20,
+                "bearish_us_industry_memory",
+                "CXMT advances DUV memory production as China memory supply expands",
+                "",
+            )
+        ]
+        assessment = analyze_news_causality(
+            frame,
+            news,
+            now=datetime(2026, 7, 29, 4, 30, tzinfo=TAIPEI),
+        )
+        self.assertEqual(assessment["dominant_scope"], "industry")
+        self.assertEqual(assessment["cause_priority"], "industry_narrative")
+        self.assertNotEqual(assessment["cause_priority"], "company")
+        frame.context["news_causal_v1073"] = assessment
+        result = _narrative(frame, news)
+        self.assertEqual(result["state"], "industry_narrative_repricing")
+        self.assertIn("產業敘事重新定價", result["title"])
+        self.assertIn("尚不能直接推導為公司財報惡化", result["message"])
+
     def test_tw_after_close_earnings_waits_for_first_market_reaction(self):
         frame = _tw_frame()
         news = [

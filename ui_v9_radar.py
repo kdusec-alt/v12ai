@@ -149,7 +149,7 @@ def render_radar(st, forecast) -> None:
       <div class='battle-label'>BSI 借券空方</div>
       <div class='v11051-bsi-compact'>{safe(bsi)}</div>
       {''.join(rows_html)}
-      <div class='truth'>資料源：{safe(_clean_main(radar.get('資料源')))}｜資料覆蓋率 {safe(radar.get('Coverage') or '--')}｜方向判定可信度 {safe(radar.get('Direction Confidence') or radar.get('Confidence'))}</div>
+      <div class='truth'>資料源：{safe(_clean_main(radar.get('資料源')))}｜資料覆蓋率 {safe(radar.get('Coverage') or '--')}｜決策證據一致度 {safe(radar.get('Direction Confidence') or radar.get('Confidence'))}</div>
     </div></body></html>
     """
     html_block(html, height=642, scrolling=False)

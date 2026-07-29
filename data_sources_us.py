@@ -355,6 +355,60 @@ def _session_rows(frame: pd.DataFrame, status: str, now_ny: datetime | None = No
         return frame.iloc[0:0]
 
 
+def _latest_regular_reference(
+    frame: pd.DataFrame,
+    status: str,
+    now_ny: datetime | None = None,
+) -> Dict[str, object]:
+    """Return the latest completed US regular-session OHLCV before a live quote.
+
+    Yahoo's daily candle can lag one completed session around pre-market.  In
+    that case comparing the live quote with the stale daily close produces a
+    multi-day move labelled as a pre-market move.  Intraday bars are an
+    independent reference: pre-market/intraday use the prior completed regular
+    session, while after-hours may use today's completed regular session.
+    """
+    if frame is None or frame.empty:
+        return {}
+    now_ny = now_ny or datetime.now(ZoneInfo("America/New_York"))
+    try:
+        idx_ny = (
+            frame.index.tz_convert("America/New_York")
+            if getattr(frame.index, "tz", None) is not None
+            else frame.index.tz_localize("America/New_York")
+        )
+        minutes = idx_ny.hour * 60 + idx_ny.minute
+        regular = frame.loc[(minutes >= 9 * 60 + 30) & (minutes < 16 * 60)].copy()
+        if regular.empty:
+            return {}
+        regular_idx = idx_ny[(minutes >= 9 * 60 + 30) & (minutes < 16 * 60)]
+        current_day = now_ny.date()
+        allowed = (
+            regular_idx.date <= current_day
+            if status == "after_hours"
+            else regular_idx.date < current_day
+        )
+        regular = regular.loc[allowed]
+        regular_idx = regular_idx[allowed]
+        if regular.empty:
+            return {}
+        ref_day = regular_idx[-1].date()
+        day_rows = regular.loc[regular_idx.date == ref_day]
+        if day_rows.empty:
+            return {}
+        return {
+            "reference_close": round(float(day_rows["Close"].dropna().iloc[-1]), 4),
+            "reference_open": round(float(day_rows["Open"].dropna().iloc[0]), 4),
+            "reference_high": round(float(day_rows["High"].dropna().max()), 4),
+            "reference_low": round(float(day_rows["Low"].dropna().min()), 4),
+            "reference_volume": int(float(day_rows["Volume"].fillna(0).sum())),
+            "reference_date": ref_day.isoformat(),
+            "reference_source": "YahooFinance_IntradayRegularClose",
+        }
+    except Exception:
+        return {}
+
+
 def _formal_us_history(
     hist: pd.DataFrame,
     status: str,
@@ -409,6 +463,7 @@ def _fetch_us_extended_quote(symbol: str, previous_close: float, status: str) ->
         h = h.dropna(subset=["Close"])
         if h.empty:
             return out
+        regular_reference = _latest_regular_reference(h, status)
         session_h = _session_rows(h, status)
         if session_h.empty:
             out["reason"] = "NO_BARS_IN_REQUESTED_SESSION"
@@ -416,7 +471,7 @@ def _fetch_us_extended_quote(symbol: str, previous_close: float, status: str) ->
         last_row = session_h.iloc[-1]
         last_ts = session_h.index[-1]
         last = float(last_row["Close"])
-        prev = float(previous_close or last)
+        prev = float(regular_reference.get("reference_close") or previous_close or last)
         chg = last - prev
         chgp = (chg / prev * 100.0) if prev else 0.0
         open_value = (
@@ -455,6 +510,12 @@ def _fetch_us_extended_quote(symbol: str, previous_close: float, status: str) ->
             "vwap_accepted": vwap is not None,
             "vwap_scope": status,
             "reference_close": round(prev, 4),
+            "reference_close_date": str(regular_reference.get("reference_date") or ""),
+            "reference_source": str(regular_reference.get("reference_source") or ""),
+            "reference_open": regular_reference.get("reference_open"),
+            "reference_high": regular_reference.get("reference_high"),
+            "reference_low": regular_reference.get("reference_low"),
+            "reference_volume": regular_reference.get("reference_volume"),
             "change": round(chg, 4),
             "change_pct": round(chgp, 2),
             "trade_date": trade_date,
@@ -536,9 +597,42 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
         formal_prev_row = formal_hist.iloc[-2]
         regular_close = float(regular_row["Close"])
         formal_previous_close = float(formal_prev_row["Close"])
+        d = parse_date_safe(formal_hist.index[-1].date().isoformat())
+        formal_prev_date = parse_date_safe(formal_hist.index[-2].date().isoformat())
         active_session = status in {"pre_market", "intraday", "after_hours"}
         session_reference_close = regular_close if active_session else formal_previous_close
         ext = _fetch_us_extended_quote(ticker.resolved_symbol, session_reference_close, status)
+        promoted_regular_reference = False
+        ext_reference_date = parse_date_safe(str(ext.get("reference_close_date") or ""))
+        ext_reference_close = _clean_num(ext.get("reference_close"), None)
+        # If intraday history knows about a completed regular session that the
+        # daily endpoint has not published yet, promote it to the formal
+        # reference.  This prevents a two-day event move from masquerading as a
+        # single pre-market/after-hours percentage.
+        if (
+            ext.get("accepted")
+            and ext_reference_close is not None
+            and ext_reference_date
+            and ext_reference_date > d
+        ):
+            formal_previous_close = regular_close
+            formal_prev_date = d
+            regular_close = float(ext_reference_close)
+            d = ext_reference_date
+            promoted_regular_reference = True
+        elif (
+            ext.get("accepted")
+            and ext_reference_close is not None
+            and ext_reference_date == d
+        ):
+            regular_close = float(ext_reference_close)
+        session_reference_close = (
+            float(ext.get("reference_close") or regular_close)
+            if active_session and ext.get("accepted")
+            else regular_close
+            if active_session
+            else formal_previous_close
+        )
         # Formal daily K remains the backbone for trend / MA / regular-session validation.
         # During pre-market / after-hours / intraday, use only that session's
         # bars for tactical O/H/L/V/VWAP; never blend daily and extended ranges.
@@ -556,8 +650,6 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
         )
         tr = pd.concat([(formal_hist["High"]-formal_hist["Low"]).abs(), (formal_hist["High"]-formal_hist["Close"].shift()).abs(), (formal_hist["Low"]-formal_hist["Close"].shift()).abs()], axis=1).max(axis=1)
         atr = float(tr.rolling(14).mean().iloc[-1]) if len(tr) >= 14 else max(regular_close*0.04, .01)
-        d = parse_date_safe(formal_hist.index[-1].date().isoformat())
-        formal_prev_date = parse_date_safe(formal_hist.index[-2].date().isoformat())
         info = _get_us_info(ticker.resolved_symbol)
         ticker = _resolved_us_ticker(ticker, info)
         is_etf = ticker.asset_type == "etf"
@@ -579,6 +671,9 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
             "vwap_scope": ext.get("vwap_scope") or "regular_session",
             "current_trade_date": ext.get("trade_date") or d,
             "history_scope": "formal_daily_only",
+            "session_reference_date": ext.get("reference_close_date") or d,
+            "session_reference_source": ext.get("reference_source") or "YahooFinance_Daily",
+            "session_reference_promoted": promoted_regular_reference,
         }
         ctx = {
             "macro": _us_macro_context(d),
@@ -595,6 +690,15 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
             ctx["distribution"] = "ETF Mode：價格熱度 / 成分 / 流動性 / 市場風險"
         truth_source = str(ext.get("source") or "YahooFinance_PrePost") if ext.get("accepted") else "YahooFinance"
         truth_reason = f"{_us_session_label(status)}價格快照｜正式日K保留" if ext.get("accepted") else "價格最新｜日K"
+        formal_closes = [float(x) for x in formal_hist["Close"].tail(60)]
+        formal_highs = [float(x) for x in formal_hist["High"].tail(60)]
+        formal_lows = [float(x) for x in formal_hist["Low"].tail(60)]
+        formal_volumes = [float(x) for x in formal_hist["Volume"].tail(60)]
+        if promoted_regular_reference:
+            formal_closes.append(float(regular_close))
+            formal_highs.append(float(ext.get("reference_high") or regular_close))
+            formal_lows.append(float(ext.get("reference_low") or regular_close))
+            formal_volumes.append(float(ext.get("reference_volume") or 0))
         return PriceFrame(
             ticker,
             make_truth(truth_source, d, False, True, truth_reason, "latest"),
@@ -606,10 +710,10 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
             live_volume,
             live_vwap,
             atr,
-            [float(x) for x in formal_hist["Close"].tail(60)],
-            [float(x) for x in formal_hist["High"].tail(60)],
-            [float(x) for x in formal_hist["Low"].tail(60)],
-            [float(x) for x in formal_hist["Volume"].tail(60)],
+            formal_closes[-60:],
+            formal_highs[-60:],
+            formal_lows[-60:],
+            formal_volumes[-60:],
             d,
             status,
             ctx,
