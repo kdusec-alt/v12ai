@@ -104,6 +104,10 @@ def build_price_truth(price: PriceFrame) -> Dict[str, Any]:
         or _positive(getattr(price, "previous_close", None))
     )
     current_return = _pct(current, reference)
+    reference_date = (
+        _iso(meta.get("session_reference_date"))
+        or _iso(meta.get("regular_close_date"))
+    )
 
     closes = [
         value
@@ -236,6 +240,16 @@ def build_price_truth(price: PriceFrame) -> Dict[str, Any]:
         "range_label": _range_label(market, status, live),
         "current_price": round(current, 6) if current is not None else None,
         "current_reference_close": round(reference, 6) if reference is not None else None,
+        "current_reference_date": reference_date,
+        "current_reference_source": str(
+            meta.get("session_reference_source") or meta.get("source") or ""
+        ),
+        "current_reference_promoted": bool(meta.get("session_reference_promoted")),
+        "return_basis_label": (
+            f"相對 {reference_date} 正式收盤"
+            if market == "US" and live and reference_date
+            else "相對前一正式收盤"
+        ),
         "current_return_pct": round(current_return, 4) if current_return is not None else None,
         "formal_close": round(formal_close, 6) if formal_close is not None else None,
         "formal_previous_close": round(formal_previous, 6) if formal_previous is not None else None,

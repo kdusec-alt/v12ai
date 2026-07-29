@@ -212,6 +212,7 @@ def build_decision_thesis(
     causal_state = str(causal.get("causal_state") or "")
     causal_gate = str(causal.get("entry_gate") or "normal")
     cause_priority = str(causal.get("cause_priority") or "")
+    dominant_scope = str(causal.get("dominant_scope") or "")
     event_price_comparable = (
         bool(causal.get("can_compare_to_price"))
         if causal_available
@@ -240,6 +241,16 @@ def build_decision_thesis(
             "no_company_event",
             "",
         }
+    )
+    fresh_direct_company_event = bool(
+        fresh_company_event
+        and cause_priority == "company"
+        and dominant_scope in {"", "company"}
+    )
+    fresh_industry_event = bool(
+        fresh_company_event
+        and cause_priority == "industry_narrative"
+        and dominant_scope == "industry"
     )
     independent_negative = [
         row["label"]
@@ -295,6 +306,21 @@ def build_decision_thesis(
             f"{move_label} {day_pct:+.2f}% 是事件公布前形成，"
             "不能用來宣稱市場已接受或否決這則新聞"
         )
+    elif (
+        severe_miss
+        and causal_state == "scheduled_event_pending"
+        and (day_pct <= -3.0 or trend_break)
+    ):
+        state = "forecast_cooldown_event_pending"
+        title = "AI進場決策卡｜模型失準冷卻＋公司事件待裁決"
+        axis = "預測熔斷｜法說／財報前不預設方向｜公布後重算"
+        entry_permission = "blocked"
+        action_mode = "cooldown_event_wait"
+        dominant = (
+            f"{price_text}；{trust.get('reason')}；"
+            f"{causal.get('company_text') or '公司事件尚未正式公布'}"
+        )
+        counter = "價格弱勢與模型失準都不能代替尚未公布的公司財測"
     elif severe_miss and (day_pct <= -3.0 or trend_break):
         state = "forecast_cooldown"
         title = "AI進場決策卡｜價格結構破壞＋模型失準冷卻"
@@ -353,7 +379,7 @@ def build_decision_thesis(
         (trend_break or strong_down or (active_us and day_pct <= repricing_threshold))
         and (company_sign > 0 or causal_state == "positive_event_rejected")
         and event_price_comparable
-        and fresh_company_event
+        and fresh_direct_company_event
     ):
         state = "good_news_rejected"
         title = "AI進場決策卡｜公司利多遭價格否決｜估值預期下修"
@@ -372,7 +398,7 @@ def build_decision_thesis(
             )
         )
         and event_price_comparable
-        and fresh_company_event
+        and fresh_direct_company_event
         and cause_priority == "company"
     ):
         state = "company_risk_confirmed"
@@ -384,8 +410,29 @@ def build_decision_thesis(
         counter = "若價格快速收復確認價，才代表事件衝擊可能已被過度反映"
     elif (
         (trend_break or strong_down or (active_us and day_pct <= repricing_threshold))
+        and event_price_comparable
+        and fresh_industry_event
+        and (
+            company_sign < 0
+            or causal_state in {
+                "positive_event_rejected",
+                "event_price_confirming",
+                "event_price_mixed",
+            }
+        )
+    ):
+        state = "industry_narrative_repricing"
+        title = "AI進場決策卡｜產業敘事重新定價｜公司基本面待驗證"
+        axis = "產業事件主導｜估值／風險預算下修｜不等於公司財報惡化"
+        entry_permission = "blocked" if day_pct <= -4.0 else "conditional"
+        action_mode = "reclaim_only"
+        dominant = company_text or price_text
+        counter = "產業競爭與政策衝擊尚未證明公司長期投資論點已破壞"
+    elif (
+        (trend_break or strong_down or (active_us and day_pct <= repricing_threshold))
         and (overseas_sign < 0 or global_sign < 0)
-        and not fresh_company_event
+        and not fresh_direct_company_event
+        and not fresh_industry_event
     ):
         state = "macro_beta_selloff"
         title = "AI進場決策卡｜產業風險外溢｜Beta去槓桿主導"
@@ -397,7 +444,8 @@ def build_decision_thesis(
     elif (
         (trend_break or strong_down)
         and positioning_sign < 0
-        and not fresh_company_event
+        and not fresh_direct_company_event
+        and not fresh_industry_event
     ):
         state = "positioning_selloff"
         title = "AI進場決策卡｜籌碼去風險｜價格與部位同向轉弱"
@@ -446,6 +494,7 @@ def build_decision_thesis(
         strong_up
         and (company_sign < 0 or causal_state == "negative_event_absorbed")
         and event_price_comparable
+        and fresh_direct_company_event
     ):
         state = "bad_news_absorbed"
         title = "AI進場決策卡｜公司利空未壓低價格｜強勢吸收"
@@ -536,6 +585,14 @@ def build_decision_thesis(
             f"{_fmt(preferred)} 只列觀察支撐，不是買點。至少先停止破低並站回 {_fmt(confirmation)}，"
             f"跌破 {_fmt(invalid)} 持續取消計畫。"
         )
+    elif state == "forecast_cooldown_event_pending":
+        message = (
+            f"{session_prefix}：{move_label} {day_pct:+.2f}%，且{trust.get('reason')}；"
+            f"同時，{company_headline or '公司法說／財報'}尚未正式公布。"
+            "目前弱勢可以反映事件前降倉，但不能提前寫成公司基本面惡化。"
+            f"{_fmt(preferred)} 只列觀察支撐；事件公布後重新查詢，並收復 {_fmt(confirmation)} "
+            f"才解除冷卻，跌破 {_fmt(invalid)} 維持取消。"
+        )
     elif state == "company_event_pending":
         message = (
             f"{session_prefix}：公司事件尚未正式公布，目前價格只反映預期；"
@@ -588,6 +645,14 @@ def build_decision_thesis(
             "本輪優先視為基本面預期／風險溢價重估，而非一般大盤雜訊；"
             f"{_fmt(preferred)} 不是便宜的充分證據。先停止破低並收復 {_fmt(confirmation)} 才重評，"
             f"跌破 {_fmt(invalid)} 維持取消。"
+        )
+    elif state == "industry_narrative_repricing":
+        message = (
+            f"{session_prefix}：產業事件《{company_headline or company_text or '產業競爭／政策變化'}》"
+            f"與{move_label} {day_pct:+.2f}% 同時出現，市場正在下修產業成長、競爭格局或風險預算；"
+            "這屬產業敘事重新定價，尚不能直接推導為公司財報惡化或長期論點失效。"
+            f"{_fmt(preferred)} 僅作觀察；停止破低並收復 {_fmt(confirmation)} 才能小量確認，"
+            f"跌破 {_fmt(invalid)} 取消。"
         )
     elif state == "macro_beta_selloff":
         driver = overseas_text or global_text or "跨市場風險代理同步轉弱"
@@ -674,13 +739,15 @@ def build_decision_thesis(
         "company_risk_confirmed": "company_event",
         "good_news_rejected": "company_expectation_gap",
         "earnings_expectation_reset": "earnings_forward_reset",
+        "forecast_cooldown_event_pending": "scheduled_event_plus_model_cooldown",
+        "industry_narrative_repricing": "industry_narrative",
         "macro_beta_selloff": "cross_market_beta",
         "positioning_selloff": "positioning_flow",
         "session_repricing": "price_repricing_unattributed",
         "trend_break": "price_break_unattributed",
     }.get(state, cause_priority or "price")
     return {
-        "schema": "TINO_DECISION_THESIS_V1074",
+        "schema": "TINO_DECISION_THESIS_V1075",
         "state": state,
         "title": title,
         "message": message,

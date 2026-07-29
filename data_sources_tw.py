@@ -1859,7 +1859,14 @@ def fetch_tw_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
     for query in queries:
         for item in _google_news(query, 8):
             if _tw_company_news_relevant(ticker, item):
-                _add(_retag_tw_news(item, "tw_company_"))
+                # Preserve the validated entity in the tag so the downstream
+                # causal layer can independently verify that this row belongs
+                # to the requested company.  Search-route membership alone is
+                # not proof of company causality.
+                _add(_retag_tw_news(
+                    item,
+                    f"tw_company_{_code(ticker.resolved_symbol)}_",
+                ))
         if len(out) >= 16:
             break
 

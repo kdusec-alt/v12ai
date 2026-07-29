@@ -781,7 +781,14 @@ def _decision_card(price: PriceFrame, raw: RawForecast, score: float, final_t1: 
         "漲跌": round(chg, 2), "漲跌幅": round(chgp, 2), "VWAP位置": _ssot_vwap_state(price),
         "漲跌標籤": str(truth.get("return_label") or "漲跌"),
         "價格範圍標籤": str(truth.get("range_label") or "今日"),
-        "價格時間": price_meta.get("label", ""),
+        "價格時間": "｜".join(
+            value for value in (
+                str(price_meta.get("label") or ""),
+                str(truth.get("return_basis_label") or "")
+                if bool(truth.get("live_session_quote")) else "",
+            )
+            if value
+        ),
         # Admin-only payload. UI panels ignore underscore keys; do not render this in V9 front stage.
         "_price_meta": price_meta,
         "_market_microstructure": (price.context or {}).get("market_microstructure", {}),
@@ -824,7 +831,7 @@ def _deep_report(price: PriceFrame, raw: RawForecast, final: Dict[str, float], d
 下一交易日路徑上緣：{final['high']:.2f}
 下一交易日風險低點：{final['low']:.2f}
 預測語意：{_session_words(price)['semantic'] if price.ticker.market=='TW' else _us_session_words(price)['semantic']}
-市場模式：{_session_words(price)['mode'] if price.ticker.market=='TW' else _us_session_words(price)['mode']}｜信心 {confidence:.0f}%
+市場模式：{_session_words(price)['mode'] if price.ticker.market=='TW' else _us_session_words(price)['mode']}｜決策證據一致度 {confidence:.0f}%
 市場分流：{market_note}
 【2｜戰術雷達來源】
 技術情境價格帶（非基本面估值）：{radar.get('Fair Value')}

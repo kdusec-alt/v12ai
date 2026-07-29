@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 import prediction_trust_v1072
-from data_sources_us import _formal_us_history, _session_rows
+from data_sources_us import _formal_us_history, _latest_regular_reference, _session_rows
 from decision_narrative import build_ai_decision_narrative, price_reality
 from low_entry_readiness_v1065 import assess_low_entry_readiness
 from models import DataTruth, NewsItem, PriceFrame, TickerInfo
@@ -92,6 +92,29 @@ def _narrative(frame: PriceFrame, label: str = "NEUTRAL", news=None):
 
 
 class USSessionTruthTests(unittest.TestCase):
+    def test_intraday_regular_close_repairs_stale_premarket_reference(self):
+        index = pd.DatetimeIndex([
+            "2026-07-27 15:59:00-04:00",
+            "2026-07-28 09:30:00-04:00",
+            "2026-07-28 15:59:00-04:00",
+            "2026-07-29 08:00:00-04:00",
+        ])
+        bars = pd.DataFrame(
+            {
+                "Open": [140.0, 138.0, 127.0, 123.5],
+                "High": [141.0, 139.0, 128.0, 124.0],
+                "Low": [139.0, 125.0, 126.0, 123.0],
+                "Close": [140.0, 127.0, 126.01, 123.76],
+                "Volume": [100, 100, 100, 10],
+            },
+            index=index,
+        )
+        now = datetime(2026, 7, 29, 8, 5, tzinfo=ZoneInfo("America/New_York"))
+        reference = _latest_regular_reference(bars, "pre_market", now)
+        self.assertEqual(reference["reference_date"], "2026-07-28")
+        self.assertAlmostEqual(reference["reference_close"], 126.01)
+        self.assertAlmostEqual((123.76 / reference["reference_close"] - 1) * 100, -1.7856, places=3)
+
     def test_intraday_rows_never_mix_premarket_or_after_hours(self):
         index = pd.DatetimeIndex([
             "2026-07-28 08:00:00-04:00",
@@ -210,6 +233,32 @@ class TaiwanTruthTests(unittest.TestCase):
 
 
 class DecisionThesisScenarioTests(unittest.TestCase):
+    def test_severe_miss_preserves_pending_company_event_as_next_catalyst(self):
+        frame = _frame(
+            market="TW", symbol="2327.TW",
+            last=90, previous=100, high=100, low=90, vwap=96,
+            closes=[115 - i * 0.6 for i in range(24)] + [100, 90],
+            status="after_close",
+            context={
+                "fundamental": {
+                    "accepted": True,
+                    "source": "OfficialCompanyCalendar",
+                    "next_earnings": "2026-07-31",
+                    "earnings_days": 2,
+                }
+            },
+        )
+        frame.context["prediction_trust_v1072"] = {
+            "accepted": True,
+            "severity": "severe",
+            "entry_block": True,
+            "reason": "最近正式昨測誤差 -10.90%",
+        }
+        result = _narrative(frame, "DOWN")
+        self.assertEqual(result["state"], "forecast_cooldown_event_pending")
+        self.assertIn("模型失準冷卻＋公司事件待裁決", result["title"])
+        self.assertIn("不能提前寫成公司基本面惡化", result["message"])
+
     def test_limit_down_plus_severe_miss_enters_forecast_cooldown(self):
         frame = _frame(
             last=90, previous=100, high=100, low=90, vwap=96,

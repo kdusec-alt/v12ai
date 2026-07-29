@@ -37,6 +37,24 @@ _GLOBAL_TAGS = (
 )
 _INDUSTRY_TAGS = ("industry", "sector", "supply_chain", "供應鏈", "產業")
 _PLACEHOLDER_TEXT = ("待同步", "syncing", "新聞查詢中", "news pending")
+_CORPORATE_STOPWORDS = {
+    "inc", "incorporated", "corp", "corporation", "company", "co", "ltd",
+    "limited", "holdings", "holding", "group", "technology", "technologies",
+    "electronics", "semiconductor", "semiconductors",
+}
+_ENTITY_ALIAS_OVERRIDES = {
+    "2327": ("國巨", "yageo"),
+    "2330": ("台積電", "tsmc", "taiwan semiconductor"),
+    "2337": ("旺宏", "macronix"),
+    "2408": ("南亞科", "nanya technology", "nanya"),
+    "2454": ("聯發科", "mediatek"),
+    "6770": ("力積電", "psmc"),
+    "GLW": ("corning",),
+    "MU": ("micron", "micron technology"),
+    "MRVL": ("marvell", "marvell technology"),
+    "NVDA": ("nvidia",),
+    "TSM": ("tsmc", "taiwan semiconductor"),
+}
 
 _SCHEDULED_TERMS = (
     "will report", "to report", "set to report", "ahead of earnings",
@@ -300,6 +318,79 @@ def _scope(tag: str) -> str:
     return "company"
 
 
+def _ticker_aliases(ticker: Any) -> tuple[str, ...]:
+    if ticker is None:
+        return ()
+    symbol = _clean(getattr(ticker, "resolved_symbol", "")).lower()
+    code = symbol.split(".", 1)[0]
+    name = _clean(getattr(ticker, "name", "")).lower()
+    aliases: list[str] = []
+    aliases.extend(
+        str(alias).lower() for alias in _ENTITY_ALIAS_OVERRIDES.get(code.upper(), ())
+    )
+    if code and (len(code) >= 3 or code.isdigit()):
+        aliases.append(code)
+    if name:
+        aliases.append(name)
+        root = re.sub(
+            r"\b(?:incorporated|inc|corporation|corp|company|co|ltd|limited|"
+            r"holdings|holding|plc|group)\b",
+            " ",
+            name,
+        )
+        root = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", " ", root)
+        root = re.sub(r"\s+", " ", root).strip()
+        if len(root) >= 3:
+            aliases.append(root)
+        for token in root.split():
+            if len(token) >= 4 and token not in _CORPORATE_STOPWORDS:
+                aliases.append(token)
+    return tuple(dict.fromkeys(alias for alias in aliases if alias))
+
+
+def _mentions_alias(title: str, aliases: Sequence[str]) -> bool:
+    lowered = _clean(title).lower()
+    for alias in aliases:
+        value = str(alias or "").lower().strip()
+        if not value:
+            continue
+        if re.fullmatch(r"[a-z0-9.\-]+", value):
+            if re.search(rf"(?<![a-z0-9]){re.escape(value)}(?![a-z0-9])", lowered):
+                return True
+        elif value in lowered:
+            return True
+    return False
+
+
+def _company_entity_scope(
+    title: str,
+    tag: str,
+    scope: str,
+    ticker: Any,
+) -> tuple[str, bool, str]:
+    """Verify a company tag against the requested entity.
+
+    Fetchers already filter search pollution, but the causal layer must not
+    trust route tags blindly.  A broad USTR/Fed/war headline accidentally
+    carrying ``tw_company`` is downgraded to global context unless the title
+    names the company or the tag carries the validated Taiwan code.
+    """
+    if scope != "company":
+        return scope, False, "non_company_scope"
+    aliases = _ticker_aliases(ticker)
+    code = str(getattr(ticker, "resolved_symbol", "") or "").split(".", 1)[0].lower()
+    tagged_code = bool(
+        code
+        and re.search(rf"(?:^|_)tw_company_{re.escape(code)}(?:_|$)", str(tag or "").lower())
+    )
+    if tagged_code or _mentions_alias(title, aliases):
+        return "company", True, "entity_named"
+    text = f"{title} {tag}".lower()
+    if _has(text, (*_MACRO_TERMS, *_POLICY_TERMS, *_GEO_TERMS, *_ENERGY_TERMS)):
+        return "global", False, "broad_event_without_company_entity"
+    return "industry", False, "company_entity_unverified"
+
+
 def _family(text: str, tag: str, scope: str) -> str:
     if scope == "global":
         if _has(text, _ENERGY_TERMS):
@@ -508,6 +599,7 @@ def _classify_rows(
     news_items: Iterable[Any] | None,
     *,
     reference: datetime,
+    ticker: Any = None,
 ) -> list[Dict[str, Any]]:
     rows: list[Dict[str, Any]] = []
     for index, item in enumerate(news_items or []):
@@ -515,7 +607,10 @@ def _classify_rows(
         if not title or any(token.lower() in title.lower() for token in _PLACEHOLDER_TEXT):
             continue
         tag = _clean(_value(item, "tag")).lower()
-        scope = _scope(tag)
+        raw_scope = _scope(tag)
+        scope, entity_verified, scope_reason = _company_entity_scope(
+            title, tag, raw_scope, ticker
+        )
         text = f"{title} {tag}".lower()
         family = _family(text, tag, scope)
         published = _parse_timestamp(_value(item, "time"), now=reference)
@@ -542,6 +637,9 @@ def _classify_rows(
             "_published_dt": published,
             "age_hours": round(age_hours, 2) if age_hours is not None else None,
             "scope": scope,
+            "raw_scope": raw_scope,
+            "entity_verified": entity_verified,
+            "scope_reason": scope_reason,
             "family": family,
             "family_label": _FAMILY_LABELS.get(family, family),
             "raw_score": round(raw_score, 4),
@@ -552,6 +650,78 @@ def _classify_rows(
             "scheduled": family == "scheduled_event",
         })
     return rows
+
+
+def _structured_scheduled_row(
+    price: Any,
+    *,
+    reference: datetime,
+) -> Dict[str, Any]:
+    """Promote a verified near-term company calendar fact into causality.
+
+    This is intentionally bounded to T-3 days and reads only the existing
+    fundamental context.  It never guesses an event date from a news headline.
+    """
+    context = getattr(price, "context", {}) or {}
+    fundamental = context.get("fundamental") if isinstance(context, Mapping) else {}
+    fundamental = fundamental if isinstance(fundamental, Mapping) else {}
+    if not bool(fundamental.get("accepted")):
+        return {}
+    if str(getattr(getattr(price, "ticker", None), "asset_type", "") or "") == "etf":
+        return {}
+    raw_date = _clean(
+        fundamental.get("next_earnings")
+        or fundamental.get("next_earnings_date")
+        or fundamental.get("earnings_date")
+        or fundamental.get("next_event_date")
+        or fundamental.get("investor_conference_date")
+        or fundamental.get("conference_date")
+    )
+    event_day = None
+    try:
+        event_day = date.fromisoformat(raw_date[:10])
+    except Exception:
+        event_day = None
+    days_raw = fundamental.get("earnings_days")
+    try:
+        days = int(float(days_raw)) if days_raw not in (None, "") else None
+    except Exception:
+        days = None
+    if event_day is not None:
+        days = (event_day - reference.date()).days
+    if days is None or not 0 <= days <= 3:
+        return {}
+    ticker = getattr(price, "ticker", None)
+    name = _clean(getattr(ticker, "name", "") or getattr(ticker, "resolved_symbol", ""))
+    event_label = raw_date[:10] if event_day is not None else f"T-{days}d"
+    title = f"{name} 財報／法說預定於 {event_label} 公布"
+    return {
+        "index": -1,
+        "key": hashlib.sha1(
+            f"structured:{getattr(ticker, 'resolved_symbol', '')}:{event_label}".encode("utf-8")
+        ).hexdigest()[:18],
+        "title": title,
+        "headline": _clip(title),
+        "tag": "structured_company_calendar",
+        "source": _clean(fundamental.get("source") or "StructuredFundamentalCalendar"),
+        "published_at": reference.isoformat(timespec="minutes"),
+        "_published_dt": reference,
+        "age_hours": 0.0,
+        "scope": "company",
+        "raw_scope": "company",
+        "entity_verified": True,
+        "scope_reason": "structured_company_calendar",
+        "family": "scheduled_event",
+        "family_label": _FAMILY_LABELS["scheduled_event"],
+        "raw_score": 0.0,
+        "semantic_score": 0.0,
+        "effective_score": 0.0,
+        "freshness_weight": 1.0,
+        "materiality": _MATERIALITY["scheduled_event"],
+        "scheduled": True,
+        "event_date": raw_date[:10],
+        "event_days": days,
+    }
 
 
 def _row_rank(row: Mapping[str, Any]) -> tuple[float, float, float, float]:
@@ -685,6 +855,24 @@ def _dominant_event(
     if not selected_company:
         return {}
     rows = list(selected_company)
+    scheduled_rows = [
+        row for row in rows if str(row.get("family") or "") == "scheduled_event"
+    ]
+    if scheduled_rows:
+        scheduled = max(scheduled_rows, key=_row_rank)
+        actual_rows = [
+            row for row in rows if str(row.get("family") or "") == "earnings_package"
+        ]
+        newest_actual = max(actual_rows, key=_row_rank) if actual_rows else None
+        scheduled_dt = _parse_timestamp(scheduled.get("published_at"))
+        actual_dt = _parse_timestamp(newest_actual.get("published_at")) if newest_actual else None
+        # A newly published result supersedes its preview.  Otherwise the
+        # upcoming company event is the next market裁決點 and must not be hidden
+        # behind an older earnings article.
+        if newest_actual is None or actual_dt is None or (
+            scheduled_dt is not None and scheduled_dt >= actual_dt
+        ):
+            return dict(scheduled)
     if earnings.get("accepted"):
         earnings_rows = [row for row in rows if row.get("family") == "earnings_package"]
         if earnings_rows:
@@ -737,7 +925,14 @@ def analyze_news_causality(
         reference = reference.replace(tzinfo=_TAIPEI)
     reference = reference.astimezone(_TAIPEI)
     truth = price_truth(price)
-    rows = _classify_rows(news_list, reference=reference)
+    ticker = getattr(price, "ticker", None)
+    rows = _classify_rows(news_list, reference=reference, ticker=ticker)
+    scheduled_structured = _structured_scheduled_row(price, reference=reference)
+    if scheduled_structured and not any(
+        row.get("family") == "scheduled_event" and row.get("scope") == "company"
+        for row in rows
+    ):
+        rows.append(scheduled_structured)
     company_rows = [row for row in rows if row.get("scope") in {"company", "industry"}]
     global_rows = [row for row in rows if row.get("scope") == "global"]
     selected_company, company_keys = _select_families(company_rows)
@@ -838,6 +1033,8 @@ def analyze_news_causality(
         alignment = "price_mixed"
 
     event_materiality = float(dominant.get("materiality") or 0.0)
+    dominant_scope = str(dominant.get("scope") or "")
+    dominant_entity_verified = bool(dominant.get("entity_verified"))
     if causal_state == "event_awaiting_market_reaction" and event_materiality >= 0.68:
         entry_gate = "block_until_first_reaction"
     elif causal_state == "scheduled_event_pending":
@@ -848,18 +1045,19 @@ def analyze_news_causality(
         entry_gate = "normal"
 
     headline = str(dominant.get("headline") or "")
+    event_subject = "產業敘事" if dominant_scope == "industry" else "公司事件"
     if causal_state == "event_awaiting_market_reaction":
-        causal_text = "事件已公布，但現有價格形成於事件之前；尚未經市場驗證，等待下一交易時段首次反應"
+        causal_text = f"{event_subject}已公布，但現有價格形成於事件之前；尚未經市場驗證，等待下一交易時段首次反應"
     elif causal_state == "scheduled_event_pending":
         causal_text = "事件尚未正式公布；不預設利多或利空，公布後重新查詢並等待價格確認"
     elif causal_state == "positive_event_rejected":
-        causal_text = "公司利多已進入可交易時段，但價格未確認；價格否決優先"
+        causal_text = f"{event_subject}偏多證據已進入可交易時段，但價格未確認；價格否決優先"
     elif causal_state == "negative_event_absorbed":
-        causal_text = "公司利空已進入可交易時段，但價格未下跌；屬利空吸收"
+        causal_text = f"{event_subject}偏空證據已進入可交易時段，但價格未下跌；屬利空吸收"
     elif causal_state == "event_price_confirming":
-        causal_text = "公司事件與事件後價格同向；仍以關鍵價與量價延續確認"
+        causal_text = f"{event_subject}與事件後價格同向；仍以關鍵價與量價延續確認"
     elif causal_state == "event_reaction_in_progress":
-        causal_text = "事件後首輪價格反應進行中；尚未完成一個正式交易時段"
+        causal_text = f"{event_subject}後首輪價格反應進行中；尚未完成一個正式交易時段"
     elif causal_state == "event_time_unverified":
         causal_text = "事件時間或價格時間未完整標示；可作方向證據，但不宣稱價格已接受或否決"
     elif causal_state == "event_context_only":
@@ -903,7 +1101,13 @@ def analyze_news_causality(
         "cause_priority": (
             "company"
             if dominant
+            and dominant_scope == "company"
+            and dominant_entity_verified
             and event_materiality >= 0.68
+            and causal_state not in {"event_context_only", "event_time_unverified"}
+            else "industry_narrative"
+            if dominant
+            and dominant_scope == "industry"
             and causal_state not in {"event_context_only", "event_time_unverified"}
             else "global_context"
             if selected_global
@@ -932,6 +1136,8 @@ def analyze_news_causality(
         "dominant_family_label": str(dominant.get("family_label") or ""),
         "dominant_published_at": str(dominant.get("published_at") or ""),
         "dominant_materiality": event_materiality,
+        "dominant_scope": dominant_scope,
+        "dominant_entity_verified": dominant_entity_verified,
         "causal_text": causal_text,
         "company_text": company_text,
         "global_text": global_text,

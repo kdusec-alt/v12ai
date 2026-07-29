@@ -100,6 +100,9 @@ class MarketCommandV1071Tests(unittest.TestCase):
         source = (ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn("市場資料覆蓋度", source)
         self.assertNotIn("方向判定可信度", source)
+        radar_source = Path("ui_v9_radar.py").read_text(encoding="utf-8")
+        self.assertIn("決策證據一致度", radar_source)
+        self.assertNotIn("方向判定可信度", radar_source)
 
 
 if __name__ == "__main__":
