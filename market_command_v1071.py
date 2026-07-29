@@ -32,14 +32,53 @@ def _event_risk(news: Sequence[Any] | None) -> tuple[float, str]:
 
 def _state(score: float, rebound: bool) -> tuple[str, str, str]:
     if rebound and score >= 45:
-        return "CAPITULATION", "🟣 恐慌宣洩／等待止跌確認", "停止追空；只觀察跌停打開、VIX回落與量價承接"
+        return "CAPITULATION", "🟣 恐慌宣洩／等待止跌確認", "風險預算維持低檔；停止追空，等待跌停打開、波動率回落與量價承接同時出現"
     if score >= 70:
-        return "CRASH", "🔴 股災／流動性踩踏", "停止追價與擴大部位；保留現金，等待壓力收斂"
+        return "CRASH", "🔴 股災／流動性踩踏", "停止新增方向性部位並保留現金；至少等跨市場跌勢與波動率同步收斂"
     if score >= 48:
-        return "SELL_OFF", "🟠 廣泛賣壓", "降低單筆部位；不急抄底，等待指數與廣度止穩"
+        return "SELL_OFF", "🟠 廣泛賣壓", "將新倉降為確認單；不把急跌視為折價，先等指數、廣度與波動率止穩"
     if score >= 28:
-        return "CAUTION", "🟡 風險升溫", "暫停追高；持股依支撐與部位紀律處理"
-    return "NORMAL", "🟢 正常／風險可控", "維持原策略；仍以個股價格與風控確認"
+        return "CAUTION", "🟡 風險升溫", "風險預算降至中性偏低；不追價，既有部位依支撐與曝險比例管理"
+    return "NORMAL", "🟢 正常／風險可控", "維持既定風險預算；個股仍須通過價格、事件與部位確認"
+
+
+def _market_thesis(
+    *,
+    observed_count: int,
+    falling: int,
+    improving: int,
+    vix: float | None,
+    price_confirmed: bool,
+    event_reason: str,
+) -> str:
+    """Explain what the cross-asset tape is pricing without inventing causality."""
+    if observed_count < 2:
+        return "可用跨市場證據不足，現階段不能對大盤方向形成高品質判讀"
+
+    breadth = f"{falling}/{observed_count} 項風險代理走弱"
+    volatility = (
+        f"VIX {vix:.2f}"
+        if vix is not None
+        else "波動率資料尚未同步"
+    )
+    if price_confirmed and event_reason:
+        return (
+            f"{breadth}，{volatility}；價格已對事件《{event_reason}》形成跨資產確認，"
+            "目前應先按風險重定價處理，而非視為單一股票雜訊"
+        )
+    if price_confirmed:
+        return (
+            f"{breadth}，{volatility}；弱勢由跨市場價格共振主導，"
+            "尚無足夠證據把它歸因於單一新聞"
+        )
+    if event_reason:
+        return (
+            f"事件《{event_reason}》仍屬風險背景，但只有 {breadth}；"
+            "跨資產價格尚未完成確認，不以標題直接宣告趨勢"
+        )
+    if improving:
+        return f"{breadth}，另有 {improving} 項代理改善；市場訊號分歧，等待方向收斂"
+    return f"{breadth}，{volatility}；目前屬局部風險升溫，尚未形成廣泛同步"
 
 
 def assess_market_command(
@@ -96,21 +135,34 @@ def assess_market_command(
     # Existing right-side radar is explicitly acknowledged as a corroborating
     # evidence source.  It cannot be parsed into fabricated precision.
     radar_count = sum(1 for value in (radar or {}).values() if str(value or "").strip())
-    confidence = min(88, 28 + len(set(observed)) * 9 + min(12, radar_count))
+    # This is data coverage, not a backtested directional hit rate.  Keep the
+    # legacy confidence key as a compatibility alias until downstream readers
+    # migrate, but never present it as prediction confidence in the UI.
+    coverage = min(88, 28 + len(set(observed)) * 9 + min(12, radar_count))
     rebound = falling >= 2 and improving >= 1 and vix_change is not None and vix_change < 0
     code, label, action = _state(min(100.0, score), rebound)
     if len(set(observed)) < 2:
         code, label, action = "WAIT_CONFIRM", "⚪ 資料不足／等待市場確認", "暫不改變部位；等待至少兩項市場資料同步"
+    thesis = _market_thesis(
+        observed_count=len(set(observed)),
+        falling=falling,
+        improving=improving,
+        vix=vix,
+        price_confirmed=price_confirmed,
+        event_reason=event_reason,
+    )
     return {
         "market": family,
         "code": code,
         "label": label,
         "score": round(min(100.0, score), 1),
-        "confidence": confidence,
+        "coverage": coverage,
+        "confidence": coverage,
+        "confidence_semantics": "data_coverage_only",
         "action": action,
+        "thesis": thesis,
         "facts": facts[:5],
         "event_reason": event_reason,
         "price_confirmed": price_confirmed,
         "radar_evidence_count": radar_count,
     }
-

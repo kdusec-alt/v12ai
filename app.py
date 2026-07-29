@@ -606,12 +606,15 @@ def _render_market_command(forecast) -> None:
     facts = "｜".join(str(x) for x in (result.get("facts") or [])) or "市場資料同步中"
     event = str(result.get("event_reason") or "").strip()
     event_line = f"<div class='mc-reason'>事件：{html.escape(event)}</div>" if event else ""
+    thesis = str(result.get("thesis") or "").strip()
+    thesis_line = f"<div class='mc-reason'>判讀：{html.escape(thesis)}</div>" if thesis else ""
+    coverage = int(result.get("coverage") or result.get("confidence") or 0)
     st.markdown(
         f"""<div class="market-command market-{html.escape(str(result.get('code') or '').lower())}">
-        <div class="mc-head">🌐 大盤智能判斷｜{market_label}<span>{html.escape(str(result.get('label') or '等待確認'))}</span></div>
-        <div class="mc-facts">{html.escape(facts)}</div>{event_line}
+        <div class="mc-head">🌐 大盤風險判讀｜{market_label}<span>{html.escape(str(result.get('label') or '等待確認'))}</span></div>
+        <div class="mc-facts">{html.escape(facts)}</div>{event_line}{thesis_line}
         <div class="mc-action">現在建議：{html.escape(str(result.get('action') or '等待確認'))}
-        <small>方向判定可信度 {int(result.get('confidence') or 0)}%</small></div></div>""",
+        <small>市場資料覆蓋度 {coverage}%｜非方向命中率</small></div></div>""",
         unsafe_allow_html=True,
     )
 
