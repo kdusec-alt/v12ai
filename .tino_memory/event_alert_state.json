@@ -35,7 +35,8 @@
       "source_tickers": [
         "GLOBAL",
         "SKHY",
-        "SNDK"
+        "SNDK",
+        "2330.TW"
       ],
       "status": "active_red",
       "title": "Oil Prices Jump Over 3%: Brent Crude Rebounds To $87 After Three-Day Rout As US-Iran Tensions Escalate - NDTV Profit",
@@ -173,5 +174,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T01:32:15+00:00"
+  "updated_at": "2026-07-29T01:32:17+00:00"
 }
