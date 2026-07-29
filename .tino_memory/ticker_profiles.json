@@ -8415,8 +8415,8 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-07-30T05:24:43+08:00",
     "approved_bias": 0.0,
-    "audit_count": 7,
-    "avg_abs_error_pct": 1.6492,
+    "audit_count": 8,
+    "avg_abs_error_pct": 1.5263,
     "avg_direction_brier": 0.325965,
     "avg_downside_tail_breach_pct": 2.0703,
     "close_range_hit_rate": 0.6,
@@ -8424,7 +8424,7 @@
     "direction_hit_rate": 0.2,
     "error_type_counts": {
       "over_prediction": 2,
-      "within_tolerance": 5
+      "within_tolerance": 6
     },
     "factor_learning": {
       "MU": {
@@ -8717,13 +8717,13 @@
       }
     },
     "last_actual_direction": "DOWN",
-    "last_close_in_predicted_range": true,
+    "last_close_in_predicted_range": null,
     "last_defense_stop_touched": false,
     "last_direction_hit": false,
     "last_dominant_force": "趨勢",
-    "last_dominant_force_hit": true,
+    "last_dominant_force_hit": null,
     "last_downside_tail_breach_pct": 0.0,
-    "last_error_pct": -0.0512,
+    "last_error_pct": -0.666,
     "last_error_type": "within_tolerance",
     "last_predicted_direction": "NEUTRAL",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
@@ -8732,7 +8732,7 @@
     "range_audit_count": 5,
     "suggested_bias": 0.0,
     "ticker": "AMD",
-    "updated_at_tw": "2026-07-30T05:28:25+08:00"
+    "updated_at_tw": "2026-07-30T05:28:33+08:00"
   },
   "FORM": {
     "active_family_count": 0,
