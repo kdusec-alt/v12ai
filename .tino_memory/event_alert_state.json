@@ -4,54 +4,6 @@
       "acknowledged": false,
       "category": "geo_energy_escalation",
       "cooling_count": 0,
-      "event_id": "EV-FE4B47983D28AA",
-      "event_key": "global:geopolitical:general_geo",
-      "family": "geopolitical",
-      "fingerprint": "d35d906a9a8533c4",
-      "first_seen_at": "2026-07-24T14:16:34+00:00",
-      "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785335198.971299,
-      "last_seen_at": "2026-07-29T14:26:38+00:00",
-      "last_seen_epoch": 1785335198.971299,
-      "last_transition_at": "2026-07-29T14:26:38+00:00",
-      "peak_severity": 4,
-      "reinforcement_count": 150,
-      "related_fingerprints": [
-        "0428749d221ef724",
-        "c85cc8cbb9d65637",
-        "810259f82022e7ff",
-        "eca1d105f4ec4819",
-        "e346012eb09d111f",
-        "9abb5c83e4507f26",
-        "d8da9441307c9360",
-        "c617d18c2175dcea"
-      ],
-      "risk_sign": -1,
-      "scope": "global",
-      "severity": 4,
-      "source": "GoogleNewsGlobal/TradingKey",
-      "source_markets": [
-        "GLOBAL",
-        "US"
-      ],
-      "source_tickers": [
-        "2308.TW",
-        "GLOBAL",
-        "MU",
-        "MRVL",
-        "2330.TW",
-        "FORM",
-        "SNDK",
-        "AMD"
-      ],
-      "status": "active_red",
-      "title": "Oil Prices Surge as Brent Jumps Over 6% Following Houthi Tanker Attack and US-Saudi Strikes in Iraq - TradingKey",
-      "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
-    },
-    {
-      "acknowledged": false,
-      "category": "geo_energy_escalation",
-      "cooling_count": 0,
       "event_id": "EV-8EF02DA37AF306",
       "event_key": "global:geopolitical:iran_middle_east",
       "family": "geopolitical",
@@ -90,6 +42,54 @@
       "status": "active_red",
       "title": "Global Event Core｜中東/美伊供應風險推升油價｜WTI +6.36%／Brent +6.47%｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
       "transition_reason": "市場衝擊 L5 極端市場衝擊 40/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+    },
+    {
+      "acknowledged": false,
+      "category": "geo_trade_controls",
+      "cooling_count": 0,
+      "event_id": "EV-FE4B47983D28AA",
+      "event_key": "global:geopolitical:general_geo",
+      "family": "geopolitical",
+      "fingerprint": "d89358f6ebdead1a",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1785337575.553537,
+      "last_seen_at": "2026-07-29T15:06:15+00:00",
+      "last_seen_epoch": 1785337575.553537,
+      "last_transition_at": "2026-07-29T15:06:15+00:00",
+      "peak_severity": 4,
+      "reinforcement_count": 151,
+      "related_fingerprints": [
+        "c85cc8cbb9d65637",
+        "810259f82022e7ff",
+        "eca1d105f4ec4819",
+        "e346012eb09d111f",
+        "9abb5c83e4507f26",
+        "d8da9441307c9360",
+        "c617d18c2175dcea",
+        "d35d906a9a8533c4"
+      ],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/jdsupra.com",
+      "source_markets": [
+        "GLOBAL",
+        "US"
+      ],
+      "source_tickers": [
+        "2308.TW",
+        "GLOBAL",
+        "MU",
+        "MRVL",
+        "2330.TW",
+        "FORM",
+        "SNDK",
+        "AMD"
+      ],
+      "status": "active_red",
+      "title": "Trump Administration’s New Section 301 Tariffs Reach Nearly All U.S. Imports - jdsupra.com",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
       "acknowledged": false,
@@ -175,5 +175,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T14:26:40+00:00"
+  "updated_at": "2026-07-29T15:06:15+00:00"
 }
