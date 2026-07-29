@@ -12303,8 +12303,8 @@
   "SKHY": {
     "active_family_count": 6,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-07-30T05:00:43+08:00",
-    "approved_bias": -0.0075,
+    "approved_at_tw": "2026-07-30T05:04:28+08:00",
+    "approved_bias": -0.01,
     "audit_count": 24,
     "avg_abs_error_pct": 1.7782,
     "avg_direction_brier": 0.27427,
