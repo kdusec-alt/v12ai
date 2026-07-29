@@ -7,29 +7,29 @@
       "event_id": "EV-8EF02DA37AF306",
       "event_key": "global:geopolitical:iran_middle_east",
       "family": "geopolitical",
-      "fingerprint": "80f17bf3c698c0c0",
+      "fingerprint": "1791420e3b58f9e5",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785316565.149204,
-      "last_seen_at": "2026-07-29T09:16:05+00:00",
-      "last_seen_epoch": 1785316565.149204,
-      "last_transition_at": "2026-07-29T09:16:05+00:00",
+      "last_evidence_epoch": 1785324375.829858,
+      "last_seen_at": "2026-07-29T11:26:15+00:00",
+      "last_seen_epoch": 1785324375.829858,
+      "last_transition_at": "2026-07-29T11:26:15+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 12,
+      "reinforcement_count": 13,
       "related_fingerprints": [
-        "1791d41255180e72",
         "999ee5a2fd738c12",
         "aecf0c778e3975a4",
         "e5bd67e6ffcef44c",
         "6eb58a5a77a05712",
         "d5e90c5b00ecda5b",
         "83b0633721a1a6f2",
-        "51e8fc4f6632e6be"
+        "51e8fc4f6632e6be",
+        "80f17bf3c698c0c0"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 4,
-      "source": "GoogleNewsGlobal/finance.biggo.com",
+      "source": "GoogleNewsGlobal/CNBC",
       "source_markets": [
         "GLOBAL"
       ],
@@ -40,7 +40,7 @@
         "2330.TW"
       ],
       "status": "active_red",
-      "title": "Iran Launches Ballistic Missile Surprise Attack on U.S. Bases in Middle East; Oil Prices Surge 4% - finance.biggo.com",
+      "title": "Oil jumps as U.S.-Iran resume strikes after a brief pause - CNBC",
       "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
@@ -175,5 +175,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T09:16:05+00:00"
+  "updated_at": "2026-07-29T11:26:15+00:00"
 }
