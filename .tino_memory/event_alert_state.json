@@ -1,7 +1,8 @@
 {
   "events": [
     {
-      "acknowledged": false,
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-29T08:24:25+00:00",
       "category": "geo_energy_escalation",
       "cooling_count": 0,
       "event_id": "EV-8EF02DA37AF306",
@@ -13,7 +14,7 @@
       "last_evidence_epoch": 1785311926.452442,
       "last_seen_at": "2026-07-29T07:58:46+00:00",
       "last_seen_epoch": 1785311926.452442,
-      "last_transition_at": "2026-07-29T07:58:46+00:00",
+      "last_transition_at": "2026-07-29T08:24:25+00:00",
       "peak_severity": 4,
       "reinforcement_count": 11,
       "related_fingerprints": [
@@ -41,7 +42,7 @@
       ],
       "status": "active_red",
       "title": "Global Event Core｜中東/美伊供應風險推升油價｜WTI +3.44%／Brent +3.32%｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
-      "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
       "acknowledged": false,
@@ -175,5 +176,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-29T07:58:46+00:00"
+  "updated_at": "2026-07-29T08:24:25+00:00"
 }
