@@ -7,29 +7,29 @@
       "event_id": "EV-8EF02DA37AF306",
       "event_key": "global:geopolitical:iran_middle_east",
       "family": "geopolitical",
-      "fingerprint": "80e754c78f8b453f",
+      "fingerprint": "5fc5baffc0f14d06",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785397717.97849,
-      "last_seen_at": "2026-07-30T07:48:37+00:00",
-      "last_seen_epoch": 1785397717.97849,
-      "last_transition_at": "2026-07-30T07:48:37+00:00",
+      "last_evidence_epoch": 1785405029.187569,
+      "last_seen_at": "2026-07-30T09:50:29+00:00",
+      "last_seen_epoch": 1785405029.187569,
+      "last_transition_at": "2026-07-30T09:50:29+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 20,
+      "reinforcement_count": 21,
       "related_fingerprints": [
-        "80f17bf3c698c0c0",
         "1791420e3b58f9e5",
         "1028fbd89e84a37d",
         "abfdc71d83b8e15e",
         "03b439314a25bcb3",
         "a0f4b8d6669e4813",
         "675ec478c1ac00db",
-        "9698428c803c9881"
+        "9698428c803c9881",
+        "80e754c78f8b453f"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 4,
-      "source": "GoogleNewsGlobal/CryptoRank",
+      "source": "GoogleNewsGlobal/Reuters",
       "source_markets": [
         "GLOBAL"
       ],
@@ -41,8 +41,8 @@
         "INTC"
       ],
       "status": "active_red",
-      "title": "Crude Oil Prices: Jump 3% as Hormuz Risk Lifts Brent and WTI - CryptoRank",
-      "transition_reason": "市場衝擊 L5 極端市場衝擊 70/100｜荷姆茲航道+油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "title": "Oil rises for second straight day as US resumes attacks on Iran - Reuters",
+      "transition_reason": "市場衝擊 L4 系統性壓力 58/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
       "acknowledged": false,
@@ -209,5 +209,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-30T08:40:00+00:00"
+  "updated_at": "2026-07-30T09:50:29+00:00"
 }
