@@ -213,6 +213,8 @@ def build_decision_thesis(
     causal_gate = str(causal.get("entry_gate") or "normal")
     cause_priority = str(causal.get("cause_priority") or "")
     dominant_scope = str(causal.get("dominant_scope") or "")
+    dominant_family = str(causal.get("dominant_family") or "")
+    dominant_priority_tier = int(causal.get("dominant_priority_tier") or 0)
     event_price_comparable = (
         bool(causal.get("can_compare_to_price"))
         if causal_available
@@ -388,6 +390,21 @@ def build_decision_thesis(
         action_mode = "reclaim_only"
         dominant = price_text
         counter = company_text or "公司新聞偏多"
+    elif (
+        (trend_break or strong_down or (active_us and day_pct <= repricing_threshold))
+        and dominant_family == "capital_financing"
+        and dominant_priority_tier >= 4
+        and event_price_comparable
+        and fresh_direct_company_event
+        and cause_priority == "company"
+    ):
+        state = "capital_raise_repricing"
+        title = "AI進場決策卡｜增資折價重估｜公司級籌資利空獲價格確認"
+        axis = "股本稀釋／新增供給｜折價重新定價｜等待收復發行區與VWAP"
+        entry_permission = "blocked"
+        action_mode = "reclaim_only"
+        dominant = company_text or price_text
+        counter = "中長期營運與客戶利多仍是反證，但短期不能抵銷折價、稀釋與新增供給"
     elif (
         (trend_break or strong_down or (active_us and day_pct <= repricing_threshold))
         and (
@@ -644,6 +661,14 @@ def build_decision_thesis(
             f"{move_label} {day_pct:+.2f}% 與事件方向同向，"
             "本輪優先視為基本面預期／風險溢價重估，而非一般大盤雜訊；"
             f"{_fmt(preferred)} 不是便宜的充分證據。先停止破低並收復 {_fmt(confirmation)} 才重評，"
+            f"跌破 {_fmt(invalid)} 維持取消。"
+        )
+    elif state == "capital_raise_repricing":
+        message = (
+            f"{session_prefix}：公司級籌資事件《{company_headline or company_text or '增資／新股發行'}》"
+            f"已進入可交易價格；{move_label} {day_pct:+.2f}% 與折價、稀釋及新增供給方向同向，"
+            "目前主因是股本結構重新定價，不應由客戶財報或一般產業利多取代。"
+            f"{_fmt(preferred)} 不是低接理由；停止破低並收復 {_fmt(confirmation)} 與時段 VWAP 才重評，"
             f"跌破 {_fmt(invalid)} 維持取消。"
         )
     elif state == "industry_narrative_repricing":

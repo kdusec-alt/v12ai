@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Mapping
 
+from event_impact_lexicon_v1078 import assess_major_event
 from models import NewsItem
 
 
@@ -68,6 +69,9 @@ def assess_market_shock(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
     family = _family(item)
     profile = _profile(item)
     severity = _severity(str(tag or ""))
+    measured = assess_major_event(text, str(tag or ""))
+    priority_tier = int(measured.get("priority_tier") or 1)
+    measured_impact = float(measured.get("impact_score") or 0.0)
 
     level = 0
     score = 0.0
@@ -104,7 +108,11 @@ def assess_market_shock(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
         drivers.append("荷姆茲航道")
         transmission.extend(["原油供給", "航運保險", "運價", "通膨", "全球風險溢價"])
     if oil_spike:
-        oil_level = 2 if severity <= 2 else 4 if severity == 3 else 5
+        oil_level = (
+            4
+            if measured.get("magnitude_pct") is None and severity >= 3
+            else max(2, min(5, priority_tier))
+        )
         level = max(level, oil_level)
         score += {0: 0.0, 1: 8.0, 2: 16.0, 3: 28.0, 4: 40.0}.get(severity, 16.0)
         depth = max(depth, 4)
@@ -135,6 +143,17 @@ def assess_market_shock(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
         drivers.append("PMI成長訊號")
         transmission.extend(["景氣預期", "美元/殖利率", "NQ/SOX", "台指夜盤"])
 
+    if str(measured.get("kind") or "") in {
+        "oil_move", "geo_blockade_full_war", "geo_direct_attack", "geo_escalation",
+    }:
+        score = max(score, measured_impact)
+        if priority_tier >= 5:
+            level = max(level, 5)
+        elif priority_tier >= 4:
+            level = max(level, 4)
+        elif priority_tier >= 3:
+            level = max(level, 3)
+
     # Ticker profile changes the interpretation, not the existence of the shock.
     if profile in {"memory", "semiconductor", "ai_power"} and any((oil_spike, tariff, chip_control, war, hormuz)):
         score *= 1.12
@@ -146,7 +165,9 @@ def assess_market_shock(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
     elif profile == "biotech" and any((oil_spike, tariff)):
         score *= 0.72
 
-    if severity >= 4:
+    if oil_spike and measured.get("magnitude_pct") is not None:
+        level = max(level, max(2, min(5, priority_tier)))
+    elif severity >= 4:
         level = max(level, 5)
     elif severity >= 3:
         level = max(level, 4)
@@ -183,6 +204,12 @@ def assess_market_shock(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
         "transmission": ordered_transmission,
         "profile": profile,
         "family": family,
+        "priority_tier": priority_tier,
+        "priority_label": str(measured.get("priority_label") or ""),
+        "impact_score": round(measured_impact, 1),
+        "magnitude_pct": measured.get("magnitude_pct"),
+        "magnitude_basis": str(measured.get("magnitude_basis") or ""),
+        "event_kind": str(measured.get("kind") or ""),
         "price_veto": True,
     }
 

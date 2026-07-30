@@ -28,6 +28,7 @@ from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 
+from event_impact_lexicon_v1078 import assess_major_event, event_metadata_tags
 from models import NewsItem
 
 _TAIPEI = ZoneInfo("Asia/Taipei")
@@ -198,7 +199,8 @@ def _oil_event(now: datetime) -> NewsItem | None:
     day_key = now.strftime("%Y%m%d")
     if rising:
         title = (
-            f"Global Event Core｜中東/美伊供應風險推升油價｜{quote_text}｜"
+            f"Global Event Core｜油價快速上漲｜{quote_text}｜"
+            "此列只確認油價幅度，不自行推定戰爭原因；若戰爭/供給中斷新聞同步成立則升級衝擊｜"
             "傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決"
         )
     else:
@@ -206,19 +208,27 @@ def _oil_event(now: datetime) -> NewsItem | None:
             f"Global Event Core｜油價快速回落｜{quote_text}｜"
             "傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認"
         )
+    wti_pct = float((quotes.get("WTI") or {}).get("pct") or 0.0)
+    brent_pct = float((quotes.get("Brent") or {}).get("pct") or 0.0)
+    tag = _global_tag(
+        "energy",
+        severity,
+        f"oil_supply_shock_{day_key}",
+        "daily_headline",
+        "policy_geo",
+        "macro_event",
+        "oil_price_up" if rising else "oil_price_down",
+        f"magnitude_pct={lead_move:+.4f}",
+        f"wti_pct={wti_pct:+.4f}",
+        f"brent_pct={brent_pct:+.4f}",
+    )
+    impact = assess_major_event(title, tag)
+    tag = "|".join([tag, *event_metadata_tags(impact)])
     return NewsItem(
         "TINO_GlobalEventCore_YahooFinance",
         now.isoformat(timespec="seconds"),
         round(score, 3),
-        _global_tag(
-            "energy",
-            severity,
-            f"oil_supply_shock_{day_key}",
-            "daily_headline",
-            "policy_geo",
-            "macro_event",
-            "oil_price_up" if rising else "oil_price_down",
-        ),
+        tag,
         title,
         "https://finance.yahoo.com/quote/CL=F/",
     )
@@ -234,19 +244,21 @@ def _tariff_seed(now: datetime) -> NewsItem | None:
         "依品項為MFN與新增稅率合計至10%，並非所有商品一律額外加10%，豁免品項另計｜"
         "傳導：出口成本/轉嫁能力→毛利率→訂單移轉→電子與半導體供應鏈差異化；價格與實際公司曝險負責驗證"
     )
+    tag = _global_tag(
+        "trade_tariff",
+        3,
+        "ustr_tw_section301_10_20260723",
+        "daily_headline",
+        "policy_geo",
+        "trade_controls",
+        "tariff",
+    )
+    tag = "|".join([tag, *event_metadata_tags(assess_major_event(title, tag))])
     return NewsItem(
         "US Government USTR Official GlobalEventCore",
         now.isoformat(timespec="seconds"),
         -0.16,
-        _global_tag(
-            "trade_tariff",
-            3,
-            "ustr_tw_section301_10_20260723",
-            "daily_headline",
-            "policy_geo",
-            "trade_controls",
-            "tariff",
-        ),
+        tag,
         title,
         "https://ustr.gov/",
     )
@@ -267,18 +279,21 @@ def _pmi_seed(now: datetime) -> NewsItem | None:
     title = (
         f"Global Event Core｜美國7月S&P Global製造業PMI初值｜台灣21:45｜預期54.5｜{phase}｜{scenario}"
     )
+    tag = _global_tag(
+        "macro_pmi",
+        2,
+        "sp_global_us_mfg_pmi_flash_20260724",
+        "daily_headline",
+        "macro_event",
+        "pmi_pending",
+        "priority_tier=2",
+        "impact_score=34.0",
+    )
     return NewsItem(
         "S&P_Global_MacroCalendar",
         release.isoformat(timespec="seconds"),
         0.0,
-        _global_tag(
-            "macro_pmi",
-            2,
-            "sp_global_us_mfg_pmi_flash_20260724",
-            "daily_headline",
-            "macro_event",
-            "pmi_pending",
-        ),
+        tag,
         title,
         "https://www.spglobal.com/marketintelligence/en/mi/products/pmi.html",
     )
@@ -342,11 +357,13 @@ def _google_rss(query_text: str, hinted_family: str, now: datetime) -> List[News
         normalized = re.sub(r"[^0-9a-z]+", "", title.lower())
         digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:10]
         event_id = f"wire_{family}_{published.strftime('%Y%m%d')}_{digest}"
+        tag = _global_tag(family, severity, event_id, *labels)
+        tag = "|".join([tag, *event_metadata_tags(assess_major_event(title, tag))])
         rows.append(NewsItem(
             f"GoogleNewsGlobal/{publisher}",
             published.isoformat(timespec="seconds"),
             score,
-            _global_tag(family, severity, event_id, *labels),
+            tag,
             title,
             _clean(item.findtext("link")),
         ))

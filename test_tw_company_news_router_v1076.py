@@ -22,12 +22,16 @@ class TWCompanyNewsRouterV1076Tests(unittest.TestCase):
         plan = _tw_company_query_plan(ticker)
         self.assertEqual(
             [row[0] for row in plan],
-            ["earnings", "forward", "forward_risk", "analyst", "company_update"],
+            [
+                "capital_action", "earnings", "forward",
+                "forward_risk", "analyst", "company_update",
+            ],
         )
         self.assertIn("測試公司", plan[0][1])
         self.assertIn("9999", plan[0][1])
-        self.assertIn("自結", plan[0][1])
-        self.assertLessEqual(plan[0][2], 7)
+        self.assertIn("GDS", plan[0][1])
+        self.assertLessEqual(plan[0][2], 14)
+        self.assertIn("自結", plan[1][1])
 
     def test_earnings_slot_cannot_be_starved_by_generic_headlines(self):
         earnings = NewsItem(

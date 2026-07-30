@@ -25,6 +25,7 @@ from typing import Any, Dict, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from earnings_intelligence_v1072 import assess_earnings_evidence
+from event_impact_lexicon_v1078 import assess_major_event, PRIORITY_LABELS
 from price_truth_v1072 import price_truth
 
 
@@ -115,8 +116,11 @@ _FINANCING_POSITIVE = (
 )
 _FINANCING_NEGATIVE = (
     "stock offering", "share offering", "secondary offering", "dilution",
-    "convertible notes", "capital raise", "現金增資", "增資", "私募",
-    "可轉債", "稀釋",
+    "follow-on offering", "depositary share offering", "global depositary shares",
+    "global depositary receipts", "new share issuance", "convertible notes",
+    "capital raise", "gds", "gdr", "現金增資", "增資", "私募", "增發",
+    "募資", "發行新股", "新股發行", "折價發行", "全球存託憑證",
+    "海外存託憑證", "海外存託股份", "可轉債", "稀釋",
 )
 _LEGAL_POSITIVE = (
     "approval granted", "wins approval", "cleared by regulator", "lawsuit dismissed",
@@ -161,6 +165,7 @@ _FAMILY_LABELS = {
     "analyst_action": "評等／目標價",
     "orders_demand": "訂單／需求",
     "capital_financing": "資本／籌資",
+    "counterparty_event": "客戶／供應鏈事件",
     "regulatory_legal": "監管／法律",
     "merger_acquisition": "併購／策略投資",
     "product_execution": "產品／量產",
@@ -177,6 +182,7 @@ _MATERIALITY = {
     "earnings_package": 1.00,
     "scheduled_event": 0.72,
     "capital_financing": 0.92,
+    "counterparty_event": 0.62,
     "regulatory_legal": 0.90,
     "orders_demand": 0.84,
     "merger_acquisition": 0.82,
@@ -391,8 +397,21 @@ def _company_entity_scope(
     return "industry", False, "company_entity_unverified"
 
 
-def _family(text: str, tag: str, scope: str) -> str:
+def _family(
+    text: str,
+    tag: str,
+    scope: str,
+    major: Mapping[str, Any] | None = None,
+) -> str:
+    major = dict(major or {})
     if scope == "global":
+        major_family = str(major.get("family") or "")
+        if major_family == "energy_market":
+            return "energy_market"
+        if major_family == "trade_policy":
+            return "trade_policy"
+        if major_family == "geopolitical":
+            return "geopolitical"
         if _has(text, _ENERGY_TERMS):
             return "energy_market"
         if _has(text, _POLICY_TERMS):
@@ -404,14 +423,24 @@ def _family(text: str, tag: str, scope: str) -> str:
         return "global_market"
     if _has(text, _SCHEDULED_TERMS):
         return "scheduled_event"
+    if str(major.get("subject_role") or "") == "counterparty":
+        return "counterparty_event"
+    major_family = str(major.get("family") or "")
+    if major_family in {
+        "capital_financing", "regulatory_legal", "orders_demand",
+        "analyst_action", "earnings_package",
+    }:
+        return major_family
+    # Structural financing must be resolved before an earnings word elsewhere
+    # in the same headline (for example customer earnings plus a GDS offering).
+    if _has(text, (*_FINANCING_POSITIVE, *_FINANCING_NEGATIVE)):
+        return "capital_financing"
     if _has(text, _EARNINGS_TERMS) or "earnings" in tag:
         return "earnings_package"
     if _has(text, _ANALYST_TERMS) or "analyst_target" in tag:
         return "analyst_action"
     if _has(text, (*_ORDER_POSITIVE, *_ORDER_NEGATIVE)):
         return "orders_demand"
-    if _has(text, (*_FINANCING_POSITIVE, *_FINANCING_NEGATIVE)):
-        return "capital_financing"
     if _has(text, (*_LEGAL_POSITIVE, *_LEGAL_NEGATIVE)):
         return "regulatory_legal"
     if _has(text, _MNA_TERMS):
@@ -421,6 +450,20 @@ def _family(text: str, tag: str, scope: str) -> str:
     if _has(text, _POLICY_TERMS):
         return "regulatory_legal" if scope == "company" else "industry_event"
     return "industry_event" if scope == "industry" else "company_event"
+
+
+def _default_priority(family: str, scope: str) -> int:
+    if family in {"capital_financing", "regulatory_legal"}:
+        return 3
+    if family in {
+        "earnings_package", "scheduled_event", "orders_demand",
+        "product_execution", "trade_policy", "geopolitical",
+        "energy_market", "macro_release",
+    }:
+        return 2
+    if family in {"counterparty_event", "industry_event", "analyst_action"}:
+        return 1
+    return 1 if scope != "company" else 2
 
 
 def _semantic_score(text: str, tag: str, raw_score: float, family: str) -> float:
@@ -612,7 +655,29 @@ def _classify_rows(
             title, tag, raw_scope, ticker
         )
         text = f"{title} {tag}".lower()
-        family = _family(text, tag, scope)
+        major = assess_major_event(
+            title,
+            tag,
+            target_aliases=_ticker_aliases(ticker),
+            target_tag_verified=bool(entity_verified),
+        )
+        subject_role = str(major.get("subject_role") or "global")
+        if (
+            not bool(major.get("matched"))
+            and scope == "company"
+            and entity_verified
+        ):
+            subject_role = "self"
+            major = {
+                **major,
+                "subject_role": "self",
+                "event_owner": "target_company",
+                "subject_reason": "verified_company_route",
+            }
+        if scope == "company" and subject_role == "counterparty":
+            scope = "industry"
+            scope_reason = "counterparty_owned_event"
+        family = _family(text, tag, scope, major)
         published = _parse_timestamp(_value(item, "time"), now=reference)
         # A source clock in the future must not become trading evidence.
         if published is not None and published > reference + timedelta(minutes=10):
@@ -624,8 +689,30 @@ def _classify_rows(
         # "pending" weeks after publication.
         if family == "scheduled_event" and age_hours is not None and age_hours > 72.0:
             continue
-        materiality = _MATERIALITY.get(family, 0.50)
-        effective_score = semantic_score * freshness
+        priority_tier = max(
+            _default_priority(family, scope),
+            int(major.get("priority_tier") or 0),
+        )
+        materiality = max(
+            _MATERIALITY.get(family, 0.50),
+            {1: 0.52, 2: 0.70, 3: 0.86, 4: 0.98, 5: 1.00}.get(priority_tier, 0.50),
+        )
+        if subject_role == "counterparty":
+            materiality = min(materiality, 0.68)
+        causal_weight = (
+            0.45
+            if subject_role == "counterparty"
+            else 0.70
+            if scope == "industry"
+            else 1.20
+            if subject_role == "self" and priority_tier >= 4
+            else 1.00
+        )
+        effective_score = _clamp(
+            semantic_score * freshness * causal_weight,
+            -0.32,
+            0.32,
+        )
         rows.append({
             "index": index,
             "key": _event_key(item),
@@ -646,7 +733,17 @@ def _classify_rows(
             "semantic_score": round(semantic_score, 4),
             "effective_score": round(effective_score, 4),
             "freshness_weight": round(freshness, 4),
+            "causal_weight": round(causal_weight, 4),
             "materiality": materiality,
+            "priority_tier": priority_tier,
+            "priority_label": PRIORITY_LABELS.get(priority_tier, "未分級"),
+            "event_kind": str(major.get("kind") or "background"),
+            "event_subject_role": subject_role,
+            "event_owner": str(major.get("event_owner") or ""),
+            "event_subject_reason": str(major.get("subject_reason") or ""),
+            "impact_score": float(major.get("impact_score") or 0.0),
+            "magnitude_pct": major.get("magnitude_pct"),
+            "magnitude_basis": str(major.get("magnitude_basis") or ""),
             "scheduled": family == "scheduled_event",
         })
     return rows
@@ -723,6 +820,15 @@ def _structured_scheduled_row(
         "effective_score": 0.0,
         "freshness_weight": 1.0,
         "materiality": _MATERIALITY["scheduled_event"],
+        "priority_tier": 2,
+        "priority_label": PRIORITY_LABELS[2],
+        "event_kind": "scheduled_company_event",
+        "event_subject_role": "self",
+        "event_owner": "target_company",
+        "event_subject_reason": "structured_company_calendar",
+        "impact_score": 34.0,
+        "magnitude_pct": None,
+        "magnitude_basis": "verified_calendar",
         "scheduled": True,
         "event_date": raw_date[:10],
         "event_days": days,
@@ -731,14 +837,17 @@ def _structured_scheduled_row(
     }
 
 
-def _row_rank(row: Mapping[str, Any]) -> tuple[float, float, float, float]:
+def _row_rank(row: Mapping[str, Any]) -> tuple[float, float, float, float, float]:
     published = row.get("_published_dt")
     epoch = published.timestamp() if isinstance(published, datetime) else 0.0
     dated = 1.0 if isinstance(published, datetime) else 0.0
+    priority = float(row.get("priority_tier") or 0.0)
+    freshness = float(row.get("freshness_weight") or 0.0)
     return (
+        priority * freshness,
+        priority,
         dated,
         epoch,
-        float(row.get("materiality") or 0.0),
         abs(float(row.get("effective_score") or 0.0)),
     )
 
@@ -784,6 +893,7 @@ def _select_families(rows: Sequence[Mapping[str, Any]]) -> tuple[list[Dict[str, 
                 selected_keys.append(key)
     selected.sort(
         key=lambda row: (
+            float(row.get("priority_tier") or 0.0),
             float(row.get("materiality") or 0.0) * float(row.get("freshness_weight") or 0.0),
             abs(float(row.get("effective_score") or 0.0)),
             str(row.get("published_at") or ""),
@@ -838,6 +948,8 @@ def _family_contributions(
             "headline": title,
             "published_at": str(row.get("published_at") or ""),
             "materiality": float(row.get("materiality") or 0.0),
+            "priority_tier": int(row.get("priority_tier") or 0),
+            "impact_score": float(row.get("impact_score") or 0.0),
             "counted_once": True,
         })
     return contributions
@@ -862,6 +974,18 @@ def _dominant_event(
     if not selected_company:
         return {}
     rows = list(selected_company)
+    structural = [
+        row for row in rows
+        if int(row.get("priority_tier") or 0) >= 4
+        and str(row.get("event_subject_role") or "") == "self"
+        and str(row.get("scope") or "") == "company"
+        and (
+            row.get("age_hours") is None
+            or float(row.get("age_hours") or 0.0) <= 24.0 * 7.0
+        )
+    ]
+    if structural:
+        return dict(max(structural, key=_row_rank))
     scheduled_rows = [
         row for row in rows if str(row.get("family") or "") == "scheduled_event"
     ]
@@ -908,7 +1032,12 @@ def _dominant_event(
                 "forward_raise": 0.16,
                 "backward_beat_only": 0.10,
             }.get(str(earnings.get("state") or ""), float(chosen.get("semantic_score") or 0.0))
-            return out
+            non_earnings = [
+                row for row in rows
+                if str(row.get("family") or "") != "earnings_package"
+            ]
+            if not non_earnings or _row_rank(out) >= _row_rank(max(non_earnings, key=_row_rank)):
+                return out
     return dict(max(
         rows,
         key=lambda row: (
@@ -1042,18 +1171,40 @@ def analyze_news_causality(
     event_materiality = float(dominant.get("materiality") or 0.0)
     dominant_scope = str(dominant.get("scope") or "")
     dominant_entity_verified = bool(dominant.get("entity_verified"))
+    dominant_subject_role = str(dominant.get("event_subject_role") or "")
+    dominant_priority_tier = int(dominant.get("priority_tier") or 0)
+    dominant_impact_score = float(dominant.get("impact_score") or 0.0)
     if causal_state == "event_awaiting_market_reaction" and event_materiality >= 0.68:
         entry_gate = "block_until_first_reaction"
     elif causal_state == "scheduled_event_pending":
         entry_gate = "event_caution"
-    elif reaction_state == "reaction_in_progress" and (abs(price_pct) >= 3.0 or event_materiality >= 0.85):
+    elif (
+        reaction_state == "reaction_in_progress"
+        and (abs(price_pct) >= 3.0 or event_materiality >= 0.85)
+        and (
+            reaction.get("minutes_of_price_reaction") is None
+            or float(reaction.get("minutes_of_price_reaction") or 0.0) < 30.0
+        )
+    ):
         entry_gate = "wait_15_30m"
     else:
         entry_gate = "normal"
 
     headline = str(dominant.get("headline") or "")
-    event_subject = "產業敘事" if dominant_scope == "industry" else "公司事件"
-    if causal_state == "event_awaiting_market_reaction":
+    event_subject = (
+        "客戶／供應鏈事件"
+        if dominant_subject_role == "counterparty"
+        else "產業敘事"
+        if dominant_scope == "industry"
+        else "公司事件"
+    )
+    dominant_family = str(dominant.get("family") or "")
+    if (
+        causal_state == "event_price_confirming"
+        and dominant_family == "capital_financing"
+    ):
+        causal_text = "公司級籌資利空已獲價格確認；短期由折價、稀釋與新增供給主導，等待收復發行區與VWAP"
+    elif causal_state == "event_awaiting_market_reaction":
         causal_text = f"{event_subject}已公布，但現有價格形成於事件之前；尚未經市場驗證，等待下一交易時段首次反應"
     elif causal_state == "scheduled_event_pending":
         causal_text = "事件尚未正式公布；不預設利多或利空，公布後重新查詢並等待價格確認"
@@ -1110,6 +1261,7 @@ def analyze_news_causality(
             if dominant
             and dominant_scope == "company"
             and dominant_entity_verified
+            and dominant_subject_role in {"self", ""}
             and event_materiality >= 0.68
             and causal_state not in {"event_context_only", "event_time_unverified"}
             else "industry_narrative"
@@ -1139,10 +1291,17 @@ def analyze_news_causality(
             if key not in {"_published_dt", "index"}
         },
         "dominant_headline": headline,
-        "dominant_family": str(dominant.get("family") or ""),
+        "dominant_family": dominant_family,
         "dominant_family_label": str(dominant.get("family_label") or ""),
         "dominant_published_at": str(dominant.get("published_at") or ""),
         "dominant_materiality": event_materiality,
+        "dominant_priority_tier": dominant_priority_tier,
+        "dominant_priority_label": PRIORITY_LABELS.get(dominant_priority_tier, "未分級"),
+        "dominant_impact_score": round(dominant_impact_score, 1),
+        "dominant_subject_role": dominant_subject_role,
+        "dominant_event_owner": str(dominant.get("event_owner") or ""),
+        "dominant_magnitude_pct": dominant.get("magnitude_pct"),
+        "dominant_magnitude_basis": str(dominant.get("magnitude_basis") or ""),
         "dominant_scope": dominant_scope,
         "dominant_entity_verified": dominant_entity_verified,
         "causal_text": causal_text,
@@ -1155,6 +1314,7 @@ def analyze_news_causality(
         "selected_global_events": selected_global,
         "selected_keys": list(dict.fromkeys([*company_keys, *global_keys])),
         "family_deduplicated": True,
+        "event_lexicon_schema": "TINO_EVENT_IMPACT_LEXICON_V1078",
         "price_veto": True,
         "narrative_gate_only": False,
     }
