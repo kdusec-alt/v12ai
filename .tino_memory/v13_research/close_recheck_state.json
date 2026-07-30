@@ -8,19 +8,20 @@
     "2454.TW",
     "3661.TW",
     "3702.TW",
-    "5469.TW"
+    "5469.TW",
+    "6586.TWO"
   ],
   "context_updated": 0,
   "error_tickers": [],
   "errors": 0,
-  "formal_written": 9,
-  "last_run_time_tw": "2026-07-30T17:30:29+08:00",
-  "remaining": 4,
+  "formal_written": 10,
+  "last_run_time_tw": "2026-07-30T17:33:33+08:00",
+  "remaining": 3,
   "status": "partial",
   "today_tickers": 16,
   "trade_date": "2026-07-30",
   "unchanged": 0,
-  "updated": 9,
+  "updated": 10,
   "waiting_institution": 0,
   "waiting_tickers": []
 }
