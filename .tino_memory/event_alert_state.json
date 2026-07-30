@@ -46,6 +46,54 @@
     },
     {
       "acknowledged": false,
+      "category": "geo_trade_controls",
+      "cooling_count": 0,
+      "event_id": "EV-FE4B47983D28AA",
+      "event_key": "global:geopolitical:general_geo",
+      "family": "geopolitical",
+      "fingerprint": "08f501a906c44b1d",
+      "first_seen_at": "2026-07-24T14:16:34+00:00",
+      "first_seen_epoch": 1784902594.499664,
+      "last_evidence_epoch": 1785400800.321834,
+      "last_seen_at": "2026-07-30T08:40:00+00:00",
+      "last_seen_epoch": 1785400800.321834,
+      "last_transition_at": "2026-07-30T08:40:00+00:00",
+      "peak_severity": 4,
+      "reinforcement_count": 195,
+      "related_fingerprints": [
+        "aabac0b63936271b",
+        "79fc49735793942b",
+        "31961938403d485d",
+        "05a828cdfe09d03e",
+        "89f503aa89723729",
+        "e3a403e5c3b41a51",
+        "853c89056676b1a2",
+        "1333c1315057e732"
+      ],
+      "risk_sign": -1,
+      "scope": "global",
+      "severity": 3,
+      "source": "GoogleNewsGlobal/WKYC",
+      "source_markets": [
+        "GLOBAL",
+        "US"
+      ],
+      "source_tickers": [
+        "AMD",
+        "INTC",
+        "AMZN",
+        "GLOBAL",
+        "5483.TWO",
+        "2327.TW",
+        "5469.TW",
+        "6586.TWO"
+      ],
+      "status": "active_red",
+      "title": "Editorial Roundup: United States - WKYC",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
+    },
+    {
+      "acknowledged": false,
       "category": "macro_release_pending",
       "cooling_count": 0,
       "event_id": "EV-717A2AC87DC8DC",
@@ -87,54 +135,6 @@
       "status": "active_red",
       "title": "Banking Essentials Newsletter: July 29th Edition - spglobal.com",
       "transition_reason": "市場衝擊 L3 跨市場衝擊 18/100｜PMI成長訊號｜PMI公布前只提高不確定性；公布後須用預期差、殖利率、美元與價格反應確認"
-    },
-    {
-      "acknowledged": false,
-      "category": "geo_trade_controls",
-      "cooling_count": 0,
-      "event_id": "EV-FE4B47983D28AA",
-      "event_key": "global:geopolitical:general_geo",
-      "family": "geopolitical",
-      "fingerprint": "1333c1315057e732",
-      "first_seen_at": "2026-07-24T14:16:34+00:00",
-      "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785391934.951935,
-      "last_seen_at": "2026-07-30T06:12:14+00:00",
-      "last_seen_epoch": 1785391934.951935,
-      "last_transition_at": "2026-07-30T06:12:14+00:00",
-      "peak_severity": 4,
-      "reinforcement_count": 194,
-      "related_fingerprints": [
-        "a064c1657c245649",
-        "aabac0b63936271b",
-        "79fc49735793942b",
-        "31961938403d485d",
-        "05a828cdfe09d03e",
-        "89f503aa89723729",
-        "e3a403e5c3b41a51",
-        "853c89056676b1a2"
-      ],
-      "risk_sign": -1,
-      "scope": "global",
-      "severity": 3,
-      "source": "GoogleNewsGlobal/VisionMonday.com",
-      "source_markets": [
-        "GLOBAL",
-        "US"
-      ],
-      "source_tickers": [
-        "AMD",
-        "INTC",
-        "AMZN",
-        "GLOBAL",
-        "5483.TWO",
-        "2327.TW",
-        "5469.TW",
-        "6586.TWO"
-      ],
-      "status": "active_red",
-      "title": "The Vision Council Highlights Latest Tariff Impacts on Optical Industry - VisionMonday.com",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
       "acknowledged": false,
@@ -209,5 +209,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-30T07:48:37+00:00"
+  "updated_at": "2026-07-30T08:40:00+00:00"
 }
