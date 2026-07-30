@@ -80,14 +80,14 @@
         "US"
       ],
       "source_tickers": [
-        "GLOBAL",
         "MU",
         "MRVL",
         "2330.TW",
         "FORM",
         "SNDK",
         "AMD",
-        "INTC"
+        "INTC",
+        "AMZN"
       ],
       "status": "active_red",
       "title": "US Effective Tariff Rate Falls To 7.4% On Latest Tariffs And Changing Trade Flows: Fitch Report - BusinessToday Malaysia",
@@ -210,5 +210,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-30T02:30:31+00:00"
+  "updated_at": "2026-07-30T02:30:32+00:00"
 }
