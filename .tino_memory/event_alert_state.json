@@ -80,14 +80,14 @@
         "US"
       ],
       "source_tickers": [
-        "SNDK",
         "AMD",
         "INTC",
         "AMZN",
         "GLOBAL",
         "5483.TWO",
         "2327.TW",
-        "5469.TW"
+        "5469.TW",
+        "6586.TWO"
       ],
       "status": "active_red",
       "title": "US Effective Tariff Rate falls to 7.4% under new trade regime - Mettis Global",
@@ -210,5 +210,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-30T05:53:17+00:00"
+  "updated_at": "2026-07-30T05:53:19+00:00"
 }
