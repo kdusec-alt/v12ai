@@ -30,6 +30,8 @@ from bubble_radar import assess_bubble_risk, bubble_radar_line
 from price_truth_v1072 import attach_price_truth, price_truth, scoped_vwap_state
 from prediction_trust_v1072 import assess_prediction_trust
 from earnings_intelligence_v1072 import assess_earnings_evidence
+from market_regime_v1077 import build_market_regime_shadow
+from final_arbiter_v1077 import run_final_arbiter
 from news_causal_intelligence_v1073 import (
     analyze_news_causality,
     news_causal_line,
@@ -1517,6 +1519,26 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
 
     final_t0 = apply_market_bounds(raw.raw_t0 + (final_t1 - raw.raw_t1) * 0.20, price.previous_close, price.ticker.market, price.ticker.price_limit_pct)
     decision = _decision_card(price, raw, score, final_t1, final_low, direction, bubble, effective_news_items)
+    # V1077 runs one final, observation-only arbitration pass after Direction,
+    # Trust, News Causality and Decision Thesis have all finished.  The payload
+    # is persisted for shadow audit and overwrite detection; it cannot mutate
+    # any formal price, probability, confidence, entry level or learning weight.
+    market_regime_shadow = build_market_regime_shadow(price, direction)
+    final_arbiter_shadow = run_final_arbiter(
+        direction=direction,
+        decision_thesis=(
+            decision.get("_decision_thesis")
+            if isinstance(decision.get("_decision_thesis"), dict) else {}
+        ),
+        prediction_trust=trust,
+        market_regime=market_regime_shadow,
+        news_causal=causal_news,
+    )
+    decision["_market_regime_v1077"] = market_regime_shadow
+    decision["_final_arbiter_v1077"] = final_arbiter_shadow
+    if isinstance(price.context, dict):
+        price.context["market_regime_v1077"] = market_regime_shadow
+        price.context["final_arbiter_v1077"] = final_arbiter_shadow
     decision["_direction_ensemble_weight"] = ensemble_weight
     radar = _radar(price, raw, signals, confidence, effective_news_items, direction)
     trace = PredictionTrace(price.ticker.resolved_symbol, raw.raw_t1, steps, final_t1)
