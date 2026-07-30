@@ -79,14 +79,14 @@
         "US"
       ],
       "source_tickers": [
-        "2330.TW",
         "FORM",
         "SNDK",
         "AMD",
         "INTC",
         "AMZN",
         "GLOBAL",
-        "5483.TWO"
+        "5483.TWO",
+        "2327.TW"
       ],
       "status": "active_red",
       "title": "Economic strain mounts ahead of midterm elections - China Daily Global Edition",
@@ -209,5 +209,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-30T02:42:07+00:00"
+  "updated_at": "2026-07-30T02:45:20+00:00"
 }
