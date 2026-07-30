@@ -1,5 +1,6 @@
 {
   "completed_tickers": [
+    "00981A.TW",
     "2327.TW",
     "2382.TW",
     "2408.TW",
@@ -9,14 +10,14 @@
   "context_updated": 0,
   "error_tickers": [],
   "errors": 0,
-  "formal_written": 5,
-  "last_run_time_tw": "2026-07-30T17:17:16+08:00",
-  "remaining": 10,
+  "formal_written": 6,
+  "last_run_time_tw": "2026-07-30T17:21:14+08:00",
+  "remaining": 9,
   "status": "partial",
   "today_tickers": 15,
   "trade_date": "2026-07-30",
   "unchanged": 0,
-  "updated": 5,
+  "updated": 6,
   "waiting_institution": 0,
   "waiting_tickers": []
 }
