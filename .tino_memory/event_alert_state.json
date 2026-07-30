@@ -7,29 +7,29 @@
       "event_id": "EV-8EF02DA37AF306",
       "event_key": "global:geopolitical:iran_middle_east",
       "family": "geopolitical",
-      "fingerprint": "a0f4b8d6669e4813",
+      "fingerprint": "675ec478c1ac00db",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785371581.97067,
-      "last_seen_at": "2026-07-30T00:33:01+00:00",
-      "last_seen_epoch": 1785371581.97067,
-      "last_transition_at": "2026-07-30T00:33:01+00:00",
+      "last_evidence_epoch": 1785372105.028754,
+      "last_seen_at": "2026-07-30T00:41:45+00:00",
+      "last_seen_epoch": 1785372105.028754,
+      "last_transition_at": "2026-07-30T00:41:45+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 17,
+      "reinforcement_count": 18,
       "related_fingerprints": [
-        "d5e90c5b00ecda5b",
         "83b0633721a1a6f2",
         "51e8fc4f6632e6be",
         "80f17bf3c698c0c0",
         "1791420e3b58f9e5",
         "1028fbd89e84a37d",
         "abfdc71d83b8e15e",
-        "03b439314a25bcb3"
+        "03b439314a25bcb3",
+        "a0f4b8d6669e4813"
       ],
       "risk_sign": -1,
       "scope": "global",
       "severity": 4,
-      "source": "GoogleNewsGlobal/uk.finance.yahoo.com",
+      "source": "GoogleNewsGlobal/Yahoo Finance UK",
       "source_markets": [
         "GLOBAL"
       ],
@@ -41,7 +41,7 @@
         "INTC"
       ],
       "status": "active_red",
-      "title": "Oil Surges as Renewed U.S.-Iran Conflict and Falling Inventories Boost Crude Prices - uk.finance.yahoo.com",
+      "title": "Oil Surges as Renewed U.S.-Iran Conflict and Falling Inventories Boost Crude Prices - Yahoo Finance UK",
       "transition_reason": "市場衝擊 L4 系統性壓力 28/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
@@ -209,5 +209,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-30T00:33:01+00:00"
+  "updated_at": "2026-07-30T00:41:45+00:00"
 }
