@@ -15,6 +15,11 @@ from typing import Dict, List, Tuple
 from zoneinfo import ZoneInfo
 import pandas as pd
 from models import NewsItem, PriceFrame, TickerInfo
+from news_timestamp_provenance_v1079 import (
+    append_provenance_tag,
+    guarded_score,
+    resolve_aggregator_timestamp,
+)
 from truth_guard import make_truth, parse_date_safe, today_taipei_date, validate_official_block
 from data_sources_tw_live_price import fetch_twse_mis_live_price, fetch_google_finance_reference
 from foreign_flow_predicto import predict_foreign_flow_v2
@@ -1777,6 +1782,9 @@ def _google_news(query: str, limit: int = 12, window_days: int = 60) -> List[New
                 continue
             seen.add(title)
             score, tag = _score_news(title)
+            provenance = resolve_aggregator_timestamp(pub, link)
+            score = guarded_score(score, provenance)
+            tag = append_provenance_tag(tag, provenance)
             source_node = item.find("source")
             publisher = re.sub(
                 r"\s+",
@@ -1784,7 +1792,10 @@ def _google_news(query: str, limit: int = 12, window_days: int = 60) -> List[New
                 source_node.text if source_node is not None and source_node.text else "",
             ).strip()
             source = f"GoogleNewsTW/{publisher}" if publisher else "GoogleNewsTW"
-            items.append(NewsItem(source, _tw_news_time_label(pub), score, tag, title, link))
+            items.append(NewsItem(
+                source, provenance.display_time, score, tag, title,
+                provenance.publisher_url or link,
+            ))
             if len(items) >= limit:
                 break
         return items

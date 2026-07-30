@@ -16,6 +16,7 @@ from typing import Any, Dict, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from event_impact_lexicon_v1078 import assess_major_event
+from news_timestamp_provenance_v1079 import timestamp_is_model_eligible
 
 _TAIPEI = ZoneInfo("Asia/Taipei")
 _NEW_YORK = ZoneInfo("America/New_York")
@@ -334,6 +335,8 @@ def assess_event_delta(
     seen = set(news_fingerprints(previous_news))
     new_events = []
     for item in (latest_news or []):
+        if not timestamp_is_model_eligible(item):
+            continue
         fp = event_fingerprint(item)
         if not fp or fp in seen:
             continue

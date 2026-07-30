@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 
 from earnings_intelligence_v1072 import assess_earnings_evidence
 from event_impact_lexicon_v1078 import assess_major_event, PRIORITY_LABELS
+from news_timestamp_provenance_v1079 import timestamp_is_model_eligible
 from price_truth_v1072 import price_truth
 
 
@@ -646,6 +647,8 @@ def _classify_rows(
 ) -> list[Dict[str, Any]]:
     rows: list[Dict[str, Any]] = []
     for index, item in enumerate(news_items or []):
+        if not timestamp_is_model_eligible(item):
+            continue
         title = _clean(_value(item, "title"))
         if not title or any(token.lower() in title.lower() for token in _PLACEHOLDER_TEXT):
             continue
@@ -1325,7 +1328,7 @@ def select_effective_news_items(
     assessment: Mapping[str, Any] | None,
 ) -> list[Any]:
     """Return newest independent families while preserving original objects."""
-    rows = list(news_items or [])
+    rows = [item for item in (news_items or []) if timestamp_is_model_eligible(item)]
     selected = set(str(key) for key in (assessment or {}).get("selected_keys", []) if key)
     if not selected:
         return rows
