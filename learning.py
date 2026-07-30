@@ -236,6 +236,31 @@ def prediction_signature(forecast: FinalForecast) -> str:
         str(forecast.reality_anchor),
     ])
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
+
+
+def _official_sample_key(
+    *,
+    market: str,
+    ticker: str,
+    target_trade_date: str,
+    target_kind: str = "T1_CLOSE_NEXT_SESSION",
+) -> str:
+    """Stable key for the one official sample in a ticker/target session.
+
+    ``prediction_log`` remains an append-only state trace.  Event revisions and
+    intraday reruns therefore keep distinct prediction IDs, while Auto Audit
+    can use this key to identify the latest formal sample without treating every
+    query as an independent observation.
+    """
+    raw = "|".join([
+        str(market or "").upper(),
+        str(ticker or "").upper(),
+        str(target_trade_date or "")[:10],
+        str(target_kind or "T1_CLOSE_NEXT_SESSION"),
+    ])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
 def forecast_snapshot(
     forecast: FinalForecast,
     macro: str = "neutral",
@@ -251,6 +276,22 @@ def forecast_snapshot(
     if predicted_direction not in {"UP", "DOWN", "NEUTRAL"}:
         predicted_direction = "UP" if predicted_return_pct > 0.30 else "DOWN" if predicted_return_pct < -0.30 else "NEUTRAL"
     revision = dict(revision_meta or {})
+    target_trade_date = target_trade_date_for_forecast(forecast)
+    target_kind = "T1_CLOSE_NEXT_SESSION"
+    official_sample_key = _official_sample_key(
+        market=forecast.ticker.market,
+        ticker=forecast.ticker.resolved_symbol,
+        target_trade_date=target_trade_date,
+        target_kind=target_kind,
+    )
+    market_regime_shadow = (
+        dict(card.get("_market_regime_v1077") or {})
+        if isinstance(card.get("_market_regime_v1077"), dict) else {}
+    )
+    final_arbiter_shadow = (
+        dict(card.get("_final_arbiter_v1077") or {})
+        if isinstance(card.get("_final_arbiter_v1077"), dict) else {}
+    )
     base_prediction_id = prediction_signature(forecast)
     event_bundle_id = str(revision.get("event_bundle_id") or revision.get("event_fingerprint") or "").strip()
     prediction_id = base_prediction_id
@@ -260,10 +301,11 @@ def forecast_snapshot(
         ).hexdigest()[:16]
     row = {
         "id": prediction_id,
+        "official_sample_key": official_sample_key,
         "run_time_tw": _now(),
         "run_date_tw": _run_date_tw(),
-        "target_trade_date": target_trade_date_for_forecast(forecast),
-        "target_kind": "T1_CLOSE_NEXT_SESSION",
+        "target_trade_date": target_trade_date,
+        "target_kind": target_kind,
         "session_mode": _forecast_session_mode(forecast),
         "data_label": _forecast_data_label(forecast),
         "model_version": VERSION,
@@ -313,11 +355,18 @@ def forecast_snapshot(
         "tv_pressure": dict(card.get("_tv_pressure", {}) or {}),
         "decision_thesis": dict((card.get("_decision_thesis") or {})),
         "prediction_trust": dict((card.get("_prediction_trust") or {})),
+        "market_regime_v1077": market_regime_shadow,
+        "final_arbiter_v1077": final_arbiter_shadow,
+        "predicted_market_state": market_regime_shadow.get("state"),
+        "predicted_market_transition": market_regime_shadow.get("transition"),
+        "shadow_action": final_arbiter_shadow.get("shadow_action"),
+        "shadow_direction_call": final_arbiter_shadow.get("direction_call"),
         "price_truth": dict((card.get("_price_truth") or {})),
         "truths": [getattr(x, "__dict__", {}) for x in forecast.data_truths],
         "trace": forecast.trace.to_rows() if forecast.trace else [],
         "prediction_dna": prediction_dna(forecast, direction, card),
         "learning_schema": "V14_BOUNDED_WEIGHT_LEARNING_V1",
+        "shadow_learning_schema": "V1077_MULTI_TARGET_AUDIT_SHADOW_V1",
         "audited": False,
     }
     if event_bundle_id:
@@ -409,6 +458,252 @@ def _classify_error(forecast: FinalForecast, actual_close: float, err_pct: float
     if "事件" in radar_text and abs(err_pct) >= 2.5:
         return "Macro overfit"
     return "under_prediction" if err_pct > 0 else "over_prediction"
+
+
+def _range_overlap_pct(
+    predicted_low: float,
+    predicted_high: float,
+    actual_low: float,
+    actual_high: float,
+) -> float | None:
+    if not (
+        predicted_low > 0
+        and predicted_high > predicted_low
+        and actual_low > 0
+        and actual_high > actual_low
+    ):
+        return None
+    overlap = max(0.0, min(predicted_high, actual_high) - max(predicted_low, actual_low))
+    return overlap / (actual_high - actual_low) * 100.0
+
+
+def _regime_next_session_hit(
+    state: str,
+    *,
+    actual_return_pct: float,
+    close_location: float,
+    mae_pct: float | None,
+    rebound_close: bool,
+    continuation_down: bool,
+    lower_low_recovered: bool,
+) -> bool | None:
+    """Daily-OHLC proxy for validating the shadow state, not formal learning."""
+    state = str(state or "")
+    mae = float(mae_pct or 0.0)
+    if state in {"selling_expansion", "panic_acceleration", "deleveraging"}:
+        return bool(continuation_down or actual_return_pct < -0.30 or mae >= 1.25)
+    if state == "selling_exhaustion":
+        return bool(
+            not continuation_down
+            and (
+                lower_low_recovered
+                or rebound_close
+                or actual_return_pct >= -0.30
+                or close_location >= 0.55
+            )
+        )
+    if state == "bottom_probe":
+        return bool(
+            not continuation_down
+            and (lower_low_recovered or rebound_close or close_location >= 0.50)
+        )
+    if state == "rebound_confirmed":
+        return bool(rebound_close and actual_return_pct > 0.30)
+    if state == "trend_repair":
+        return bool(actual_return_pct >= -0.30 and close_location >= 0.45)
+    return None
+
+
+def _multi_target_shadow_metrics(
+    row: Mapping[str, Any],
+    snap: Mapping[str, Any],
+    *,
+    target: str,
+    actual_close: float,
+    predicted_direction: str,
+    neutral_band: float,
+) -> Dict[str, Any]:
+    """Build path/range/regime targets without changing formal model weights."""
+    if target != "next":
+        return {
+            "schema": "V1077_MULTI_TARGET_AUDIT_SHADOW_V1",
+            "eligible": False,
+            "decision_influence": False,
+            "reason": "T1 next-session only",
+        }
+
+    anchor = _safe_float(row.get("anchor_close") or row.get("spot_last"), 0.0)
+    actual_open = _safe_float(snap.get("actual_open"), anchor)
+    actual_high = _safe_float(snap.get("actual_high"), max(actual_open, actual_close))
+    actual_low = _safe_float(snap.get("actual_low"), min(actual_open, actual_close))
+    actual_high = max(actual_high, actual_open, actual_close)
+    actual_low = min(value for value in (actual_low, actual_open, actual_close) if value > 0)
+    day_range = max(actual_high - actual_low, anchor * 0.001 if anchor > 0 else 0.01, 0.01)
+    close_location = max(0.0, min(1.0, (actual_close - actual_low) / day_range))
+    gap_pct = ((actual_open - anchor) / anchor * 100.0) if anchor > 0 else None
+    actual_return_pct = ((actual_close - anchor) / anchor * 100.0) if anchor > 0 else 0.0
+    atr = _safe_float(
+        ((row.get("market_regime_v1077") or {}).get("features") or {}).get("atr")
+        if isinstance(row.get("market_regime_v1077"), Mapping) else 0.0,
+        0.0,
+    )
+    atr_pct = (atr / anchor * 100.0) if anchor > 0 and atr > 0 else None
+
+    mfe_pct: float | None = None
+    mae_pct: float | None = None
+    if anchor > 0 and predicted_direction == "UP":
+        mfe_pct = max(actual_high - anchor, 0.0) / anchor * 100.0
+        mae_pct = max(anchor - actual_low, 0.0) / anchor * 100.0
+    elif anchor > 0 and predicted_direction == "DOWN":
+        mfe_pct = max(anchor - actual_low, 0.0) / anchor * 100.0
+        mae_pct = max(actual_high - anchor, 0.0) / anchor * 100.0
+
+    predicted_low = _safe_float(row.get("next_low_est"), 0.0)
+    predicted_high = _safe_float(row.get("next_high_est"), 0.0)
+    high_target_touched = (
+        bool(actual_high >= predicted_high) if predicted_high > 0 and actual_high > 0 else None
+    )
+    low_target_touched = (
+        bool(actual_low <= predicted_low) if predicted_low > 0 and actual_low > 0 else None
+    )
+    overlap_pct = _range_overlap_pct(
+        predicted_low,
+        predicted_high,
+        actual_low,
+        actual_high,
+    )
+
+    lower_low_recovered = bool(
+        anchor > 0
+        and actual_low < anchor * (1.0 - max(neutral_band, 0.05) / 100.0)
+        and (actual_close > anchor or close_location >= 0.65)
+    )
+    rebound_close = bool(
+        anchor > 0
+        and actual_close > anchor * (1.0 + max(neutral_band, 0.05) / 100.0)
+        and close_location >= 0.60
+    )
+    continuation_down = bool(
+        anchor > 0
+        and actual_close < anchor * (1.0 - max(neutral_band, 0.05) / 100.0)
+        and close_location <= 0.38
+    )
+    two_sided = bool(anchor > 0 and actual_low < anchor < actual_high)
+    if lower_low_recovered:
+        path_proxy = "lower_low_recovered"
+    elif continuation_down:
+        path_proxy = "continuation_down"
+    elif rebound_close:
+        path_proxy = "rebound_close"
+    elif two_sided:
+        path_proxy = "two_sided_range"
+    else:
+        path_proxy = "contained_range"
+
+    actual_vwap = _safe_float(
+        snap.get("actual_vwap") if snap.get("actual_vwap") is not None else snap.get("vwap"),
+        0.0,
+    )
+    actual_vwap_reclaimed = bool(actual_close >= actual_vwap) if actual_vwap > 0 else None
+    state = str(
+        row.get("predicted_market_state")
+        or (
+            (row.get("market_regime_v1077") or {}).get("state")
+            if isinstance(row.get("market_regime_v1077"), Mapping) else ""
+        )
+        or ""
+    )
+    regime_hit = _regime_next_session_hit(
+        state,
+        actual_return_pct=actual_return_pct,
+        close_location=close_location,
+        mae_pct=mae_pct,
+        rebound_close=rebound_close,
+        continuation_down=continuation_down,
+        lower_low_recovered=lower_low_recovered,
+    )
+
+    action = str(
+        row.get("shadow_action")
+        or (
+            (row.get("final_arbiter_v1077") or {}).get("shadow_action")
+            if isinstance(row.get("final_arbiter_v1077"), Mapping) else ""
+        )
+        or ""
+    )
+    defensive_actions = {
+        "BLOCKED",
+        "DEFEND",
+        "WAIT_CONFIRMATION",
+        "EXHAUSTION_WATCH",
+    }
+    drawdown_threshold = max(1.25, (atr_pct or 0.0) * 0.75)
+    avoided_drawdown = bool(
+        action in defensive_actions
+        and (
+            continuation_down
+            or actual_return_pct < -max(neutral_band, 0.30)
+            or float(mae_pct or 0.0) >= drawdown_threshold
+        )
+    )
+    missed_rebound = bool(
+        action in defensive_actions
+        and rebound_close
+        and actual_return_pct >= max(1.0, neutral_band)
+    )
+    confirmation_followthrough = bool(
+        action in {"CONFIRMED_REBOUND", "TREND_FOLLOW", "CONDITIONAL", "TEST_ONLY"}
+        and (
+            rebound_close
+            or float(mfe_pct or 0.0) >= max(1.0, atr_pct or 0.0)
+        )
+    )
+    if avoided_drawdown:
+        action_outcome = "avoided_drawdown"
+    elif missed_rebound:
+        action_outcome = "missed_rebound"
+    elif confirmation_followthrough:
+        action_outcome = "confirmation_followthrough"
+    elif action in defensive_actions:
+        action_outcome = "correct_wait"
+    elif continuation_down:
+        action_outcome = "failed_confirmation"
+    else:
+        action_outcome = "inconclusive"
+
+    return {
+        "schema": "V1077_MULTI_TARGET_AUDIT_SHADOW_V1",
+        "eligible": True,
+        "decision_influence": False,
+        "evaluation_basis": "official_daily_ohlc_proxy",
+        "official_sample_key": row.get("official_sample_key"),
+        "predicted_market_state": state or None,
+        "predicted_market_transition": row.get("predicted_market_transition"),
+        "shadow_action": action or None,
+        "actual_gap_pct": round(gap_pct, 4) if gap_pct is not None else None,
+        "actual_close_location": round(close_location, 4),
+        "intraday_range_pct": round(day_range / anchor * 100.0, 4) if anchor > 0 else None,
+        "mfe_pct": round(mfe_pct, 4) if mfe_pct is not None else None,
+        "mae_pct": round(mae_pct, 4) if mae_pct is not None else None,
+        "mfe_atr": round((mfe_pct / atr_pct), 4) if mfe_pct is not None and atr_pct else None,
+        "mae_atr": round((mae_pct / atr_pct), 4) if mae_pct is not None and atr_pct else None,
+        "high_target_touched": high_target_touched,
+        "low_target_touched": low_target_touched,
+        "actual_range_overlap_pct": round(overlap_pct, 4) if overlap_pct is not None else None,
+        "actual_vwap_reclaimed": actual_vwap_reclaimed,
+        "ohlc_path_proxy": path_proxy,
+        "lower_low_recovered_proxy": lower_low_recovered,
+        "rebound_close_proxy": rebound_close,
+        "continuation_down_proxy": continuation_down,
+        "regime_next_session_hit": regime_hit,
+        "action_outcome": action_outcome,
+        "avoidance_success": avoided_drawdown,
+        "missed_rebound": missed_rebound,
+        "confirmation_followthrough": confirmation_followthrough,
+        "formal_weights_changed": False,
+    }
+
+
 def audit_prediction_row(
     row: Dict[str, Any],
     actual_close: float,
@@ -482,8 +777,25 @@ def audit_prediction_row(
     defense_stop = _safe_float(row.get("defense_stop"), 0.0)
     defense_touched = bool(defense_stop > 0 and actual_low > 0 and actual_low <= defense_stop)
     actual_valid = bool(snap.get("actual_valid", True))
+    multi_target_shadow = _multi_target_shadow_metrics(
+        row,
+        snap,
+        target=target,
+        actual_close=actual,
+        predicted_direction=predicted_direction,
+        neutral_band=neutral_band,
+    )
     audit = {
         "audit_id": audit_id,
+        "official_sample_key": (
+            row.get("official_sample_key")
+            or _official_sample_key(
+                market=str(row.get("market") or ""),
+                ticker=ticker,
+                target_trade_date=str(row.get("target_trade_date") or ""),
+                target_kind=str(row.get("target_kind") or "T1_CLOSE_NEXT_SESSION"),
+            )
+        ),
         "audit_time_tw": _now(),
         "audit_date_tw": _run_date_tw(),
         "prediction_id": prediction_id,
@@ -544,6 +856,16 @@ def audit_prediction_row(
         "actual_price_source": snap.get("source"),
         "prediction_run_time_tw": row.get("run_time_tw"),
         "prediction_session_mode": row.get("session_mode"),
+        "predicted_market_state": multi_target_shadow.get("predicted_market_state"),
+        "predicted_market_transition": multi_target_shadow.get("predicted_market_transition"),
+        "shadow_action": multi_target_shadow.get("shadow_action"),
+        "multi_target_shadow": multi_target_shadow,
+        "shadow_regime_next_session_hit": multi_target_shadow.get("regime_next_session_hit"),
+        "shadow_action_outcome": multi_target_shadow.get("action_outcome"),
+        "shadow_mfe_pct": multi_target_shadow.get("mfe_pct"),
+        "shadow_mae_pct": multi_target_shadow.get("mae_pct"),
+        "shadow_ohlc_path_proxy": multi_target_shadow.get("ohlc_path_proxy"),
+        "shadow_decision_influence": False,
         "source": source,
         "safe_to_apply": bool(abs(err_pct) >= 1.0 and row.get("price_sample_quality") == "verified" and actual_valid),
         "applied": False,
@@ -691,6 +1013,69 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
         range_hit_rate = ((range_hit_rate * (range_count - 1)) + range_hit) / range_count
         tail = abs(min(_safe_float(audit.get("downside_tail_breach_pct"), 0.0), 0.0))
         avg_tail_breach = ((avg_tail_breach * (range_count - 1)) + tail) / range_count
+
+    shadow_profile = (
+        dict(p.get("shadow_multi_target") or {})
+        if isinstance(p.get("shadow_multi_target"), dict) else {}
+    )
+    shadow_metrics = (
+        dict(audit.get("multi_target_shadow") or {})
+        if isinstance(audit.get("multi_target_shadow"), dict) else {}
+    )
+    if (
+        audit.get("target") == "next"
+        and audit.get("actual_valid")
+        and bool(shadow_metrics.get("eligible"))
+    ):
+        shadow_count = int(shadow_profile.get("audit_count", 0)) + 1
+        metric_count = int(shadow_profile.get("directional_path_count", 0))
+        avg_mfe = _safe_float(shadow_profile.get("avg_mfe_pct"), 0.0)
+        avg_mae = _safe_float(shadow_profile.get("avg_mae_pct"), 0.0)
+        mfe = shadow_metrics.get("mfe_pct")
+        mae = shadow_metrics.get("mae_pct")
+        if mfe is not None and mae is not None:
+            metric_count += 1
+            avg_mfe = ((avg_mfe * (metric_count - 1)) + _safe_float(mfe)) / metric_count
+            avg_mae = ((avg_mae * (metric_count - 1)) + _safe_float(mae)) / metric_count
+
+        regime_count = int(shadow_profile.get("regime_eval_count", 0))
+        regime_hit_rate = _safe_float(shadow_profile.get("regime_hit_rate", 0.0))
+        regime_hit = shadow_metrics.get("regime_next_session_hit")
+        if regime_hit is not None:
+            regime_count += 1
+            regime_hit_rate = (
+                (regime_hit_rate * (regime_count - 1)) + (1.0 if regime_hit else 0.0)
+            ) / regime_count
+
+        outcomes = (
+            dict(shadow_profile.get("action_outcomes") or {})
+            if isinstance(shadow_profile.get("action_outcomes"), dict) else {}
+        )
+        outcome = str(shadow_metrics.get("action_outcome") or "inconclusive")
+        outcomes[outcome] = int(outcomes.get(outcome, 0)) + 1
+        shadow_profile.update({
+            "schema": "V1077_MULTI_TARGET_AUDIT_SHADOW_PROFILE_V1",
+            "decision_influence": False,
+            "audit_count": shadow_count,
+            "directional_path_count": metric_count,
+            "avg_mfe_pct": round(avg_mfe, 4) if metric_count else None,
+            "avg_mae_pct": round(avg_mae, 4) if metric_count else None,
+            "regime_eval_count": regime_count,
+            "regime_hit_rate": round(regime_hit_rate, 4) if regime_count else None,
+            "avoidance_success_count": int(shadow_profile.get("avoidance_success_count", 0))
+            + (1 if shadow_metrics.get("avoidance_success") else 0),
+            "missed_rebound_count": int(shadow_profile.get("missed_rebound_count", 0))
+            + (1 if shadow_metrics.get("missed_rebound") else 0),
+            "confirmation_followthrough_count": int(
+                shadow_profile.get("confirmation_followthrough_count", 0)
+            ) + (1 if shadow_metrics.get("confirmation_followthrough") else 0),
+            "action_outcomes": outcomes,
+            "last_market_state": shadow_metrics.get("predicted_market_state"),
+            "last_action": shadow_metrics.get("shadow_action"),
+            "last_path_proxy": shadow_metrics.get("ohlc_path_proxy"),
+            "last_updated_at_tw": _now(),
+            "formal_weights_changed": False,
+        })
     family_learning = p.get("family_learning", {}) if isinstance(p.get("family_learning"), dict) else {}
     factor_learning = p.get("factor_learning", {}) if isinstance(p.get("factor_learning"), dict) else {}
     verified_t1 = bool(
@@ -741,8 +1126,9 @@ def _update_profile_from_audit(audit: Dict[str, Any]) -> None:
         "active_family_count": sum(1 for row in family_learning.values() if isinstance(row, dict) and int(_safe_float(row.get("count"), 0.0)) >= 8),
         "last_dominant_force": audit.get("dominant_force"),
         "last_dominant_force_hit": audit.get("dominant_force_hit"),
+        "shadow_multi_target": shadow_profile,
         "learning_schema": "RC4.5_DNA_V1",
-        "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5",
+        "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5; V1077_shadow_no_weight_effect",
         "updated_at_tw": _now(),
     })
     profiles[ticker] = p
@@ -839,19 +1225,23 @@ def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] =
     today = str(trade_date or _audit_trade_date(market_filter))
     preds = read_prediction_log(limit)
     audit_ids = _audit_id_set(max(1200, int(limit or 0)))
-    t1_pending = []
-    today_pending = []
-    seen_t1 = set()
-    seen_today = set()
+    t1_latest: Dict[str, Dict[str, Any]] = {}
+    today_latest: Dict[str, Dict[str, Any]] = {}
     for r in preds:
         pid = str(r.get("id") or "")
         ticker = str(r.get("ticker") or "")
         if not pid or not ticker or not _market_matches(r, market_filter):
             continue
-        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None and not _audit_exists(pid, "next", audit_ids):
-            k = (ticker, str(r.get("target_trade_date") or ""), pid)
-            if k not in seen_t1:
-                t1_pending.append(r); seen_t1.add(k)
+        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None:
+            sample_key = str(r.get("official_sample_key") or "") or _official_sample_key(
+                market=_prediction_market(r),
+                ticker=ticker,
+                target_trade_date=today,
+                target_kind=str(r.get("target_kind") or "T1_CLOSE_NEXT_SESSION"),
+            )
+            # prediction_log stays append-only; the latest row for this formal
+            # sample supersedes earlier reruns/event revisions for Audit.
+            t1_latest[sample_key] = r
         row_market = _prediction_market(r)
         today_target = (
             str(r.get("target_trade_date") or "")
@@ -862,11 +1252,19 @@ def pending_auto_audit_summary(limit: int = 1200, market_filter: Optional[str] =
             today_target == today
             and str(r.get("session_mode") or "") == "intraday"
             and r.get("today_close_est") is not None
-            and not _audit_exists(pid, "today", audit_ids)
         ):
-            k = (ticker, today_target, pid)
-            if k not in seen_today:
-                today_pending.append(r); seen_today.add(k)
+            today_key = f"TODAY|{row_market}|{ticker}|{today_target}"
+            today_latest[today_key] = r
+    t1_pending = [
+        row
+        for row in t1_latest.values()
+        if not _audit_exists(str(row.get("id") or ""), "next", audit_ids)
+    ]
+    today_pending = [
+        row
+        for row in today_latest.values()
+        if not _audit_exists(str(row.get("id") or ""), "today", audit_ids)
+    ]
     return {
         "prediction_count": len(preds),
         "pending_t1_count": len(t1_pending),
@@ -887,18 +1285,23 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
     today = str(trade_date or _audit_trade_date(market_filter))
     preds = read_prediction_log(limit)
     audit_ids = _audit_id_set(max(1200, int(limit or 0)))
-    # keep the latest row per ticker/target/session bucket to avoid over-fetching
-    t1_rows: Dict[str, Dict[str, Any]] = {}
-    today_rows: Dict[str, Dict[str, Any]] = {}
+    # Keep the latest row per official sample. Raw logs remain append-only, but
+    # repeated queries and event revisions must not become independent audits.
+    t1_latest: Dict[str, Dict[str, Any]] = {}
+    today_latest: Dict[str, Dict[str, Any]] = {}
     for r in preds:
         pid = str(r.get("id") or "")
         ticker = str(r.get("ticker") or "")
         if not pid or not ticker or not _market_matches(r, market_filter):
             continue
-        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None and not _audit_exists(pid, "next", audit_ids):
-            # newest prediction for the same ticker/target date wins
-            key = f"{ticker}|{r.get('target_trade_date')}"
-            t1_rows[key] = r
+        if str(r.get("target_trade_date") or "") == today and r.get("next_close_est") is not None:
+            sample_key = str(r.get("official_sample_key") or "") or _official_sample_key(
+                market=_prediction_market(r),
+                ticker=ticker,
+                target_trade_date=today,
+                target_kind=str(r.get("target_kind") or "T1_CLOSE_NEXT_SESSION"),
+            )
+            t1_latest[sample_key] = r
         row_market = _prediction_market(r)
         today_target = (
             str(r.get("target_trade_date") or "")
@@ -909,10 +1312,19 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
             today_target == today
             and str(r.get("session_mode") or "") == "intraday"
             and r.get("today_close_est") is not None
-            and not _audit_exists(pid, "today", audit_ids)
         ):
-            key = f"{ticker}|{today_target}"
-            today_rows[key] = r
+            today_key = f"TODAY|{row_market}|{ticker}|{today_target}"
+            today_latest[today_key] = r
+    t1_rows = {
+        key: row
+        for key, row in t1_latest.items()
+        if not _audit_exists(str(row.get("id") or ""), "next", audit_ids)
+    }
+    today_rows = {
+        key: row
+        for key, row in today_latest.items()
+        if not _audit_exists(str(row.get("id") or ""), "today", audit_ids)
+    }
     all_rows = list(t1_rows.values()) + list(today_rows.values())
     tickers = []
     for r in all_rows:
@@ -1208,6 +1620,19 @@ def prediction_audit_dashboard(limit: int = 300) -> Dict[str, Any]:
     brier_values = [_safe_float(r.get("direction_brier")) for r in t1 if r.get("direction_brier") is not None]
     foreign_direction_hits = [1 if r.get("direction_hit") else 0 for r in ff if r.get("direction_hit") is not None]
     tier_hits = [1 if int(r.get("tier_gap") or 0) == 0 else 0 for r in ff]
+    shadow_rows = [
+        dict(a.get("multi_target_shadow") or {})
+        for a in t1
+        if isinstance(a.get("multi_target_shadow"), dict)
+        and bool((a.get("multi_target_shadow") or {}).get("eligible"))
+    ]
+    shadow_regime_hits = [
+        1 if row.get("regime_next_session_hit") else 0
+        for row in shadow_rows
+        if row.get("regime_next_session_hit") is not None
+    ]
+    shadow_mfe = [_safe_float(row.get("mfe_pct")) for row in shadow_rows if row.get("mfe_pct") is not None]
+    shadow_mae = [_safe_float(row.get("mae_pct")) for row in shadow_rows if row.get("mae_pct") is not None]
     return {
         "price_audit_count": len(price_audits),
         "t1_audit_count": len(t1),
@@ -1215,6 +1640,26 @@ def prediction_audit_dashboard(limit: int = 300) -> Dict[str, Any]:
         "t1_direction_hit_rate": round(sum(price_direction_hits) / len(price_direction_hits) * 100, 2) if price_direction_hits else None,
         "t1_direction_brier": round(sum(brier_values) / len(brier_values), 6) if brier_values else None,
         "today_avg_abs_error_pct": _avg_abs([a for a in price_audits if a.get("target") == "today"], "error_pct"),
+        "shadow_multi_target_count": len(shadow_rows),
+        "shadow_regime_hit_rate": (
+            round(sum(shadow_regime_hits) / len(shadow_regime_hits) * 100.0, 2)
+            if shadow_regime_hits else None
+        ),
+        "shadow_avg_mfe_pct": (
+            round(sum(shadow_mfe) / len(shadow_mfe), 4) if shadow_mfe else None
+        ),
+        "shadow_avg_mae_pct": (
+            round(sum(shadow_mae) / len(shadow_mae), 4) if shadow_mae else None
+        ),
+        "shadow_avoidance_success_count": sum(
+            1 for row in shadow_rows if row.get("avoidance_success")
+        ),
+        "shadow_missed_rebound_count": sum(
+            1 for row in shadow_rows if row.get("missed_rebound")
+        ),
+        "shadow_confirmation_followthrough_count": sum(
+            1 for row in shadow_rows if row.get("confirmation_followthrough")
+        ),
         "foreign_flow_audit_count": len(ff),
         "foreign_direction_hit_rate": round(sum(foreign_direction_hits) / len(foreign_direction_hits) * 100, 2) if foreign_direction_hits else None,
         "foreign_tier_hit_rate": round(sum(tier_hits) / len(tier_hits) * 100, 2) if tier_hits else None,
