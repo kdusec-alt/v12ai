@@ -810,6 +810,9 @@ _US_BEAR_TERMS = [
     "guidance cut", "weak guidance", "soft guidance", "underwhelming guidance", "tepid guidance",
     "probe", "investigation", "ban", "tariff", "export control", "falls", "fell",
     "drops", "dropped", "plunges", "plunge", "selloff", "lawsuit", "warns", "warning", "delay",
+    "stock offering", "share offering", "secondary offering", "follow-on offering",
+    "global depositary shares", "global depositary receipts", "gds", "gdr",
+    "capital raise", "dilution",
 ]
 _US_AI_SEMI_TERMS = [
     "ai", "hbm", "dram", "nand", "memory", "blackwell", "rubin", "gpu", "semiconductor",
@@ -935,7 +938,8 @@ def _us_news_profile_queries(ticker: TickerInfo) -> List[Tuple[str, str, int]]:
     analyst_query = f"{base} downgrade price target cut Morgan Stanley JPMorgan analyst rating"
     forward_risk_query = (
         f"{base} guidance weak soft underwhelming outlook not enough "
-        "expectations demand slowdown margin decline offering investigation"
+        "expectations demand slowdown margin decline offering capital raise "
+        "GDS GDR dilution investigation"
     )
     # Keep only three company calls for speed: two operating/company routes plus
     # one dedicated analyst route so target changes cannot be starved.
@@ -1034,7 +1038,9 @@ def _score_us_news(title: str, bucket: str = "company") -> Tuple[float, str]:
         "lower outlook", "weak outlook", "soft outlook", "lack of a stronger outlook", "not enough",
         "below estimates", "misses estimates", "demand slowdown", "order cancellation",
         "demand slows", "inventory build", "margin decline", "price target cut", "downgrade",
-        "offering", "dilution", "investigation", "probe",
+        "offering", "capital raise", "global depositary shares",
+        "global depositary receipts", "gds", "gdr", "dilution",
+        "investigation", "probe",
     )
     forward_hits = sum(1 for term in forward_negative if term in text)
     forward_positive = (

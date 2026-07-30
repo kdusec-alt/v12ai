@@ -15,6 +15,8 @@ import re
 from typing import Any, Dict, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
+from event_impact_lexicon_v1078 import assess_major_event
+
 _TAIPEI = ZoneInfo("Asia/Taipei")
 _NEW_YORK = ZoneInfo("America/New_York")
 
@@ -23,10 +25,14 @@ _COMPANY_HARD_NEGATIVE = (
     "低於預期", "未達預期", "需求放緩", "訂單取消", "延後拉貨", "庫存升高",
     "毛利率下滑", "季減", "衰退", "降評", "下修目標價", "減碼", "賣出評等",
     "增資", "現金增資", "稀釋", "監管調查", "司法調查", "召回",
+    "gds", "gdr", "全球存託憑證", "海外存託憑證", "海外存託股份",
+    "發行新股", "新股發行", "折價發行", "募資", "增發",
     "guidance cut", "cuts guidance", "lowered guidance", "weak outlook",
     "profit warning", "revenue warning", "misses estimates", "below estimates",
     "demand slowdown", "order cancellation", "inventory build", "margin decline",
     "downgrade", "downgraded", "price target cut", "offering", "dilution",
+    "global depositary shares", "global depositary receipts",
+    "depositary share offering", "follow-on offering", "capital raise",
     "investigation", "probe", "recall",
 )
 _COMPANY_FORWARD_CHANGE = (
@@ -187,8 +193,19 @@ def classify_event(item: Any) -> Dict[str, Any]:
     row = _base_event(item, score=score, tag=tag)
     family = row["family"]
     severity_hint = _tag_severity(tag, 0)
+    major = assess_major_event(_clean_text(_value(item, "title")), tag)
+    priority_tier = int(major.get("priority_tier") or 1)
+    severity_floor = 4 if priority_tier >= 5 else 3 if priority_tier >= 4 else 2 if priority_tier >= 3 else 0
 
-    if _contains(text, _DEESCALATION):
+    if str(major.get("kind") or "") == "capital_raise_dilution":
+        row.update(
+            category="company_capital_raise", severity=max(3, severity_hint, severity_floor),
+            risk_sign=-1,
+            reason="公司股本／籌資結構事件，需要重估折價、稀釋與新增供給",
+            transmission="折價發行/新增股本→EPS稀釋與供給壓力→價格重新定價→等待量價確認",
+            affected_assets=[], duration_hours=120, confidence=0.92,
+        )
+    elif _contains(text, _DEESCALATION):
         row.update(
             category="geo_deescalation", severity=max(2, severity_hint), risk_sign=1,
             reason="地緣／能源風險降溫，需要更新事件風險",
@@ -262,6 +279,18 @@ def classify_event(item: Any) -> Dict[str, Any]:
             category="material_headline", severity=1,
             reason="具影響力新聞，先累積觀察", duration_hours=12, confidence=0.55,
         )
+    if severity_floor:
+        row["severity"] = max(int(row.get("severity") or 0), severity_floor)
+    row.update({
+        "priority_tier": priority_tier,
+        "priority_label": str(major.get("priority_label") or ""),
+        "event_kind": str(major.get("kind") or ""),
+        "impact_score": float(major.get("impact_score") or 0.0),
+        "magnitude_pct": major.get("magnitude_pct"),
+        "magnitude_basis": str(major.get("magnitude_basis") or ""),
+        "event_subject_role": str(major.get("subject_role") or ""),
+        "event_owner": str(major.get("event_owner") or ""),
+    })
     return row
 
 

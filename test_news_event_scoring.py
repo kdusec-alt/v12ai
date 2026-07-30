@@ -18,6 +18,11 @@ class NewsEventScoringTests(unittest.TestCase):
         score, _tag = _score_news("台積電獲利優於預期並上調展望")
         self.assertGreater(score, 0.06)
 
+    def test_tw_gds_offering_is_negative_capital_event(self):
+        score, tag = _score_news("廣達發行GDS募資22億美元，折價約7.8%")
+        self.assertLessEqual(score, -0.16)
+        self.assertEqual(tag, "capital_financing")
+
     def test_us_forward_cut_outweighs_backward_beat(self):
         score, tag = _score_us_news(
             "TSMC earnings beat but cuts guidance as demand slows",
@@ -30,6 +35,14 @@ class NewsEventScoringTests(unittest.TestCase):
         score, tag = _score_us_news("NVIDIA beats estimates and raises guidance", "company")
         self.assertGreater(score, 0.06)
         self.assertTrue(tag.startswith("bullish_"))
+
+    def test_us_gds_offering_is_negative_even_with_customer_earnings(self):
+        score, tag = _score_us_news(
+            "Quanta GDS offering after Microsoft earnings",
+            "company",
+        )
+        self.assertLessEqual(score, -0.08)
+        self.assertTrue(tag.startswith("bearish_"))
 
     def test_us_weak_guidance_outweighs_backward_beat(self):
         score, tag = _score_us_news(

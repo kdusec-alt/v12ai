@@ -6,6 +6,7 @@ import re
 from typing import Any, Dict, Iterable, List, Mapping
 
 import market_shock_indicator as _base
+from event_impact_lexicon_v1078 import assess_major_event
 from models import NewsItem
 
 _ORIGINAL_ASSESS = _base.assess_market_shock
@@ -56,14 +57,24 @@ def assess_market_shock_v1062(item: Mapping[str, Any] | Any) -> Dict[str, Any]:
     pmi = any(term in text for term in (
         "pmi", "採購經理人指數", "purchasing managers",
     ))
+    measured = assess_major_event(text)
+    priority_tier = int(row.get("priority_tier") or measured.get("priority_tier") or 1)
 
-    deep_systemic = any((war, hormuz, oil_spike, taiwan_strait, chip_control))
+    deep_systemic = any((war, hormuz, taiwan_strait, chip_control))
     level = int(row.get("level") or 0)
 
     if hormuz or taiwan_strait:
         level = 5
     elif deep_systemic:
         level = max(4, min(level, 5))
+    elif oil_spike:
+        level = max(
+            level,
+            4
+            if row.get("magnitude_pct") is None
+            and int(row.get("priority_tier") or 0) >= 3
+            else max(2, min(5, priority_tier)),
+        )
     elif tariff or pmi:
         level = min(max(level, 2), 3)
     elif "oil_price_down" in text:
@@ -80,7 +91,8 @@ def _clean_shock_tags(tag: str) -> str:
     for part in str(tag or "").split("|"):
         if part.startswith((
             "shock_level=", "shock_label=", "shock_score=", "shock_depth=",
-            "shock_color=", "shock_drivers=",
+            "shock_color=", "shock_drivers=", "impact_score=",
+            "priority_tier=", "magnitude_pct=",
         )):
             continue
         parts.append(part)
@@ -101,7 +113,11 @@ def annotate_market_shock_news_v1062(rows: Iterable[NewsItem] | None) -> List[Ne
                 f"shock_depth={shock.get('depth', 1)}",
                 f"shock_color={shock['color']}",
                 f"shock_drivers={drivers}",
+                f"impact_score={float(shock.get('impact_score') or 0.0):.1f}",
+                f"priority_tier={int(shock.get('priority_tier') or 1)}",
             ])
+            if shock.get("magnitude_pct") is not None:
+                tag += f"|magnitude_pct={float(shock['magnitude_pct']):+.4f}"
         out.append(NewsItem(
             str(getattr(item, "source", "") or ""),
             str(getattr(item, "time", "") or ""),

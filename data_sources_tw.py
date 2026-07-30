@@ -57,6 +57,7 @@ BEAR = [
     "虧損", "減損", "賣超", "下修", "衰退", "跌", "處置", "警示", "庫存", "法說虧損", "利空",
     "低於預期", "未達預期", "財測下修", "展望下修", "降評", "目標價下修", "減碼", "賣出評等",
     "訂單取消", "延後拉貨", "需求放緩", "季減", "毛利率下滑", "監管調查", "現金增資", "稀釋",
+    "GDS", "GDR", "全球存託憑證", "海外存託憑證", "發行新股", "折價發行", "募資", "增發",
 ]
 
 _TW_GLOBAL_NEWS_CACHE: tuple[float, List[NewsItem]] | None = None
@@ -1646,13 +1647,23 @@ def _score_news(title: str) -> Tuple[float, str]:
         "訂單取消", "延後拉貨", "毛利率下滑", "低於預期", "未達預期",
     ]
     forward_neg = sum(1 for k in forward_neg_terms if k in t)
+    financing_terms = (
+        "gds", "gdr", "全球存託憑證", "海外存託憑證", "海外存託股份",
+        "發行新股", "新股發行", "折價發行", "現金增資", "募資", "增發",
+        "stock offering", "share offering", "capital raise", "dilution",
+    )
+    financing_negative = any(term in t for term in financing_terms)
     if forward_neg:
         score -= min(0.18, 0.08 * forward_neg)
+    if financing_negative:
+        score -= 0.18
     if any(k.lower() in t for k in ["ai", "hbm", "pcb", "半導體", "伺服器", "輝達", "nvda"]):
         score += 0.035
     if any(k.lower() in t for k in ["處置", "警示", "下修", "虧損", "跌停"]):
         score -= 0.035
-    if forward_neg:
+    if financing_negative:
+        score = min(score, -0.16)
+    elif forward_neg:
         score = min(score, -0.08)
     score = max(-0.24, min(0.24, round(score, 3)))
     macro_terms = ("cpi", "ppi", "pce", "fomc", "非農", "nfp", "fed", "通膨", "利率決議")
@@ -1662,14 +1673,21 @@ def _score_news(title: str) -> Tuple[float, str]:
         "荷姆茲", "霍爾木茲", "hormuz", "紅海", "胡塞", "油價", "原油", "殖利率",
         "烏克蘭", "俄羅斯", "稀土", "rare earth", "關鍵礦物",
     )
-    if any(k in t for k in geo_terms):
+    if financing_negative:
+        tag = "capital_financing"
+    elif any(k in t for k in geo_terms):
         tag = "policy_geo"
     elif any(k in t for k in macro_terms):
         tag = "macro_event"
     else:
         tag = "bullish_event" if score > 0.06 else ("bearish_event" if score < -0.06 else "headline_neutral")
     hit = [k for k in BULL + BEAR if k.lower() in t][:3]
-    return score, "、".join(hit) if hit and tag not in {"policy_geo", "macro_event"} else tag
+    return (
+        score,
+        "、".join(hit)
+        if hit and tag not in {"policy_geo", "macro_event", "capital_financing"}
+        else tag,
+    )
 
 
 def _parse_tw_pub_date(pub: str):
@@ -1818,6 +1836,12 @@ def _tw_company_query_plan(ticker: TickerInfo) -> List[Tuple[str, str, int, int]
     subject = f'"{name}" {code}' if name else code
     return [
         (
+            "capital_action",
+            f"{subject} (GDS OR GDR OR 全球存託憑證 OR 海外存託憑證 OR 發行新股 OR 折價發行 OR 現金增資 OR 募資 OR 增發 OR 私募 OR 可轉債)",
+            14,
+            6,
+        ),
+        (
             "earnings",
             f"{subject} (財報 OR 自結 OR 季報 OR EPS OR 每股盈餘 OR 獲利 OR 稅後純益 OR 毛利率 OR 法說)",
             7,
@@ -1831,7 +1855,7 @@ def _tw_company_query_plan(ticker: TickerInfo) -> List[Tuple[str, str, int, int]
         ),
         (
             "forward_risk",
-            f"{subject} (財測下修 OR 展望下修 OR 降評 OR 下修目標價 OR 訂單取消 OR 延後拉貨 OR 需求放緩 OR 增資 OR 監管調查)",
+            f"{subject} (財測下修 OR 展望下修 OR 降評 OR 下修目標價 OR 訂單取消 OR 延後拉貨 OR 需求放緩 OR 增資 OR GDS OR GDR OR 監管調查)",
             14,
             6,
         ),
@@ -1877,6 +1901,7 @@ def _select_tw_company_news(
 ) -> List[NewsItem]:
     """Reserve evidence slots so one noisy family cannot starve another."""
     caps = {
+        "capital_action": 2,
         "earnings": 3,
         "forward": 2,
         "forward_risk": 2,
@@ -1885,7 +1910,10 @@ def _select_tw_company_news(
     }
     selected: List[NewsItem] = []
     seen: set[str] = set()
-    for family in ("earnings", "forward_risk", "forward", "analyst", "company_update"):
+    for family in (
+        "capital_action", "earnings", "forward_risk",
+        "forward", "analyst", "company_update",
+    ):
         rows = sorted(rows_by_family.get(family, []), key=_tw_news_sort_key, reverse=True)
         used = 0
         for item in rows:

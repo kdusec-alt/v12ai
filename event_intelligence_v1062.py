@@ -101,7 +101,77 @@ def _dominant_shock(items: Sequence[Any]) -> Dict[str, Any]:
             "level": 0, "label": "觀察", "score": 0.0, "depth": 1,
             "drivers": [], "transmission": [], "color": "green", "price_veto": True,
         }
-    return max(rows, key=lambda row: (int(row.get("level") or 0), float(row.get("score") or 0.0)))
+    lead = dict(max(
+        rows,
+        key=lambda row: (
+            int(row.get("level") or 0),
+            float(row.get("score") or 0.0),
+        ),
+    ))
+    war_rows = [
+        row for row in rows
+        if any(
+            key in str(driver)
+            for driver in (row.get("drivers") or [])
+            for key in ("戰爭", "荷姆茲", "台海風險")
+        )
+    ]
+    oil_rows = [
+        row for row in rows
+        if row.get("magnitude_pct") is not None
+        and any("油價" in str(driver) for driver in (row.get("drivers") or []))
+    ]
+    # War headlines and the commodity tape are independent evidence routes.
+    # When both are present, combine them as one bounded causal chain instead
+    # of either double-counting two scores or ignoring the verified oil move.
+    if war_rows and oil_rows:
+        war = max(war_rows, key=lambda row: float(row.get("score") or 0.0))
+        oil = max(oil_rows, key=lambda row: abs(float(row.get("magnitude_pct") or 0.0)))
+        lead["level"] = min(
+            5,
+            max(
+                int(lead.get("level") or 0),
+                int(war.get("level") or 0) + (
+                    1 if int(oil.get("priority_tier") or 0) >= 3 else 0
+                ),
+            ),
+        )
+        lead["label"] = {
+            0: "觀察", 1: "輕微擾動", 2: "產業衝擊",
+            3: "跨市場衝擊", 4: "系統性壓力", 5: "極端市場衝擊",
+        }[int(lead["level"])]
+        lead["score"] = round(
+            min(
+                100.0,
+                max(
+                    float(lead.get("score") or 0.0),
+                    float(war.get("score") or 0.0),
+                    float(oil.get("score") or 0.0),
+                ) + 8.0,
+            ),
+            1,
+        )
+        lead["impact_score"] = round(
+            min(
+                100.0,
+                max(
+                    float(war.get("impact_score") or 0.0),
+                    float(oil.get("impact_score") or 0.0),
+                ) + 8.0,
+            ),
+            1,
+        )
+        lead["magnitude_pct"] = oil.get("magnitude_pct")
+        lead["magnitude_basis"] = "war_plus_verified_oil_move"
+        for field in ("drivers", "transmission"):
+            merged = []
+            for row in (war, oil, lead):
+                for value in row.get(field) or []:
+                    if value not in merged:
+                        merged.append(value)
+            lead[field] = merged
+        lead["color"] = "red" if int(lead["level"]) >= 4 else "yellow"
+    return lead
 
 
 def assess_policy_geo_v1062(
@@ -203,9 +273,15 @@ def assess_policy_geo_v1062(
     confirm = str(base.get("confirmation") or "等待跨市場確認")
     profile_label = str(exposure.get("label") or "大盤/一般產業")
     shock_drivers = "+".join(shock.get("drivers") or []) or "事件觀察"
+    shock_magnitude = (
+        f"｜實測幅度 {float(shock['magnitude_pct']):+.2f}%"
+        if shock.get("magnitude_pct") is not None
+        else f"｜影響幅度 {float(shock.get('impact_score') or 0.0):.0f}/100"
+    )
     shock_text = (
         f"市場衝擊 L{shock_level} {shock.get('label') or '觀察'} "
-        f"{shock_score:.0f}/100｜傳導深度 {int(shock.get('depth') or 1)}層｜{shock_drivers}"
+        f"{shock_score:.0f}/100{shock_magnitude}｜"
+        f"傳導深度 {int(shock.get('depth') or 1)}層｜{shock_drivers}"
     )
     line = (
         f"Policy/Geo｜{level}｜{shock_text}｜個股曝險 {profile_label}｜{label_text}｜"
@@ -234,6 +310,10 @@ def assess_policy_geo_v1062(
         "market_shock_level": shock_level,
         "market_shock_score": round(shock_score, 1),
         "market_shock_text": shock_text,
+        "event_priority_tier": int(shock.get("priority_tier") or 1),
+        "event_impact_score": float(shock.get("impact_score") or 0.0),
+        "event_magnitude_pct": shock.get("magnitude_pct"),
+        "event_magnitude_basis": str(shock.get("magnitude_basis") or ""),
         "price_veto": True,
     })
     return base
