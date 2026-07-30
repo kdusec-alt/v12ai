@@ -1,18 +1,19 @@
 {
   "completed_tickers": [
-    "2408.TW"
+    "2408.TW",
+    "3661.TW"
   ],
   "context_updated": 0,
   "error_tickers": [],
   "errors": 0,
-  "formal_written": 1,
-  "last_run_time_tw": "2026-07-30T17:01:14+08:00",
-  "remaining": 14,
+  "formal_written": 2,
+  "last_run_time_tw": "2026-07-30T17:05:14+08:00",
+  "remaining": 13,
   "status": "partial",
   "today_tickers": 15,
   "trade_date": "2026-07-30",
   "unchanged": 0,
-  "updated": 1,
+  "updated": 2,
   "waiting_institution": 0,
   "waiting_tickers": []
 }
