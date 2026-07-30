@@ -79,14 +79,14 @@
         "US"
       ],
       "source_tickers": [
-        "FORM",
         "SNDK",
         "AMD",
         "INTC",
         "AMZN",
         "GLOBAL",
         "5483.TWO",
-        "2327.TW"
+        "2327.TW",
+        "5469.TW"
       ],
       "status": "active_red",
       "title": "UBS raises forecast for nation’s GDP to expand 11 percent - taipeitimes.com",
@@ -209,5 +209,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-30T03:05:59+00:00"
+  "updated_at": "2026-07-30T03:06:07+00:00"
 }
