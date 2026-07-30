@@ -17,6 +17,11 @@ import time
 
 
 from models import PriceFrame, TickerInfo, NewsItem
+from news_timestamp_provenance_v1079 import (
+    append_provenance_tag,
+    guarded_score,
+    resolve_aggregator_timestamp,
+)
 try:
     from analyst_event_intelligence import classify_analyst_headline
 except Exception:
@@ -1123,7 +1128,15 @@ def _google_news_us(query: str, bucket: str, limit: int = 4) -> List[NewsItem]:
             if not title or not _us_news_recent_enough(pub, bucket):
                 continue
             score, tag = _score_us_news(title, bucket)
-            items.append(NewsItem("GoogleNewsUS", _us_news_time_label(pub), score, tag, title, link))
+            provenance = resolve_aggregator_timestamp(pub, link)
+            items.append(NewsItem(
+                "GoogleNewsUS",
+                provenance.display_time,
+                guarded_score(score, provenance),
+                append_provenance_tag(tag, provenance),
+                title,
+                provenance.publisher_url or link,
+            ))
             if len(items) >= limit:
                 break
     except Exception:

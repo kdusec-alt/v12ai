@@ -30,6 +30,11 @@ from zoneinfo import ZoneInfo
 
 from event_impact_lexicon_v1078 import assess_major_event, event_metadata_tags
 from models import NewsItem
+from news_timestamp_provenance_v1079 import (
+    append_provenance_tag,
+    guarded_score,
+    resolve_aggregator_timestamp,
+)
 
 _TAIPEI = ZoneInfo("Asia/Taipei")
 _NEW_YORK = ZoneInfo("America/New_York")
@@ -351,7 +356,8 @@ def _google_rss(query_text: str, hinted_family: str, now: datetime) -> List[News
         score, severity, labels = _headline_signal(title, family)
         if severity < 2:
             continue
-        published = _parse_rss_date(_clean(item.findtext("pubDate")), now)
+        aggregator_pub = _clean(item.findtext("pubDate"))
+        published = _parse_rss_date(aggregator_pub, now)
         source_node = item.find("source")
         publisher = _clean(source_node.text if source_node is not None else "GoogleNews")
         normalized = re.sub(r"[^0-9a-z]+", "", title.lower())
@@ -359,13 +365,15 @@ def _google_rss(query_text: str, hinted_family: str, now: datetime) -> List[News
         event_id = f"wire_{family}_{published.strftime('%Y%m%d')}_{digest}"
         tag = _global_tag(family, severity, event_id, *labels)
         tag = "|".join([tag, *event_metadata_tags(assess_major_event(title, tag))])
+        link = _clean(item.findtext("link"))
+        provenance = resolve_aggregator_timestamp(aggregator_pub, link)
         rows.append(NewsItem(
             f"GoogleNewsGlobal/{publisher}",
-            published.isoformat(timespec="seconds"),
-            score,
-            tag,
+            provenance.display_time,
+            guarded_score(score, provenance),
+            append_provenance_tag(tag, provenance),
             title,
-            _clean(item.findtext("link")),
+            provenance.publisher_url or link,
         ))
     return rows
 
