@@ -15,8 +15,11 @@ def make_forecast(
     confirmation=55.46, vwap=53.8, thesis_state="surge_divergence",
     permission="conditional", action_mode="pullback", gate="A突破",
     evidence="TSM_ADR +7.64%｜SOX +8.19%｜NQ +4.48%｜VIX 17.09",
-    regime_state="", decision_blocked=False,
+    regime_state="", decision_blocked=False, truth_last=None,
+    truth_day_pct=None, live_session_quote=False,
 ):
+    truth_price = last if truth_last is None else truth_last
+    truth_return = day_pct if truth_day_pct is None else truth_day_pct
     decision = {
         "現價": last,
         "漲跌幅": day_pct,
@@ -26,7 +29,7 @@ def make_forecast(
         "不追": no_chase,
         "轉強": f"站穩 {confirmation:.2f}",
         "攻擊": f"站穩 {confirmation:.2f} 小量",
-        "VWAP位置": "VWAP 上方" if vwap and last >= vwap else "VWAP 下方",
+        "VWAP位置": "VWAP 上方" if vwap and truth_price >= vwap else "VWAP 下方",
         "資料標題": "盤中資料" if session == "intraday" else "盤後資料",
         "_price_meta": {"decision_blocked": decision_blocked, "session": session},
         "_direction_engine": {"gate_state": gate},
@@ -36,10 +39,12 @@ def make_forecast(
             "action_mode": action_mode,
             "price_truth": {
                 "session": session,
-                "current_price": last,
-                "current_return_pct": day_pct,
+                "current_price": truth_price,
+                "current_return_pct": truth_return,
                 "vwap": vwap,
                 "vwap_available": vwap is not None,
+                "live_session_quote": live_session_quote,
+                "decision_blocked": decision_blocked,
             },
         },
     }
@@ -76,15 +81,50 @@ class EntryOpportunityV1080Tests(unittest.TestCase):
 
     def test_after_hours_extreme_move_waits_for_regular_session(self):
         row = assess_entry_opportunity(make_forecast(
-            market="US", last=160.41, day_pct=26.52, first=141.21,
-            second=130.84, stop=127.24, no_chase=152.60,
+            market="US", session="after_hours", last=149.0, day_pct=17.52,
+            truth_last=160.41, truth_day_pct=26.52, live_session_quote=True,
+            first=141.21, second=130.84, stop=127.24, no_chase=152.60,
             confirmation=155.79, vwap=157.5,
-            thesis_state="strong_continuation", session="after_hours",
+            thesis_state="strong_continuation",
             evidence="SOX +8.19%｜NQ +4.22%｜QQQ +3.30%｜SMH +6.88%",
         ))
         self.assertEqual(row["state"], "WAIT_NEXT_SESSION")
+        self.assertEqual(row["operative_price"], 160.41)
+        self.assertEqual(row["operative_return_pct"], 26.52)
         self.assertIn("盤後", row["summary"])
         self.assertIn("缺口", row["canonical_main_message"])
+
+    def test_formal_close_after_market_cannot_say_buy_today(self):
+        row = assess_entry_opportunity(make_forecast(
+            market="US", session="after_close", last=149.0, day_pct=17.52,
+            first=141.21, second=130.84, stop=127.24, no_chase=152.60,
+            confirmation=155.79, vwap=146.0,
+            thesis_state="strong_continuation",
+            evidence="SOX +8.19%｜NQ +4.22%｜QQQ +3.30%｜SMH +6.88%",
+        ))
+        self.assertEqual(row["state"], "WAIT_NEXT_SESSION")
+        self.assertNotIn("今日可小量參與", row["canonical_main_message"])
+
+    def test_generic_limit_up_headline_does_not_lock_a_us_ticker(self):
+        row = assess_entry_opportunity(make_forecast(
+            market="US", session="intraday", last=141.5, day_pct=11.6,
+            first=129.0, second=126.0, stop=124.0, no_chase=139.0,
+            confirmation=143.0, vwap=139.8,
+            thesis_state="strong_continuation",
+            evidence="SOX +8.19%｜NQ +4.22%｜舊新聞提到其他股票漲停",
+        ))
+        self.assertEqual(row["state"], "BUY_TODAY_CONFIRM")
+
+    def test_event_first_reaction_never_becomes_buy_now(self):
+        row = assess_entry_opportunity(make_forecast(
+            market="US", session="intraday", last=141.5, day_pct=11.6,
+            first=129.0, second=126.0, stop=124.0, no_chase=139.0,
+            confirmation=143.0, vwap=139.8,
+            thesis_state="event_reaction_in_progress", permission="blocked",
+            evidence="SOX +8.19%｜NQ +4.22%｜QQQ +3.30%",
+        ))
+        self.assertEqual(row["state"], "WAIT_INTRADAY_PULLBACK")
+        self.assertIn("15–30分鐘", row["summary"])
 
     def test_selling_expansion_blocks_low_price_catching(self):
         row = assess_entry_opportunity(make_forecast(
