@@ -26,7 +26,7 @@ class V1081EventRefreshTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(reused[0].title, "new verified event")
 
-    def test_two_current_rows_outrank_larger_previous_close_bundle(self):
+    def test_two_current_premarket_rows_outrank_larger_previous_close_bundle(self):
         proxies = {
             "nq": 2.0,
             "vix_change": -1.0,
@@ -34,17 +34,20 @@ class V1081EventRefreshTests(unittest.TestCase):
             "sox": -3.0,
             "smh": -2.5,
             "as_of": {
-                "nq": "2026-07-31 08:30:00",
-                "vix_change": "2026-07-31 08:30:00",
-                "qqq": "2026-07-30 16:00:00",
-                "sox": "2026-07-30 16:00:00",
-                "smh": "2026-07-30 16:00:00",
+                "nq": "2026-07-31 08:30:00-04:00 pre_market",
+                "vix_change": "2026-07-31 08:30:00-04:00 pre_market",
+                "qqq": "2026-07-30 16:00:00-04:00 official_close",
+                "sox": "2026-07-30 16:00:00-04:00 official_close",
+                "smh": "2026-07-30 16:00:00-04:00 official_close",
             },
         }
-        truth = build_cross_asset_session_truth(forecast_for_session(), proxies)
+        truth = build_cross_asset_session_truth(
+            forecast_for_session(session="pre_market"), proxies
+        )
         self.assertEqual(set(truth["eligible_keys"]), {"nq", "vix_change"})
         self.assertEqual(set(truth["excluded_keys"]), {"qqq", "sox", "smh"})
         self.assertTrue(truth["same_session"])
+        self.assertEqual(truth["vote_group_session"], "pre_market")
 
     def test_insufficient_session_truth_does_not_fall_back_to_mixed_vote(self):
         truth = {
