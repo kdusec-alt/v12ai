@@ -147,6 +147,7 @@ class V1081SpeedAndLearningIntegrityTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             fake = types.ModuleType("memory_store")
+            fake.DEFAULT_VISIBLE_LOG_ROWS = 900
             fake.PREDICTION_LOG = Path(tmp) / "prediction_log.jsonl"
             fake.AUDIT_LOG = Path(tmp) / "audit_log.jsonl"
             fake.TICKER_PROFILE = Path(tmp) / "ticker_profiles.json"
@@ -167,7 +168,8 @@ class V1081SpeedAndLearningIntegrityTests(unittest.TestCase):
         self.assertEqual(row["learning_eligible_t1_audits"], 1)
         self.assertEqual(row["reference_limited_audits"], 1)
         self.assertEqual(row["pending_official_samples"], 1)
-        self.assertEqual(row["duplicate_official_keys"], 1)
+        self.assertEqual(row["query_revision_groups"], 1)
+        self.assertEqual(row["duplicate_official_keys"], 0)
         self.assertFalse(row["decision_influence"])
 
     def test_audit_batch_remains_cloud_safe(self):
