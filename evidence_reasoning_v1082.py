@@ -163,10 +163,9 @@ def _numeric_chip_stance(text: str) -> int:
 
 def _verified(text: str, structured: Mapping[str, Any] | None = None) -> bool:
     row = dict(structured or {})
-    if any(row.get(key) is True for key in (
-        "verified", "accepted", "model_eligible", "source_verified", "content_verified",
-    )):
-        return True
+    for key in ("verified", "accepted", "model_eligible", "source_verified", "content_verified"):
+        if key in row:
+            return row.get(key) is True
     low = text.lower()
     if _contains(low, _STALE) or _contains(low, _UNVERIFIED):
         return False
@@ -243,10 +242,7 @@ def _price_driver(entry: Mapping[str, Any]) -> Driver:
     relative = _num(market_ctx.get("relative_gap_pct"))
     if relative is not None:
         pieces.append(f"相對市場 {relative:+.2f}%")
-    strength = 90 if state in {
-        "SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT", "BUY_TODAY_CONFIRM",
-        "LIMIT_LIQUIDITY_WAIT",
-    } else 78
+    strength = 50 if state == "DATA_WAIT" else 90
     return Driver(
         "price", "價格結構", stance, strength, True, "short",
         "｜".join(pieces), "V1081 Entry/Price Truth",
@@ -452,6 +448,15 @@ def _conflict(drivers: Sequence[Driver], acceptance: Mapping[str, str]) -> str:
     return "有效證據尚未形成單一主導方向"
 
 
+def _primary_short_driver(drivers: Sequence[Driver], short_score: int) -> Driver | None:
+    short_rows = [row for row in drivers if row.category in {"price", "event", "chip", "market"}]
+    if not short_rows:
+        return None
+    desired = 1 if short_score > 0 else -1 if short_score < 0 else 0
+    aligned = [row for row in short_rows if row.stance == desired]
+    return (aligned or short_rows)[0]
+
+
 def build_evidence_reasoning(forecast: Any, entry: Mapping[str, Any] | None = None) -> Dict[str, Any]:
     entry_row = dict(entry or {})
     if not entry_row and callable(assess_entry_opportunity):
@@ -480,7 +485,7 @@ def build_evidence_reasoning(forecast: Any, entry: Mapping[str, Any] | None = No
     state = _text(entry_row.get("state")) or "DATA_WAIT"
     action = _STATE_ACTION.get(state, _STATE_ACTION["DATA_WAIT"])
 
-    primary = top[0] if top else None
+    primary = _primary_short_driver(drivers, short_score)
     headline = "證據不足｜等待驗證" if primary is None else f"{short_bias}｜主導：{primary.label}"
     decision_message = (
         f"{acceptance['label']}。短線{short_bias}、中線{medium_bias}；{conflict}。"
