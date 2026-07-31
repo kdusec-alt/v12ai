@@ -4,7 +4,7 @@ from __future__ import annotations
 from ui_html import fmt, html_block, safe
 
 try:
-    from entry_opportunity_v1080 import assess_entry_opportunity
+    from decision_architecture_v1081 import assess_entry_opportunity
 except Exception:
     def assess_entry_opportunity(_forecast):
         return {
@@ -15,6 +15,7 @@ except Exception:
             "summary": "AI進場時機模組暫時無法載入",
             "conditions": [],
             "price_strategy_text": "等待資料同步",
+            "price_tiles": [],
             "show_score": False,
         }
 
@@ -160,7 +161,7 @@ def render_battle_panel(st, forecast):
     if bool(entry.get("show_score")):
         entry_score_html = f"<span class='score'>{int(entry.get('score') or 0)}%</span>"
     entry_items = []
-    for row in list(entry.get("conditions") or [])[:3]:
+    for row in list(entry.get("conditions") or [])[:4]:
         ok = bool(row.get("ok"))
         cls = "ok" if ok else "wait"
         symbol = "✓" if ok else "✕"
@@ -168,6 +169,22 @@ def render_battle_panel(st, forecast):
     entry_detail = "".join(entry_items)
     entry_price_strategy_raw = str(entry.get("price_strategy_text") or "等待價格與時段確認")
     entry_price_strategy = safe(entry_price_strategy_raw)
+    raw_price_tiles = list(entry.get("price_tiles") or [])
+    if len(raw_price_tiles) < 5:
+        raw_price_tiles = [
+            {"label": "進場", "value": entry_price_strategy_raw},
+            {"label": "攻擊", "value": d.get("攻擊")},
+            {"label": "轉強", "value": d.get("轉強")},
+            {"label": "停手", "value": fmt(d.get("防守"))},
+            {"label": "不追", "value": fmt(d.get("不追"))},
+        ]
+    price_tiles_html = "".join(
+        "<div class='priceitem' title='"
+        + safe(row.get("title") or row.get("value") or "")
+        + "'><b>" + safe(row.get("label") or "條件") + "</b>"
+        + safe(row.get("value") or "--") + "</div>"
+        for row in raw_price_tiles[:5]
+    )
 
     decision_title_raw = _strip_compare_prefix(
         d.get("標題", "AI決策"), "AI進場決策卡｜", "AI進場決策卡 |"
@@ -232,13 +249,7 @@ def render_battle_panel(st, forecast):
         <div class='main'>{main_message}</div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>證據摘要</b>{evidence_summary}</div>
         <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
-        <div class='pricebar'>
-          <div class='priceitem' title='{safe(entry_price_strategy_raw)}'><b>進場</b>{entry_price_strategy}</div>
-          <div class='priceitem' title='{safe(d.get('攻擊'))}'><b>攻擊</b>{safe(d.get('攻擊'))}</div>
-          <div class='priceitem' title='{safe(d.get('轉強'))}'><b>轉強</b>{safe(d.get('轉強'))}</div>
-          <div class='priceitem' title='防守價'><b>停手</b>{fmt(d.get('防守'))}</div>
-          <div class='priceitem' title='不追價'><b>不追</b>{fmt(d.get('不追'))}</div>
-        </div>
+        <div class='pricebar'>{price_tiles_html}</div>
       </div>
       <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>
     </div></body></html>

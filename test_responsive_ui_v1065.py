@@ -31,7 +31,7 @@ class ResponsiveUiV1065Tests(unittest.TestCase):
         self.assertIn("min-height:624px", self.radar_source)
 
     def test_battle_panel_uses_session_aware_entry_opportunity_engine(self):
-        self.assertIn("from entry_opportunity_v1080 import assess_entry_opportunity", self.battle_source)
+        self.assertIn("from decision_architecture_v1081 import assess_entry_opportunity", self.battle_source)
         self.assertIn("canonical_main_message", self.battle_source)
         self.assertIn("AI進場時機", self.battle_source)
         self.assertIn("entry_price_strategy", self.battle_source)

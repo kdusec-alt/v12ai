@@ -327,7 +327,7 @@ try:
         ),
     )
     assess_market_command = _load_optional(
-        "market_command_v1071", ("assess_market_command",), _market_command_degraded
+        "market_command_v1081", ("assess_market_command",), _market_command_degraded
     )
     fetch_market_proxy_context = _load_optional(
         "quantum_market_context", ("fetch_market_proxy_context",), _market_proxy_degraded
@@ -340,17 +340,51 @@ except Exception as exc:
     st.stop()
 
 
-def _analysis_once(symbol: str, macro: str, live_data: bool):
-    """Run one foreground analysis without Streamlit data-cache duplication.
+try:
+    from analysis_speed_v1081 import (
+        run_analysis_pipeline as _run_analysis_pipeline_v1081,
+        cached_market_proxy_context as _cached_market_proxy_context_v1081,
+        seed_news_cache as _seed_news_cache_v1081,
+        install_analysis_speed_guards as _install_analysis_speed_guards_v1081,
+    )
+    from news_reassessment_priority_v1081 import (
+        prioritize_reassessment_plan as _prioritize_reassessment_plan_v1081,
+    )
+    from session_truth_v1081 import attach_session_truth as _attach_session_truth_v1081
+    from learning_integrity_v1081 import (
+        compact_learning_health as _compact_learning_health_v1081,
+        install_persistence_health_guard as _install_persistence_health_guard_v1081,
+    )
+    _install_analysis_speed_guards_v1081()
+    _install_persistence_health_guard_v1081()
+except Exception as _v1081_integration_exc:
+    _log_exception("v1081_integration_degraded", _v1081_integration_exc)
+    _run_analysis_pipeline_v1081 = None
+    _cached_market_proxy_context_v1081 = None
+    _seed_news_cache_v1081 = lambda symbol, rows: {}
+    _prioritize_reassessment_plan_v1081 = lambda plan: dict(plan or {})
+    _attach_session_truth_v1081 = lambda forecast, proxies: {}
+    _compact_learning_health_v1081 = lambda limit=600: {}
 
-    The forecast already lives in session_state.  Caching the entire dataclass
-    created an additional serialized copy at the exact end of a query, which is
-    unnecessary and increases the post-render memory peak on Community Cloud.
-    """
+
+def _analysis_once(symbol: str, macro: str, live_data: bool):
+    """Run one foreground analysis without a second serialized forecast copy."""
     if not live_data:
         os.environ["TINO_OFFLINE_TEST"] = "1"
     else:
         os.environ.pop("TINO_OFFLINE_TEST", None)
+    if callable(_run_analysis_pipeline_v1081):
+        return _run_analysis_pipeline_v1081(
+            symbol,
+            macro,
+            live_data,
+            fetch_price=fetch_price,
+            fetch_news=fetch_news,
+            build_learning_signals=build_learning_signals,
+            orchestrate=orchestrate,
+            mark_runtime_stage=mark_runtime_stage,
+        )
+    # Fail-safe: preserve the exact pre-V1081 stable path.
     mark_runtime_stage("analysis_fetch_price_start", symbol=symbol)
     price = fetch_price(symbol)
     mark_runtime_stage("analysis_fetch_price_done", symbol=symbol)
@@ -434,6 +468,7 @@ def _event_watch_body() -> None:
         return
     try:
         latest_news = fetch_news(symbol, force_refresh=True)
+        _seed_news_cache_v1081(symbol, latest_news)
         plan = assess_event_delta(
             previous_news,
             latest_news,
@@ -446,6 +481,7 @@ def _event_watch_body() -> None:
             ),
             not_before_epoch=float(st.session_state.get("event_baseline_created_at") or time.time()),
         )
+        plan = _prioritize_reassessment_plan_v1081(plan)
         st.session_state["event_news_baseline"] = list(latest_news or [])
         report = dict(plan or {})
         report["checked_at_tw"] = _event_checked_at_tw()
@@ -595,11 +631,27 @@ def _render_market_command(forecast) -> None:
     ticker = getattr(forecast, "ticker", None)
     market = str(getattr(ticker, "market", "") or "").upper()
     try:
-        proxies = fetch_market_proxy_context(str(getattr(forecast, "price_date", "") or ""))
+        if callable(_cached_market_proxy_context_v1081):
+            proxies = _cached_market_proxy_context_v1081(
+                fetch_market_proxy_context,
+                str(getattr(forecast, "price_date", "") or ""),
+                market=market,
+            )
+        else:
+            proxies = fetch_market_proxy_context(str(getattr(forecast, "price_date", "") or ""))
+        proxies = dict(proxies or {})
+        session_truth = _attach_session_truth_v1081(forecast, proxies)
+        proxies["_session_truth_v1081"] = dict(session_truth or {})
         result = assess_market_command(
             market, proxies, list(getattr(forecast, "news_items", []) or []),
             dict(getattr(forecast, "radar", {}) or {}),
         )
+        try:
+            card = dict(getattr(forecast, "decision_card", {}) or {})
+            card["_market_command_v1081"] = dict(result or {})
+            forecast.decision_card = card
+        except Exception:
+            pass
     except Exception:
         result = _market_command_degraded()
     market_label = "台股" if market == "TW" else "美股"
@@ -683,7 +735,16 @@ def _admin_maintenance_fragment_body() -> None:
     st.session_state["tino_background_maintenance_phase"] = phase + 1
     try:
         if phase % 2 == 0:
-            report = run_admin_auto_audit_cycle(st, max_tickers_per_market=1)
+            report = run_admin_auto_audit_cycle(st, max_tickers_per_market=2)
+            try:
+                _health = _compact_learning_health_v1081(600)
+                if isinstance(_health, dict):
+                    st.session_state["learning_integrity_v1081"] = {
+                        "level": str(_health.get("level") or ""),
+                        "text": str(_health.get("text") or ""),
+                    }
+            except Exception:
+                pass
             st.session_state["last_background_maintenance"] = {
                 "task": "auto_audit",
                 "status": "done",
