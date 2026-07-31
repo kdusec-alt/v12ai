@@ -182,6 +182,7 @@ def render_battle_panel(st, forecast):
     if bool(entry.get("show_score")):
         entry_score_html = f"<span class='score'>{int(entry.get('score') or 0)}%</span>"
 
+    legacy_conditions = list(entry.get("conditions") or [])[:4]
     entry_items = []
     for row in list(reasoning.get("top_drivers") or [])[:3]:
         stance = str(row.get("stance") or "中性")
@@ -193,7 +194,7 @@ def render_battle_panel(st, forecast):
             f"<span class='{cls}'>{symbol} {safe(row.get('label'))} {safe(row.get('stars'))} {safe(stance)}{safe(verified)}</span>"
         )
     if len(entry_items) < 4:
-        for row in list(entry.get("conditions") or []):
+        for row in legacy_conditions:
             if len(entry_items) >= 4:
                 break
             ok = bool(row.get("ok"))
@@ -203,6 +204,7 @@ def render_battle_panel(st, forecast):
     entry_detail = "".join(entry_items)
 
     entry_price_strategy_raw = str(entry.get("price_strategy_text") or "等待價格與時段確認")
+    entry_price_strategy = safe(entry_price_strategy_raw)
     raw_price_tiles = list(entry.get("price_tiles") or [])
     if len(raw_price_tiles) < 5:
         raw_price_tiles = [
@@ -245,7 +247,7 @@ def render_battle_panel(st, forecast):
     <!doctype html><html><head><meta charset='utf-8'>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei',Arial,sans-serif;color:#edf7ff}}
-    .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:632px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow-x:hidden;overflow-y:auto;scrollbar-width:thin}}
+    .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:612px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow-x:hidden;overflow-y:auto;scrollbar-width:thin}}
     .head{{border-bottom:1px solid rgba(55,230,255,.22);padding-bottom:5px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,318px);gap:8px;align-items:start}}
     h1{{margin:0;color:#fff;font-size:20px;font-weight:900;letter-spacing:.01em}}.streak{{margin-top:1px;color:{'#6dffb1' if header_streak_positive else '#ff6f8e'};font-weight:800;font-size:11px}}
     .fvleft{{border:1px solid rgba(45,212,191,.28);background:linear-gradient(135deg,rgba(6,78,59,.18),rgba(2,18,30,.55));border-radius:11px;padding:5px 8px;color:#ecfeff;font-size:10.3px;line-height:1.12;font-weight:650}}
@@ -257,12 +259,12 @@ def render_battle_panel(st, forecast):
     .entrytop{{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-weight:950;color:#fff}}.entrytop .name{{font-size:12.5px}}.entrytop .score{{font-size:18px}}.entrytop .state{{font-size:11.5px;color:#fff5b8}}
     .entrysummary{{margin-top:1px;color:#eaf7ff;font-size:10.2px;font-weight:780;line-height:1.12}}.entryfacts{{margin-top:2px;display:flex;gap:4px 9px;flex-wrap:wrap;font-size:9px;font-weight:750}}.entryfacts .ok{{color:#7dffbd}}.entryfacts .wait{{color:#ffd27a}}
     .decision{{margin-top:5px;border:1px solid rgba(255,211,78,.48);border-radius:12px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:5px 7px}}
-    .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}.main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:11.6px;line-height:1.13;font-weight:850;padding:5px 8px;margin-bottom:3px}}
-    .reasoning-line{{padding:3px 6px;border-left:3px solid #74f4c3;background:rgba(3,31,33,.62);color:#d9fff1;font-size:9.1px;line-height:1.2;border-radius:0 6px 6px 0;margin-bottom:3px}}
+    .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}.main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:11.4px;line-height:1.10;font-weight:850;padding:4px 8px;margin-bottom:2px}}
+    .reasoning-line{{padding:2px 6px;border-left:3px solid #74f4c3;background:rgba(3,31,33,.62);color:#d9fff1;font-size:8.8px;line-height:1.15;border-radius:0 6px 6px 0;margin-bottom:2px}}
     .reasoning-line b{{color:#74f4c3;margin-right:4px}}.reasoning-conflict{{display:block;color:#cfe7f7;margin-top:1px}}
-    .evidence-summary{{border-left:3px solid #ff6f8e;padding:3px 6px 3px 7px;color:#dff2ff;background:rgba(4,18,30,.72);font-size:9.4px;font-weight:700;line-height:1.22;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0 6px 6px 0}}
+    .evidence-summary{{border-left:3px solid #ff6f8e;padding:3px 6px 3px 7px;color:#dff2ff;background:rgba(4,18,30,.72);font-size:9.2px;font-weight:700;line-height:1.18;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0 6px 6px 0}}
     .evidence-summary b{{color:#8fd7ff;margin-right:4px}}
-    .evidence-details{{margin:2px 0 4px 3px;color:#bfe8ff;font-size:9px}}
+    .evidence-details{{margin:2px 0 3px 3px;color:#bfe8ff;font-size:8.8px}}
     .evidence-details summary{{cursor:pointer;color:#8fd7ff;font-weight:850;list-style:none;user-select:none}}
     .evidence-details summary::-webkit-details-marker{{display:none}}
     .evidence-details summary::before{{content:'＋ ';color:#ffd96a}}.evidence-details[open] summary::before{{content:'－ '}}
@@ -276,8 +278,8 @@ def render_battle_panel(st, forecast):
       h1{{font-size:18.2px}}.streak{{font-size:10px}}.fvleft{{padding:4px 7px;font-size:9.5px;line-height:1.08}}.fvleft b{{font-size:8.7px}}.fvnote{{font-size:8.1px}}
       .info{{margin-top:4px;padding:4px 7px;font-size:10.4px;line-height:1.08}}.ptime{{font-size:8.6px}}
       .entrylamp{{margin-top:4px;padding:5px 7px}}.entrytop{{gap:6px}}.entrytop .name{{font-size:11.5px}}.entrytop .score{{font-size:16.5px}}.entrytop .state{{font-size:10.5px}}.entrysummary{{font-size:9.4px}}.entryfacts{{font-size:8.3px;gap:2px 7px}}
-      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.4px;padding:4px 7px;margin-bottom:3px;line-height:1.08}}
-      .reasoning-line{{font-size:8.4px;padding:3px 5px}}.evidence-summary{{font-size:8.6px;padding:3px 5px 3px 6px}}.evidence-details{{font-size:8.3px;margin-bottom:3px}}.evidence-full{{font-size:8.5px;max-height:130px}}
+      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.2px;padding:4px 7px;margin-bottom:2px;line-height:1.06}}
+      .reasoning-line{{font-size:8.1px;padding:2px 5px}}.evidence-summary{{font-size:8.4px;padding:2px 5px 2px 6px}}.evidence-details{{font-size:8.1px;margin-bottom:2px}}.evidence-full{{font-size:8.5px;max-height:130px}}
       .priceitem{{padding:3px 4px;font-size:8.7px}}.priceitem b{{font-size:8.2px;margin-right:2px}}
       .t1{{margin-top:4px;padding-top:3px}}.tl{{font-size:9.9px}}.tm{{font-size:14.6px}}.ts{{font-size:9.3px}}
     }}
@@ -299,4 +301,4 @@ def render_battle_panel(st, forecast):
       <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>
     </div></body></html>
     """
-    html_block(html, height=666, scrolling=False)
+    html_block(html, height=642, scrolling=False)
