@@ -38,9 +38,17 @@ class CompactDecisionPanelV1066Tests(unittest.TestCase):
 
     def test_price_strip_is_owned_by_entry_state_with_legacy_fallback(self):
         self.assertIn('entry.get("price_tiles")', self.source)
+        self.assertIn("legacy_price_tiles", self.source)
         self.assertIn("price_tiles_html", self.source)
         for key in ("攻擊", "轉強", "防守", "不追"):
             self.assertIn(f'd.get("{key}")', self.source)
+
+    def test_v1084_entry_map_has_one_current_action_and_five_unified_columns(self):
+        self.assertIn("class='action-now'", self.source)
+        self.assertIn("目前動作｜", self.source)
+        self.assertIn("def _entry_map_tiles", self.source)
+        for label in ("現在", "低接", "確認", "加碼", "失效"):
+            self.assertIn(f'"label": "{label}"', self.source)
 
 
 if __name__ == "__main__":
