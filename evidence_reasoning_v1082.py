@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
-"""TINO V1082 evidence reasoning layer.
+"""TINO V1082 ticker-independent evidence reasoning layer.
 
-This module explains *why* the current execution state exists.  It consumes the
-already-built V1081 entry state plus structured/text evidence from FinalForecast
-and returns a compact, auditable reasoning result.
+The layer explains why a V1081 execution state exists. It consumes only the
+already-built forecast, Entry Opportunity result and verified evidence. It is
+narrative/execution-only and may never mutate Direction, T0/T1/High/Low,
+confidence, Prediction DNA, Auto Audit, Genome, Research weights, calibration
+schedules or formal learning samples.
 
-It is deliberately narrative/execution-only.  It may not mutate Direction,
-T0/T1/High/Low, confidence, Prediction DNA, Auto Audit, Genome, Research
-weights, calibration time, or any formal learning sample.
-
-No ticker code, company name, sector whitelist, or one-off exception is allowed.
+No ticker code, company name, sector whitelist or one-off exception is allowed.
 """
 from __future__ import annotations
 
@@ -27,7 +25,7 @@ except Exception:
 SCHEMA = "TINO_EVIDENCE_REASONING_V1082"
 
 _POSITIVE = (
-    "優於預期", "高於預期", "擊敗預期", "上修", "成長", "轉盈", "獲利成長",
+    "優於預期", "高於預期", "擊敗預期", "上修", "轉盈", "獲利成長",
     "買超", "連買", "回補", "承接", "吸收", "站穩", "突破", "創高",
     "beats", "raised guidance", "strong outlook", "upgrade", "buyback",
 )
@@ -38,6 +36,7 @@ _NEGATIVE = (
 )
 _VERIFIED = (
     "正式財報", "公司公告", "公開資訊觀測站", "mops", "twse", "tpex",
+    "finmind", "yahooinstitutional", "yahooquotesummary", "yahoo法人",
     "sec filing", "sec.gov", "edgar", "investor relations", "company ir",
     "event_verified=1", "source_verified=1", "content_verified=1",
     "timestamp_verified=1", "model_eligible=1", "已驗證", "官方",
@@ -82,8 +81,8 @@ class Driver:
 
     @property
     def score(self) -> int:
-        verification = 8 if self.verified else -8
-        return max(0, self.strength + verification)
+        verification = 8 if self.verified else -12
+        return max(0, min(100, self.strength + verification))
 
 
 def _text(value: Any) -> str:
@@ -109,9 +108,10 @@ def _contains(text: str, terms: Iterable[str]) -> bool:
     return any(term.lower() in low for term in terms)
 
 
-def _stance(text: str) -> int:
-    positive = sum(1 for term in _POSITIVE if term.lower() in text.lower())
-    negative = sum(1 for term in _NEGATIVE if term.lower() in text.lower())
+def _lexical_stance(text: str) -> int:
+    low = text.lower()
+    positive = sum(1 for term in _POSITIVE if term.lower() in low)
+    negative = sum(1 for term in _NEGATIVE if term.lower() in low)
     if positive > negative:
         return 1
     if negative > positive:
@@ -119,9 +119,53 @@ def _stance(text: str) -> int:
     return 0
 
 
+def _numeric_fundamental_stance(text: str) -> int:
+    values: list[float] = []
+    patterns = (
+        r"(?:成長支撐|基本面(?:分數)?|財報(?:分數)?)\s*[:：]?\s*([+-]?\d+(?:\.\d+)?)",
+        r"(?:EPS\s*YoY|EPS年增|獲利年增|淨利年增)\s*[:：]?\s*([+-]?\d+(?:\.\d+)?)\s*%?",
+        r"(?:毛利率變化|營益率變化)\s*[:：]?\s*([+-]?\d+(?:\.\d+)?)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.I):
+            value = _num(match.group(1))
+            if value is not None:
+                values.append(value)
+    if not values:
+        return 0
+    aggregate = sum(values)
+    if aggregate > 0:
+        return 1
+    if aggregate < 0:
+        return -1
+    return 0
+
+
+def _numeric_chip_stance(text: str) -> int:
+    values: list[float] = []
+    pattern = (
+        r"(?:外資|投信|自營(?:商)?|法人|主力|大戶)[^｜\n]{0,22}?"
+        r"(?:今日|淨量|淨買賣)?\s*[:：]?\s*([+-]\d[\d,]*)\s*(?:張|口|股)?"
+    )
+    for match in re.finditer(pattern, text, flags=re.I):
+        value = _num(match.group(1))
+        if value is not None:
+            values.append(value)
+    if not values:
+        return 0
+    aggregate = sum(values)
+    if aggregate > 0:
+        return 1
+    if aggregate < 0:
+        return -1
+    return 0
+
+
 def _verified(text: str, structured: Mapping[str, Any] | None = None) -> bool:
     row = dict(structured or {})
-    if any(row.get(key) is True for key in ("verified", "accepted", "model_eligible", "source_verified", "content_verified")):
+    if any(row.get(key) is True for key in (
+        "verified", "accepted", "model_eligible", "source_verified", "content_verified",
+    )):
         return True
     low = text.lower()
     if _contains(low, _STALE) or _contains(low, _UNVERIFIED):
@@ -137,11 +181,13 @@ def _compact(text: str, limit: int = 105) -> str:
 
 
 def _radar_text(radar: Mapping[str, Any], keys: Sequence[str]) -> str:
-    rows = []
+    rows: list[str] = []
     for key in keys:
         value = radar.get(key)
         if isinstance(value, Mapping):
-            rows.append("｜".join(f"{k}:{v}" for k, v in value.items() if not str(k).startswith("_")))
+            rows.append("｜".join(
+                f"{k}:{v}" for k, v in value.items() if not str(k).startswith("_")
+            ))
         elif value not in (None, ""):
             rows.append(_text(value))
     return "｜".join(row for row in rows if row)
@@ -152,7 +198,7 @@ def _driver(
     label: str,
     text: str,
     *,
-    stance: int | None = None,
+    stance: int,
     strength: int,
     verified: bool,
     horizon: str,
@@ -164,7 +210,7 @@ def _driver(
     return Driver(
         category=category,
         label=label,
-        stance=_stance(content) if stance is None else int(max(-1, min(1, stance))),
+        stance=int(max(-1, min(1, stance))),
         strength=int(max(0, min(100, strength))),
         verified=bool(verified),
         horizon=horizon,
@@ -197,22 +243,38 @@ def _price_driver(entry: Mapping[str, Any]) -> Driver:
     relative = _num(market_ctx.get("relative_gap_pct"))
     if relative is not None:
         pieces.append(f"相對市場 {relative:+.2f}%")
-    strength = 86 if state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT", "BUY_TODAY_CONFIRM"} else 76
-    return Driver("price", "價格結構", stance, strength, True, "short", "｜".join(pieces), "V1081 Entry/Price Truth")
+    strength = 90 if state in {
+        "SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT", "BUY_TODAY_CONFIRM",
+        "LIMIT_LIQUIDITY_WAIT",
+    } else 78
+    return Driver(
+        "price", "價格結構", stance, strength, True, "short",
+        "｜".join(pieces), "V1081 Entry/Price Truth",
+    )
 
 
 def _fundamental_driver(entry: Mapping[str, Any], radar: Mapping[str, Any]) -> Driver | None:
     context = _mapping(entry.get("fundamental"))
     state = _text(context.get("state"))
     text = _text(context.get("text")) or _radar_text(radar, _RADAR_GROUPS["fundamental"])
-    if not text or state == "unknown":
+    if not text:
         return None
-    stance = -1 if state == "negative" else 1 if state == "positive" else 0
-    verified = bool(context.get("verified"))
+    if state == "negative":
+        stance = -1
+    elif state == "positive":
+        stance = 1
+    elif state == "mixed":
+        stance = 0
+    else:
+        stance = _numeric_fundamental_stance(text) or _lexical_stance(text)
+    verified = bool(context.get("verified")) or _verified(text, context)
     return _driver(
         "fundamental", "基本面／財報", text,
-        stance=stance, strength=82 if verified else 58,
-        verified=verified, horizon="medium", source="Fundamental Intelligence",
+        stance=stance,
+        strength=84 if verified and stance else 62 if stance else 52,
+        verified=verified,
+        horizon="medium",
+        source="Fundamental Intelligence",
     )
 
 
@@ -221,14 +283,18 @@ def _event_driver(entry: Mapping[str, Any], radar: Mapping[str, Any]) -> Driver 
     text = _radar_text(radar, _RADAR_GROUPS["event"])
     if not text:
         return None
-    verified = bool(context.get("verified")) and not bool(context.get("stale"))
+    stale = bool(context.get("stale")) or _contains(text, _STALE)
+    verified = bool(context.get("verified")) or _verified(text, context)
+    if stale:
+        verified = False
     severity = int(_num(context.get("severity")) or 0)
-    strength = 48 + severity * 9
-    stance = _stance(text)
     return _driver(
         "event", "事件／新聞", text,
-        stance=stance, strength=strength,
-        verified=verified, horizon="short", source="News/Event Truth Guard",
+        stance=_lexical_stance(text),
+        strength=48 + severity * 9,
+        verified=verified,
+        horizon="short",
+        source="News/Event Truth Guard",
     )
 
 
@@ -236,14 +302,15 @@ def _chip_driver(radar: Mapping[str, Any]) -> Driver | None:
     text = _radar_text(radar, _RADAR_GROUPS["chip"])
     if not text:
         return None
+    stance = _numeric_chip_stance(text) or _lexical_stance(text)
     verified = _verified(text)
-    stance = _stance(text)
-    # Explicit numeric institutional descriptions without positive/negative
-    # words remain neutral rather than being guessed from ticker-specific rules.
     return _driver(
         "chip", "籌碼／法人", text,
-        stance=stance, strength=72 if verified else 56,
-        verified=verified, horizon="short", source="Institution/Short Evidence",
+        stance=stance,
+        strength=74 if verified and stance else 58,
+        verified=verified,
+        horizon="short",
+        source="Institution/Short Evidence",
     )
 
 
@@ -255,8 +322,8 @@ def _market_driver(entry: Mapping[str, Any], radar: Mapping[str, Any]) -> Driver
     stance = 1 if positive >= 2 and positive > negative else -1 if negative >= 2 and negative > positive else 0
     if context.get("severe_relative_weakness"):
         stance = -1
+    relative = _num(context.get("relative_gap_pct"))
     if not text:
-        relative = _num(context.get("relative_gap_pct"))
         if relative is None and positive == 0 and negative == 0:
             return None
         text = f"同Session正向代理 {positive}｜負向代理 {negative}"
@@ -265,8 +332,11 @@ def _market_driver(entry: Mapping[str, Any], radar: Mapping[str, Any]) -> Driver
     verified = bool(context.get("session_verified"))
     return _driver(
         "market", "市場／產業", text,
-        stance=stance, strength=74 if verified else 50,
-        verified=verified, horizon="short", source="Session Truth/Market Context",
+        stance=stance,
+        strength=74 if verified and stance else 52,
+        verified=verified,
+        horizon="short",
+        source="Session Truth/Market Context",
     )
 
 
@@ -309,36 +379,73 @@ def _bias(score: int) -> str:
 
 
 def _weighted_bias(drivers: Sequence[Driver], horizon: str) -> tuple[int, str]:
-    relevant = [row for row in drivers if row.horizon == horizon or row.category == "price"]
+    if horizon == "short":
+        relevant = [row for row in drivers if row.category in {"price", "event", "chip", "market"}]
+        category_weight = {"price": 1.20, "event": 1.0, "chip": 0.9, "market": 0.75}
+    else:
+        # A one-day price jump cannot create a medium-term thesis by itself.
+        relevant = [row for row in drivers if row.category == "fundamental"]
+        category_weight = {"fundamental": 1.0}
     if not relevant:
         return 0, "中性／待確認"
-    numerator = sum(row.stance * row.score for row in relevant)
-    denominator = max(1, sum(row.score for row in relevant))
+    numerator = 0.0
+    denominator = 0.0
+    for row in relevant:
+        confidence_weight = 1.0 if row.verified or row.category == "price" else 0.30
+        weight = row.score * category_weight.get(row.category, 1.0) * confidence_weight
+        numerator += row.stance * weight
+        denominator += weight
+    if denominator <= 0:
+        return 0, "中性／待確認"
     value = int(round(100 * numerator / denominator))
     return value, _bias(value)
 
 
 def _price_acceptance(entry: Mapping[str, Any], drivers: Sequence[Driver]) -> Dict[str, str]:
     price = next((row for row in drivers if row.category == "price"), None)
-    fundamental = next((row for row in drivers if row.category == "fundamental"), None)
+    fundamental = next((row for row in drivers if row.category == "fundamental" and row.verified), None)
     event = next((row for row in drivers if row.category == "event" and row.verified), None)
     catalyst = fundamental or event
     if price is None or catalyst is None or catalyst.stance == 0 or price.stance == 0:
-        return {"code": "UNRESOLVED", "label": "價格接受度待確認", "detail": "催化劑與價格尚未形成可驗證的同向或反向關係"}
+        return {
+            "code": "UNRESOLVED",
+            "label": "價格接受度待確認",
+            "detail": "已驗證催化劑與價格尚未形成可判讀的同向或反向關係",
+        }
     if catalyst.stance < 0 and price.stance > 0:
-        return {"code": "NEGATIVE_ABSORBED", "label": "利空被價格吸收", "detail": "負面基本面／事件存在，但價格結構未跟隨轉弱；短線由承接或籌碼主導，中線仍保留反證"}
+        return {
+            "code": "NEGATIVE_ABSORBED",
+            "label": "利空被價格吸收",
+            "detail": "負面基本面／事件存在，但價格結構未跟隨轉弱；短線由承接或籌碼主導，中線仍保留反證",
+        }
     if catalyst.stance > 0 and price.stance < 0:
-        return {"code": "POSITIVE_REJECTED", "label": "利多未被價格接受", "detail": "正面基本面／事件存在，但價格仍弱；先尊重價格，不以新聞直接宣告轉強"}
+        return {
+            "code": "POSITIVE_REJECTED",
+            "label": "利多未被價格接受",
+            "detail": "正面基本面／事件存在，但價格仍弱；先尊重價格，不以新聞直接宣告轉強",
+        }
     if catalyst.stance > 0 and price.stance > 0:
-        return {"code": "POSITIVE_CONFIRMED", "label": "利多獲價格確認", "detail": "催化劑與價格同向，但仍需遵守目前進場狀態與風險邊界"}
-    return {"code": "NEGATIVE_CONFIRMED", "label": "利空獲價格確認", "detail": "負面催化與價格弱勢同向，風險優先於折價想像"}
+        return {
+            "code": "POSITIVE_CONFIRMED",
+            "label": "利多獲價格確認",
+            "detail": "催化劑與價格同向，但仍須服從目前進場狀態與風險邊界",
+        }
+    return {
+        "code": "NEGATIVE_CONFIRMED",
+        "label": "利空獲價格確認",
+        "detail": "負面催化與價格弱勢同向，風險優先於折價想像",
+    }
 
 
 def _conflict(drivers: Sequence[Driver], acceptance: Mapping[str, str]) -> str:
-    positive = [row.label for row in drivers if row.stance > 0 and row.score >= 50]
-    negative = [row.label for row in drivers if row.stance < 0 and row.score >= 50]
+    eligible = [row for row in drivers if row.category == "price" or row.verified]
+    positive = [row.label for row in eligible if row.stance > 0 and row.score >= 50]
+    negative = [row.label for row in eligible if row.stance < 0 and row.score >= 50]
     if positive and negative:
-        return f"證據衝突：{'、'.join(positive[:2])}偏多，但{'、'.join(negative[:2])}偏空；目前以價格接受度「{acceptance.get('label')}」仲裁"
+        return (
+            f"證據衝突：{'、'.join(positive[:2])}偏多，但{'、'.join(negative[:2])}偏空；"
+            f"目前以價格接受度「{acceptance.get('label')}」仲裁"
+        )
     if positive:
         return f"主要證據偏多：{'、'.join(positive[:3])}；仍須服從進場與失效條件"
     if negative:
@@ -376,10 +483,7 @@ def build_evidence_reasoning(forecast: Any, entry: Mapping[str, Any] | None = No
     action = _STATE_ACTION.get(state, _STATE_ACTION["DATA_WAIT"])
 
     primary = top[0] if top else None
-    if primary is None:
-        headline = "證據不足｜等待驗證"
-    else:
-        headline = f"{short_bias}｜主導：{primary.label}"
+    headline = "證據不足｜等待驗證" if primary is None else f"{short_bias}｜主導：{primary.label}"
     decision_message = (
         f"{acceptance['label']}。短線{short_bias}、中線{medium_bias}；{conflict}。"
         f"操作上，{action}。"
