@@ -1,30 +1,18 @@
 {
-  "completed_tickers": [
-    "0050.TW",
-    "00631L.TW",
-    "00981A.TW",
-    "2327.TW",
-    "2330.TW",
-    "2382.TW",
-    "2408.TW",
-    "2454.TW",
-    "3661.TW",
-    "3702.TW",
-    "5469.TW",
-    "5483.TWO",
-    "6586.TWO"
-  ],
+  "completed_tickers": [],
   "context_updated": 0,
   "error_tickers": [],
   "errors": 0,
-  "formal_written": 13,
-  "last_run_time_tw": "2026-07-30T17:47:29+08:00",
-  "remaining": 0,
-  "status": "complete",
-  "today_tickers": 17,
-  "trade_date": "2026-07-30",
+  "formal_written": 0,
+  "last_run_time_tw": "2026-07-31T17:01:18+08:00",
+  "remaining": 8,
+  "status": "partial",
+  "today_tickers": 10,
+  "trade_date": "2026-07-31",
   "unchanged": 0,
-  "updated": 13,
-  "waiting_institution": 0,
-  "waiting_tickers": []
+  "updated": 0,
+  "waiting_institution": 1,
+  "waiting_tickers": [
+    "2408.TW"
+  ]
 }
