@@ -1,0 +1,526 @@
+V1080 FULL REGRESSION
+commit=a69548df1d4e1d49027c05b2254d35594b2aecd2
+started_utc=2026-07-31T02:00:32Z
+install_status=0
+compile_status=0
+test_status=0
+finished_utc=2026-07-31T02:01:02Z
+--- REGRESSION LOG ---
+Requirement already satisfied: pip in /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages (26.1.2)
+Collecting pip
+  Downloading pip-26.2-py3-none-any.whl.metadata (4.6 kB)
+Downloading pip-26.2-py3-none-any.whl (1.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 24.7 MB/s  0:00:00
+Installing collected packages: pip
+  Attempting uninstall: pip
+    Found existing installation: pip 26.1.2
+    Uninstalling pip-26.1.2:
+      Successfully uninstalled pip-26.1.2
+Successfully installed pip-26.2
+Collecting streamlit==1.40.2 (from -r requirements.txt (line 1))
+  Downloading streamlit-1.40.2-py2.py3-none-any.whl.metadata (8.4 kB)
+Collecting rich==13.9.4 (from -r requirements.txt (line 2))
+  Downloading rich-13.9.4-py3-none-any.whl.metadata (18 kB)
+Collecting pandas (from -r requirements.txt (line 3))
+  Downloading pandas-3.0.5-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (79 kB)
+Collecting numpy (from -r requirements.txt (line 4))
+  Downloading numpy-2.4.6-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+Collecting yfinance (from -r requirements.txt (line 5))
+  Downloading yfinance-1.5.2-py2.py3-none-any.whl.metadata (6.2 kB)
+Collecting FinMind==1.9.10 (from -r requirements.txt (line 6))
+  Downloading finmind-1.9.10-py3-none-any.whl.metadata (8.2 kB)
+Collecting fake-useragent (from -r requirements.txt (line 7))
+  Downloading fake_useragent-2.2.0-py3-none-any.whl.metadata (17 kB)
+Collecting requests (from -r requirements.txt (line 8))
+  Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting joblib (from -r requirements.txt (line 9))
+  Downloading joblib-1.5.3-py3-none-any.whl.metadata (5.5 kB)
+Collecting tqdm (from -r requirements.txt (line 10))
+  Downloading tqdm-4.70.0-py3-none-any.whl.metadata (57 kB)
+Collecting lxml (from -r requirements.txt (line 11))
+  Downloading lxml-6.1.1-cp311-cp311-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (3.5 kB)
+Collecting html5lib (from -r requirements.txt (line 12))
+  Downloading html5lib-1.1-py2.py3-none-any.whl.metadata (16 kB)
+Collecting beautifulsoup4 (from -r requirements.txt (line 13))
+  Downloading beautifulsoup4-4.15.0-py3-none-any.whl.metadata (3.8 kB)
+Collecting altair<6,>=4.0 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading altair-5.5.0-py3-none-any.whl.metadata (11 kB)
+Collecting blinker<2,>=1.0.0 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading blinker-1.9.0-py3-none-any.whl.metadata (1.6 kB)
+Collecting cachetools<6,>=4.0 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading cachetools-5.5.2-py3-none-any.whl.metadata (5.4 kB)
+Collecting click<9,>=7.0 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading click-8.4.2-py3-none-any.whl.metadata (2.6 kB)
+Collecting packaging<25,>=20 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading packaging-24.2-py3-none-any.whl.metadata (3.2 kB)
+Collecting pandas (from -r requirements.txt (line 3))
+  Downloading pandas-2.3.3-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (91 kB)
+Collecting pillow<12,>=7.1.0 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading pillow-11.3.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (9.0 kB)
+Collecting protobuf<6,>=3.20 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading protobuf-5.29.6-cp38-abi3-manylinux2014_x86_64.whl.metadata (592 bytes)
+Collecting pyarrow>=7.0 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading pyarrow-25.0.0-cp311-cp311-manylinux_2_28_x86_64.whl.metadata (3.0 kB)
+Collecting tenacity<10,>=8.1.0 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading tenacity-9.1.4-py3-none-any.whl.metadata (1.2 kB)
+Collecting toml<2,>=0.10.1 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading toml-0.10.2-py2.py3-none-any.whl.metadata (7.1 kB)
+Collecting typing-extensions<5,>=4.3.0 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting watchdog<7,>=2.1.5 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl.metadata (44 kB)
+Collecting gitpython!=3.1.19,<4,>=3.0.7 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading gitpython-3.1.57-py3-none-any.whl.metadata (13 kB)
+Collecting pydeck<1,>=0.8.0b4 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading pydeck-0.9.3-py2.py3-none-any.whl.metadata (4.2 kB)
+Collecting tornado<7,>=6.0.3 (from streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading tornado-6.5.7-cp39-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (2.8 kB)
+Collecting markdown-it-py>=2.2.0 (from rich==13.9.4->-r requirements.txt (line 2))
+  Downloading markdown_it_py-4.2.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting pygments<3.0.0,>=2.13.0 (from rich==13.9.4->-r requirements.txt (line 2))
+  Downloading pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting pydantic>=1.6.1 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading pydantic-2.13.4-py3-none-any.whl.metadata (109 kB)
+Collecting ta~=0.5.25 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading ta-0.5.25.tar.gz (20 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting pyecharts>=1.9.0 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading pyecharts-2.1.0-py3-none-any.whl.metadata (1.5 kB)
+Collecting ipython>=7.16.1 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading ipython-9.15.0-py3-none-any.whl.metadata (4.7 kB)
+Collecting loguru>=0.5.3 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading loguru-0.7.3-py3-none-any.whl.metadata (22 kB)
+Requirement already satisfied: setuptools>=49.2.1 in /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages (from FinMind==1.9.10->-r requirements.txt (line 6)) (79.0.1)
+Collecting aiohttp>=3.7.4.post0 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading aiohttp-3.14.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (8.3 kB)
+Collecting flask>=2.0.1 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading flask-3.1.3-py3-none-any.whl.metadata (3.2 kB)
+Collecting importlib-metadata>=4.8.1 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading importlib_metadata-9.0.0-py3-none-any.whl.metadata (4.5 kB)
+Collecting nest-asyncio>=1.6.0 (from FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading nest_asyncio-1.6.0-py3-none-any.whl.metadata (2.8 kB)
+Collecting python-dateutil>=2.8.2 (from pandas->-r requirements.txt (line 3))
+  Downloading python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+Collecting pytz>=2020.1 (from pandas->-r requirements.txt (line 3))
+  Downloading pytz-2026.3.post1-py2.py3-none-any.whl.metadata (22 kB)
+Collecting tzdata>=2022.7 (from pandas->-r requirements.txt (line 3))
+  Downloading tzdata-2026.3-py2.py3-none-any.whl.metadata (1.4 kB)
+Collecting charset_normalizer<4,>=2 (from requests->-r requirements.txt (line 8))
+  Downloading charset_normalizer-3.4.9-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (41 kB)
+Collecting idna<4,>=2.5 (from requests->-r requirements.txt (line 8))
+  Downloading idna-3.18-py3-none-any.whl.metadata (6.1 kB)
+Collecting urllib3<3,>=1.26 (from requests->-r requirements.txt (line 8))
+  Downloading urllib3-2.7.0-py3-none-any.whl.metadata (6.9 kB)
+Collecting certifi>=2023.5.7 (from requests->-r requirements.txt (line 8))
+  Downloading certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+Collecting jinja2 (from altair<6,>=4.0->streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+Collecting jsonschema>=3.0 (from altair<6,>=4.0->streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading jsonschema-4.26.0-py3-none-any.whl.metadata (7.6 kB)
+Collecting narwhals>=1.14.2 (from altair<6,>=4.0->streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading narwhals-2.24.0-py3-none-any.whl.metadata (15 kB)
+Collecting gitdb<5,>=4.0.1 (from gitpython!=3.1.19,<4,>=3.0.7->streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading gitdb-4.0.12-py3-none-any.whl.metadata (1.2 kB)
+Collecting smmap<6,>=3.0.1 (from gitdb<5,>=4.0.1->gitpython!=3.1.19,<4,>=3.0.7->streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading smmap-5.0.3-py3-none-any.whl.metadata (4.6 kB)
+Collecting multitasking>=0.0.7 (from yfinance->-r requirements.txt (line 5))
+  Downloading multitasking-0.0.13-py3-none-any.whl.metadata (16 kB)
+Collecting platformdirs>=2.0.0 (from yfinance->-r requirements.txt (line 5))
+  Downloading platformdirs-4.11.0-py3-none-any.whl.metadata (5.5 kB)
+Collecting peewee>=3.16.2 (from yfinance->-r requirements.txt (line 5))
+  Downloading peewee-4.2.6-py3-none-any.whl.metadata (10 kB)
+Collecting curl_cffi>=0.15 (from yfinance->-r requirements.txt (line 5))
+  Downloading curl_cffi-0.15.0-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (18 kB)
+Collecting websockets>=13.0 (from yfinance->-r requirements.txt (line 5))
+  Downloading websockets-17.0-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (6.3 kB)
+Collecting six>=1.9 (from html5lib->-r requirements.txt (line 12))
+  Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting webencodings (from html5lib->-r requirements.txt (line 12))
+  Downloading webencodings-0.5.1-py2.py3-none-any.whl.metadata (2.1 kB)
+Collecting soupsieve>=1.6.1 (from beautifulsoup4->-r requirements.txt (line 13))
+  Downloading soupsieve-2.9.1-py3-none-any.whl.metadata (4.6 kB)
+Collecting aiohappyeyeballs>=2.5.0 (from aiohttp>=3.7.4.post0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading aiohappyeyeballs-2.7.1-py3-none-any.whl.metadata (5.9 kB)
+Collecting aiosignal>=1.4.0 (from aiohttp>=3.7.4.post0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading aiosignal-1.4.0-py3-none-any.whl.metadata (3.7 kB)
+Collecting attrs>=17.3.0 (from aiohttp>=3.7.4.post0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+Collecting frozenlist>=1.1.1 (from aiohttp>=3.7.4.post0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading frozenlist-1.8.0-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (20 kB)
+Collecting multidict<7.0,>=4.5 (from aiohttp>=3.7.4.post0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading multidict-6.7.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (5.3 kB)
+Collecting propcache>=0.2.0 (from aiohttp>=3.7.4.post0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading propcache-0.5.2-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (16 kB)
+Collecting yarl<2.0,>=1.17.0 (from aiohttp>=3.7.4.post0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading yarl-1.24.5-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (103 kB)
+Collecting cffi>=2.0.0 (from curl_cffi>=0.15->yfinance->-r requirements.txt (line 5))
+  Downloading cffi-2.1.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.5 kB)
+Collecting pycparser (from cffi>=2.0.0->curl_cffi>=0.15->yfinance->-r requirements.txt (line 5))
+  Downloading pycparser-3.0-py3-none-any.whl.metadata (8.2 kB)
+Collecting itsdangerous>=2.2.0 (from flask>=2.0.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading itsdangerous-2.2.0-py3-none-any.whl.metadata (1.9 kB)
+Collecting markupsafe>=2.1.1 (from flask>=2.0.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading markupsafe-3.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+Collecting werkzeug>=3.1.0 (from flask>=2.0.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading werkzeug-3.1.8-py3-none-any.whl.metadata (4.0 kB)
+Collecting zipp>=3.20 (from importlib-metadata>=4.8.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading zipp-4.1.0-py3-none-any.whl.metadata (3.6 kB)
+Collecting decorator>=5.1.0 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading decorator-5.3.1-py3-none-any.whl.metadata (3.9 kB)
+Collecting ipython-pygments-lexers>=1.0.0 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading ipython_pygments_lexers-1.1.1-py3-none-any.whl.metadata (1.1 kB)
+Collecting jedi>=0.18.2 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading jedi-0.20.0-py2.py3-none-any.whl.metadata (23 kB)
+Collecting matplotlib-inline>=0.1.6 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading matplotlib_inline-0.2.2-py3-none-any.whl.metadata (2.4 kB)
+Collecting pexpect>4.6 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading pexpect-4.9.0-py2.py3-none-any.whl.metadata (2.5 kB)
+Collecting prompt_toolkit<3.1.0,>=3.0.41 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading prompt_toolkit-3.0.53-py3-none-any.whl.metadata (6.4 kB)
+Collecting psutil>=7 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl.metadata (22 kB)
+Collecting stack_data>=0.6.0 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading stack_data-0.6.3-py3-none-any.whl.metadata (18 kB)
+Collecting traitlets>=5.13.0 (from ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading traitlets-5.15.1-py3-none-any.whl.metadata (10 kB)
+Collecting wcwidth>=0.1.4 (from prompt_toolkit<3.1.0,>=3.0.41->ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading wcwidth-0.8.2-py3-none-any.whl.metadata (43 kB)
+Collecting parso<0.9.0,>=0.8.6 (from jedi>=0.18.2->ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading parso-0.8.7-py2.py3-none-any.whl.metadata (8.2 kB)
+Collecting jsonschema-specifications>=2023.03.6 (from jsonschema>=3.0->altair<6,>=4.0->streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+Collecting referencing>=0.28.4 (from jsonschema>=3.0->altair<6,>=4.0->streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+Collecting rpds-py>=0.25.0 (from jsonschema>=3.0->altair<6,>=4.0->streamlit==1.40.2->-r requirements.txt (line 1))
+  Downloading rpds_py-2026.6.3-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich==13.9.4->-r requirements.txt (line 2))
+  Downloading mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+Collecting ptyprocess>=0.5 (from pexpect>4.6->ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading ptyprocess-0.7.0-py2.py3-none-any.whl.metadata (1.3 kB)
+Collecting annotated-types>=0.6.0 (from pydantic>=1.6.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)
+Collecting pydantic-core==2.46.4 (from pydantic>=1.6.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading pydantic_core-2.46.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.6 kB)
+Collecting typing-inspection>=0.4.2 (from pydantic>=1.6.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading typing_inspection-0.4.2-py3-none-any.whl.metadata (2.6 kB)
+Collecting prettytable (from pyecharts>=1.9.0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading prettytable-3.18.0-py3-none-any.whl.metadata (37 kB)
+Collecting simplejson (from pyecharts>=1.9.0->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading simplejson-4.1.1-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (3.8 kB)
+Collecting executing>=1.2.0 (from stack_data>=0.6.0->ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading executing-2.2.1-py2.py3-none-any.whl.metadata (8.9 kB)
+Collecting asttokens>=2.1.0 (from stack_data>=0.6.0->ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading asttokens-3.0.2-py3-none-any.whl.metadata (5.7 kB)
+Collecting pure-eval (from stack_data>=0.6.0->ipython>=7.16.1->FinMind==1.9.10->-r requirements.txt (line 6))
+  Downloading pure_eval-0.2.3-py3-none-any.whl.metadata (6.3 kB)
+Downloading streamlit-1.40.2-py2.py3-none-any.whl (8.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8.6/8.6 MB 88.5 MB/s  0:00:00
+Downloading rich-13.9.4-py3-none-any.whl (242 kB)
+Downloading finmind-1.9.10-py3-none-any.whl (70 kB)
+Downloading pandas-2.3.3-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (12.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 12.8/12.8 MB 197.0 MB/s  0:00:00
+Downloading numpy-2.4.6-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.9/16.9 MB 222.6 MB/s  0:00:00
+Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Downloading altair-5.5.0-py3-none-any.whl (731 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 731.2/731.2 kB 127.2 MB/s  0:00:00
+Downloading blinker-1.9.0-py3-none-any.whl (8.5 kB)
+Downloading cachetools-5.5.2-py3-none-any.whl (10 kB)
+Downloading charset_normalizer-3.4.9-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (221 kB)
+Downloading click-8.4.2-py3-none-any.whl (119 kB)
+Downloading gitpython-3.1.57-py3-none-any.whl (217 kB)
+Downloading gitdb-4.0.12-py3-none-any.whl (62 kB)
+Downloading idna-3.18-py3-none-any.whl (65 kB)
+Downloading packaging-24.2-py3-none-any.whl (65 kB)
+Downloading pillow-11.3.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (6.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.6/6.6 MB 61.1 MB/s  0:00:00
+Downloading protobuf-5.29.6-cp38-abi3-manylinux2014_x86_64.whl (320 kB)
+Downloading pydeck-0.9.3-py2.py3-none-any.whl (11.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.4/11.4 MB 167.4 MB/s  0:00:00
+Downloading pygments-2.20.0-py3-none-any.whl (1.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.2/1.2 MB 217.6 MB/s  0:00:00
+Downloading smmap-5.0.3-py3-none-any.whl (24 kB)
+Downloading tenacity-9.1.4-py3-none-any.whl (28 kB)
+Downloading toml-0.10.2-py2.py3-none-any.whl (16 kB)
+Downloading tornado-6.5.7-cp39-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (449 kB)
+Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Downloading urllib3-2.7.0-py3-none-any.whl (131 kB)
+Downloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl (79 kB)
+Downloading yfinance-1.5.2-py2.py3-none-any.whl (144 kB)
+Downloading fake_useragent-2.2.0-py3-none-any.whl (161 kB)
+Downloading joblib-1.5.3-py3-none-any.whl (309 kB)
+Downloading tqdm-4.70.0-py3-none-any.whl (80 kB)
+Downloading lxml-6.1.1-cp311-cp311-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (5.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.2/5.2 MB 292.0 MB/s  0:00:00
+Downloading html5lib-1.1-py2.py3-none-any.whl (112 kB)
+Downloading beautifulsoup4-4.15.0-py3-none-any.whl (109 kB)
+Downloading aiohttp-3.14.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (1.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 201.6 MB/s  0:00:00
+Downloading multidict-6.7.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (246 kB)
+Downloading yarl-1.24.5-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (111 kB)
+Downloading aiohappyeyeballs-2.7.1-py3-none-any.whl (15 kB)
+Downloading aiosignal-1.4.0-py3-none-any.whl (7.5 kB)
+Downloading attrs-26.1.0-py3-none-any.whl (67 kB)
+Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+Downloading curl_cffi-0.15.0-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (11.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.1/11.1 MB 326.9 MB/s  0:00:00
+Downloading cffi-2.1.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (217 kB)
+Downloading flask-3.1.3-py3-none-any.whl (103 kB)
+Downloading frozenlist-1.8.0-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (231 kB)
+Downloading importlib_metadata-9.0.0-py3-none-any.whl (27 kB)
+Downloading ipython-9.15.0-py3-none-any.whl (630 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 630.9/630.9 kB 110.7 MB/s  0:00:00
+Downloading prompt_toolkit-3.0.53-py3-none-any.whl (392 kB)
+Downloading decorator-5.3.1-py3-none-any.whl (10 kB)
+Downloading ipython_pygments_lexers-1.1.1-py3-none-any.whl (8.1 kB)
+Downloading itsdangerous-2.2.0-py3-none-any.whl (16 kB)
+Downloading jedi-0.20.0-py2.py3-none-any.whl (4.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.9/4.9 MB 269.1 MB/s  0:00:00
+Downloading parso-0.8.7-py2.py3-none-any.whl (107 kB)
+Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
+Downloading jsonschema-4.26.0-py3-none-any.whl (90 kB)
+Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+Downloading loguru-0.7.3-py3-none-any.whl (61 kB)
+Downloading markdown_it_py-4.2.0-py3-none-any.whl (91 kB)
+Downloading mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Downloading markupsafe-3.0.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB)
+Downloading matplotlib_inline-0.2.2-py3-none-any.whl (9.5 kB)
+Downloading multitasking-0.0.13-py3-none-any.whl (16 kB)
+Downloading narwhals-2.24.0-py3-none-any.whl (461 kB)
+Downloading nest_asyncio-1.6.0-py3-none-any.whl (5.2 kB)
+Downloading peewee-4.2.6-py3-none-any.whl (173 kB)
+Downloading pexpect-4.9.0-py2.py3-none-any.whl (63 kB)
+Downloading platformdirs-4.11.0-py3-none-any.whl (23 kB)
+Downloading propcache-0.5.2-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (58 kB)
+Downloading psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl (155 kB)
+Downloading ptyprocess-0.7.0-py2.py3-none-any.whl (13 kB)
+Downloading pyarrow-25.0.0-cp311-cp311-manylinux_2_28_x86_64.whl (50.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50.1/50.1 MB 149.9 MB/s  0:00:00
+Downloading pydantic-2.13.4-py3-none-any.whl (472 kB)
+Downloading pydantic_core-2.46.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 268.2 MB/s  0:00:00
+Downloading annotated_types-0.8.0-py3-none-any.whl (13 kB)
+Downloading pyecharts-2.1.0-py3-none-any.whl (161 kB)
+Downloading python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Downloading pytz-2026.3.post1-py2.py3-none-any.whl (508 kB)
+Downloading referencing-0.37.0-py3-none-any.whl (26 kB)
+Downloading rpds_py-2026.6.3-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (371 kB)
+Downloading six-1.17.0-py2.py3-none-any.whl (11 kB)
+Downloading soupsieve-2.9.1-py3-none-any.whl (37 kB)
+Downloading stack_data-0.6.3-py3-none-any.whl (24 kB)
+Downloading asttokens-3.0.2-py3-none-any.whl (28 kB)
+Downloading executing-2.2.1-py2.py3-none-any.whl (28 kB)
+Downloading traitlets-5.15.1-py3-none-any.whl (85 kB)
+Downloading typing_inspection-0.4.2-py3-none-any.whl (14 kB)
+Downloading tzdata-2026.3-py2.py3-none-any.whl (348 kB)
+Downloading wcwidth-0.8.2-py3-none-any.whl (323 kB)
+Downloading websockets-17.0-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (220 kB)
+Downloading werkzeug-3.1.8-py3-none-any.whl (226 kB)
+Downloading zipp-4.1.0-py3-none-any.whl (10 kB)
+Downloading prettytable-3.18.0-py3-none-any.whl (37 kB)
+Downloading pure_eval-0.2.3-py3-none-any.whl (11 kB)
+Downloading pycparser-3.0-py3-none-any.whl (48 kB)
+Downloading simplejson-4.1.1-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (180 kB)
+Downloading webencodings-0.5.1-py2.py3-none-any.whl (11 kB)
+Building wheels for collected packages: ta
+  Building wheel for ta (pyproject.toml): started
+  Building wheel for ta (pyproject.toml): finished with status 'done'
+  Created wheel for ta: filename=ta-0.5.25-py3-none-any.whl size=24933 sha256=9095c9d9c005704e4c3b410b513d2b34a3f0d90fe0d9a40c9352d4be43c0e745
+  Stored in directory: /home/runner/.cache/pip/wheels/33/fc/77/8c7e03a6570d67208d06005e9358a62fabc17eb963e7baf75b
+Successfully built ta
+Installing collected packages: webencodings, pytz, pure-eval, ptyprocess, peewee, multitasking, zipp, websockets, wcwidth, watchdog, urllib3, tzdata, typing-extensions, traitlets, tqdm, tornado, toml, tenacity, soupsieve, smmap, six, simplejson, rpds-py, pygments, pycparser, pyarrow, psutil, protobuf, propcache, platformdirs, pillow, pexpect, parso, packaging, numpy, nest-asyncio, narwhals, multidict, mdurl, markupsafe, lxml, loguru, joblib, itsdangerous, idna, frozenlist, fake-useragent, executing, decorator, click, charset_normalizer, certifi, cachetools, blinker, attrs, asttokens, annotated-types, aiohappyeyeballs, yarl, werkzeug, typing-inspection, stack_data, requests, referencing, python-dateutil, pydantic-core, prompt_toolkit, prettytable, matplotlib-inline, markdown-it-py, jinja2, jedi, ipython-pygments-lexers, importlib-metadata, html5lib, gitdb, cffi, beautifulsoup4, aiosignal, rich, pyecharts, pydeck, pydantic, pandas, jsonschema-specifications, ipython, gitpython, flask, aiohttp, ta, jsonschema, curl_cffi, yfinance, FinMind, altair, streamlit
+
+Successfully installed FinMind-1.9.10 aiohappyeyeballs-2.7.1 aiohttp-3.14.3 aiosignal-1.4.0 altair-5.5.0 annotated-types-0.8.0 asttokens-3.0.2 attrs-26.1.0 beautifulsoup4-4.15.0 blinker-1.9.0 cachetools-5.5.2 certifi-2026.7.22 cffi-2.1.0 charset_normalizer-3.4.9 click-8.4.2 curl_cffi-0.15.0 decorator-5.3.1 executing-2.2.1 fake-useragent-2.2.0 flask-3.1.3 frozenlist-1.8.0 gitdb-4.0.12 gitpython-3.1.57 html5lib-1.1 idna-3.18 importlib-metadata-9.0.0 ipython-9.15.0 ipython-pygments-lexers-1.1.1 itsdangerous-2.2.0 jedi-0.20.0 jinja2-3.1.6 joblib-1.5.3 jsonschema-4.26.0 jsonschema-specifications-2025.9.1 loguru-0.7.3 lxml-6.1.1 markdown-it-py-4.2.0 markupsafe-3.0.3 matplotlib-inline-0.2.2 mdurl-0.1.2 multidict-6.7.1 multitasking-0.0.13 narwhals-2.24.0 nest-asyncio-1.6.0 numpy-2.4.6 packaging-24.2 pandas-2.3.3 parso-0.8.7 peewee-4.2.6 pexpect-4.9.0 pillow-11.3.0 platformdirs-4.11.0 prettytable-3.18.0 prompt_toolkit-3.0.53 propcache-0.5.2 protobuf-5.29.6 psutil-7.2.2 ptyprocess-0.7.0 pure-eval-0.2.3 pyarrow-25.0.0 pycparser-3.0 pydantic-2.13.4 pydantic-core-2.46.4 pydeck-0.9.3 pyecharts-2.1.0 pygments-2.20.0 python-dateutil-2.9.0.post0 pytz-2026.3.post1 referencing-0.37.0 requests-2.34.2 rich-13.9.4 rpds-py-2026.6.3 simplejson-4.1.1 six-1.17.0 smmap-5.0.3 soupsieve-2.9.1 stack_data-0.6.3 streamlit-1.40.2 ta-0.5.25 tenacity-9.1.4 toml-0.10.2 tornado-6.5.7 tqdm-4.70.0 traitlets-5.15.1 typing-extensions-4.16.0 typing-inspection-0.4.2 tzdata-2026.3 urllib3-2.7.0 watchdog-6.0.0 wcwidth-0.8.2 webencodings-0.5.1 websockets-17.0 werkzeug-3.1.8 yarl-1.24.5 yfinance-1.5.2 zipp-4.1.0
+test_decision_main_evidence_market_and_chip_are_one_card (test_compact_decision_panel_v1066.CompactDecisionPanelV1066Tests.test_decision_main_evidence_market_and_chip_are_one_card) ... ok
+test_duplicate_footer_sections_are_not_rendered (test_compact_decision_panel_v1066.CompactDecisionPanelV1066Tests.test_duplicate_footer_sections_are_not_rendered) ... ok
+test_entry_timing_keeps_dynamic_strategy_and_limits_reason_chips (test_compact_decision_panel_v1066.CompactDecisionPanelV1066Tests.test_entry_timing_keeps_dynamic_strategy_and_limits_reason_chips) ... ok
+test_five_large_boxes_are_replaced_by_one_price_strip (test_compact_decision_panel_v1066.CompactDecisionPanelV1066Tests.test_five_large_boxes_are_replaced_by_one_price_strip) ... ok
+test_price_strip_preserves_existing_risk_and_trigger_prices (test_compact_decision_panel_v1066.CompactDecisionPanelV1066Tests.test_price_strip_preserves_existing_risk_and_trigger_prices) ... ok
+test_evidence_is_a_short_summary_with_expandable_full_payload (test_decision_evidence_spacing_v1067.DecisionEvidenceSpacingV1067Tests.test_evidence_is_a_short_summary_with_expandable_full_payload) ... ok
+test_old_fixed_height_clipping_is_removed (test_decision_evidence_spacing_v1067.DecisionEvidenceSpacingV1067Tests.test_old_fixed_height_clipping_is_removed) ... ok
+test_price_bar_remains_a_separate_row (test_decision_evidence_spacing_v1067.DecisionEvidenceSpacingV1067Tests.test_price_bar_remains_a_separate_row) ... ok
+test_limit_up_with_aligned_evidence_is_extreme_breakout (test_decision_narrative.DecisionNarrativeTests.test_limit_up_with_aligned_evidence_is_extreme_breakout) ... ok
+test_limit_up_with_negative_chips_is_divergence_not_generic_bearish (test_decision_narrative.DecisionNarrativeTests.test_limit_up_with_negative_chips_is_divergence_not_generic_bearish) ... ok
+test_negative_news_rejected_by_strong_price (test_decision_narrative.DecisionNarrativeTests.test_negative_news_rejected_by_strong_price) ... ok
+test_positive_news_without_price_confirmation_is_rejected (test_decision_narrative.DecisionNarrativeTests.test_positive_news_without_price_confirmation_is_rejected) ... ok
+test_price_reality_detects_limit_like_close (test_decision_narrative.DecisionNarrativeTests.test_price_reality_detects_limit_like_close) ... ok
+test_tw_four_percent_breakout_is_not_collapsed_into_generic_template (test_decision_narrative.DecisionNarrativeTests.test_tw_four_percent_breakout_is_not_collapsed_into_generic_template) ... ok
+test_dominant_shock_prefers_hormuz_war_over_tariff (test_decision_narrative_v1062.DecisionNarrativeV1062Tests.test_dominant_shock_prefers_hormuz_war_over_tariff) ... ok
+test_one_liner_keeps_only_tactical_conclusion (test_decision_narrative_v1062.DecisionNarrativeV1062Tests.test_one_liner_keeps_only_tactical_conclusion) ... ok
+test_earnings_dates_fallback_recovers_missing_get_info_field (test_earnings_calendar_guard_v1076.EarningsCalendarGuardV1076Tests.test_earnings_dates_fallback_recovers_missing_get_info_field) ... ok
+test_meta_same_day_calendar_is_not_dropped (test_earnings_calendar_guard_v1076.EarningsCalendarGuardV1076Tests.test_meta_same_day_calendar_is_not_dropped) ... ok
+test_msft_after_close_timestamp_converts_to_taipei_next_day (test_earnings_calendar_guard_v1076.EarningsCalendarGuardV1076Tests.test_msft_after_close_timestamp_converts_to_taipei_next_day) ... ok
+test_quote_summary_earnings_date_midnight_does_not_shift_to_prior_us_day (test_earnings_calendar_guard_v1076.EarningsCalendarGuardV1076Tests.test_quote_summary_earnings_date_midnight_does_not_shift_to_prior_us_day) ... ok
+test_quote_summary_is_final_fallback (test_earnings_calendar_guard_v1076.EarningsCalendarGuardV1076Tests.test_quote_summary_is_final_fallback) ... ok
+test_resolved_event_reaches_fundamental_ui_and_scheduled_priority (test_earnings_calendar_guard_v1076.EarningsCalendarGuardV1076Tests.test_resolved_event_reaches_fundamental_ui_and_scheduled_priority) ... ok
+test_installation_entry_is_present_in_data_router (test_emerging_session_v1070.EmergingSessionV1070Tests.test_installation_entry_is_present_in_data_router) ... ok
+test_main_board_session_contract_remains_1330 (test_emerging_session_v1070.EmergingSessionV1070Tests.test_main_board_session_contract_remains_1330) ... ok
+test_official_emerging_session_boundaries (test_emerging_session_v1070.EmergingSessionV1070Tests.test_official_emerging_session_boundaries) ... ok
+test_after_hours_extreme_move_waits_for_regular_session (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_after_hours_extreme_move_waits_for_regular_session) ... ok
+test_battle_panel_uses_entry_timing_not_low_entry_maturity (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_battle_panel_uses_entry_timing_not_low_entry_maturity) ... ok
+test_event_first_reaction_never_becomes_buy_now (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_event_first_reaction_never_becomes_buy_now) ... ok
+test_event_repricing_can_allow_small_confirmation_today (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_event_repricing_can_allow_small_confirmation_today) ... ok
+test_exhaustion_plus_vwap_reclaim_allows_confirmation (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_exhaustion_plus_vwap_reclaim_allows_confirmation) ... ok
+test_formal_close_after_market_cannot_say_buy_today (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_formal_close_after_market_cannot_say_buy_today) ... ok
+test_formal_forecast_is_explicitly_unchanged (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_formal_forecast_is_explicitly_unchanged) ... ok
+test_generic_limit_up_headline_does_not_lock_a_us_ticker (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_generic_limit_up_headline_does_not_lock_a_us_ticker) ... ok
+test_selling_expansion_blocks_low_price_catching (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_selling_expansion_blocks_low_price_catching) ... ok
+test_tw_limit_up_waits_next_session_not_old_low_entry (test_entry_opportunity_v1080.EntryOpportunityV1080Tests.test_tw_limit_up_waits_next_session_not_old_low_entry) ... ok
+test_customer_earnings_cannot_impersonate_target_earnings (test_event_attribution_v1078.EventAttributionV1078Tests.test_customer_earnings_cannot_impersonate_target_earnings) ... ok
+test_event_watcher_classifies_gds_as_structural_repricing (test_event_attribution_v1078.EventAttributionV1078Tests.test_event_watcher_classifies_gds_as_structural_repricing) ... ok
+test_gds_price_confirmation_reaches_specialized_ai_card (test_event_attribution_v1078.EventAttributionV1078Tests.test_gds_price_confirmation_reaches_specialized_ai_card) ... ok
+test_market_shock_level_changes_with_measured_oil_move (test_event_attribution_v1078.EventAttributionV1078Tests.test_market_shock_level_changes_with_measured_oil_move) ... ok
+test_oil_move_uses_numeric_magnitude_buckets (test_event_attribution_v1078.EventAttributionV1078Tests.test_oil_move_uses_numeric_magnitude_buckets) ... ok
+test_self_gds_outranks_customer_earnings (test_event_attribution_v1078.EventAttributionV1078Tests.test_self_gds_outranks_customer_earnings) ... ok
+test_war_language_has_escalation_ladder (test_event_attribution_v1078.EventAttributionV1078Tests.test_war_language_has_escalation_ladder) ... ok
+test_war_plus_verified_oil_move_is_one_escalated_chain (test_event_attribution_v1078.EventAttributionV1078Tests.test_war_plus_verified_oil_move_is_one_escalated_chain) ... ok
+test_airline_oil_risk_is_stronger_than_biotech (test_event_intelligence_v1062.EventIntelligenceV1062Tests.test_airline_oil_risk_is_stronger_than_biotech) ... ok
+test_energy_can_receive_positive_oil_direction_but_price_keeps_veto (test_event_intelligence_v1062.EventIntelligenceV1062Tests.test_energy_can_receive_positive_oil_direction_but_price_keeps_veto) ... ok
+test_tariff_hits_memory_more_than_biotech (test_event_intelligence_v1062.EventIntelligenceV1062Tests.test_tariff_hits_memory_more_than_biotech) ... ok
+test_forward_slowdown_reassesses_after_close (test_event_reassessment.EventReassessmentTests.test_forward_slowdown_reassesses_after_close) ... ok
+test_geo_statement_reassesses_without_forcing_direction (test_event_reassessment.EventReassessmentTests.test_geo_statement_reassesses_without_forcing_direction) ... ok
+test_low_impact_headline_is_observation_only (test_event_reassessment.EventReassessmentTests.test_low_impact_headline_is_observation_only) ... ok
+test_old_rotated_headline_cannot_invalidate_new_forecast (test_event_reassessment.EventReassessmentTests.test_old_rotated_headline_cannot_invalidate_new_forecast) ... ok
+test_revision_snapshot_is_distinct_and_v13_compatible (test_event_reassessment.EventReassessmentTests.test_revision_snapshot_is_distinct_and_v13_compatible) ... ok
+test_same_headline_does_not_reassess (test_event_reassessment.EventReassessmentTests.test_same_headline_does_not_reassess) ... ok
+test_syndicated_publisher_suffix_has_same_identity (test_event_reassessment.EventReassessmentTests.test_syndicated_publisher_suffix_has_same_identity) ... ok
+test_logout_clears_all_event_watch_state (test_event_watch_controls.EventWatchControlsTests.test_logout_clears_all_event_watch_state) ... ok
+test_severity_three_and_four_are_red_errors (test_event_watch_controls.EventWatchControlsTests.test_severity_three_and_four_are_red_errors) ... ok
+test_severity_two_is_warning (test_event_watch_controls.EventWatchControlsTests.test_severity_two_is_warning) ... ok
+test_unchanged_status_is_small_caption (test_event_watch_controls.EventWatchControlsTests.test_unchanged_status_is_small_caption) ... ok
+test_common_stock_bounds_use_directional_tick_rounding (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_common_stock_bounds_use_directional_tick_rounding) ... ok
+test_domestic_leveraged_etf_uses_twenty_percent_and_etf_tick (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_domestic_leveraged_etf_uses_twenty_percent_and_etf_tick) ... ok
+test_emerging_and_us_have_no_taiwan_static_limit (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_emerging_and_us_have_no_taiwan_static_limit) ... ok
+test_ex_right_reference_prevents_fake_sixteen_percent_drop (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_ex_right_reference_prevents_fake_sixteen_percent_drop) ... ok
+test_first_batch_below_official_lower_is_not_rewritten (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_first_batch_below_official_lower_is_not_rewritten) ... ok
+test_foreign_underlying_etf_has_no_static_limit (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_foreign_underlying_etf_has_no_static_limit) ... ok
+test_official_new_listing_override_can_disable_static_limit (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_official_new_listing_override_can_disable_static_limit) ... ok
+test_two_suffix_does_not_mean_unlimited (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_two_suffix_does_not_mean_unlimited) ... ok
+test_twse_and_tpex_common_stock_share_ten_percent_rule (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_twse_and_tpex_common_stock_share_ten_percent_rule) ... ok
+test_unverified_reference_never_hard_changes_entry (test_exchange_rule_v1069.ExchangeRuleV1069Tests.test_unverified_reference_never_hard_changes_entry) ... ok
+test_confirmed_audit_is_found_by_ticker_and_session_not_latest_prediction_id (test_learning_readonly_compare.LearningReadonlyCompareTests.test_confirmed_audit_is_found_by_ticker_and_session_not_latest_prediction_id) ... ok
+test_unconfirmed_actual_is_never_rendered_as_official_audit (test_learning_readonly_compare.LearningReadonlyCompareTests.test_unconfirmed_actual_is_never_rendered_as_official_audit) ... ok
+test_below_stop_is_hard_block (test_low_entry_readiness_v1064.LowEntryReadinessTests.test_below_stop_is_hard_block) ... ok
+test_blocked_thesis_never_labels_near_support_as_entry_hit (test_low_entry_readiness_v1064.LowEntryReadinessTests.test_blocked_thesis_never_labels_near_support_as_entry_hit) ... ok
+test_latest_market_oil_down_overrides_old_rise_story (test_low_entry_readiness_v1064.LowEntryReadinessTests.test_latest_market_oil_down_overrides_old_rise_story) ... ok
+test_mature_when_price_chip_and_ai_align (test_low_entry_readiness_v1064.LowEntryReadinessTests.test_mature_when_price_chip_and_ai_align) ... ok
+test_wait_when_event_and_foreign_selling_remain (test_low_entry_readiness_v1064.LowEntryReadinessTests.test_wait_when_event_and_foreign_selling_remain) ... ok
+test_ai_narrative_stale_prices_are_corrected_to_tactical_cards (test_low_entry_readiness_v1065.LowEntryReadinessV1065Tests.test_ai_narrative_stale_prices_are_corrected_to_tactical_cards) ... ok
+test_below_stop_says_rebuild_before_low_entry (test_low_entry_readiness_v1065.LowEntryReadinessV1065Tests.test_below_stop_says_rebuild_before_low_entry) ... ok
+test_wait_card_answers_pullback_confirmation_and_invalid_prices (test_low_entry_readiness_v1065.LowEntryReadinessV1065Tests.test_wait_card_answers_pullback_confirmation_and_invalid_prices) ... ok
+test_yellow_gate_cannot_render_immediate_aggressive_buy (test_low_entry_readiness_v1065.LowEntryReadinessV1065Tests.test_yellow_gate_cannot_render_immediate_aggressive_buy) ... ok
+test_bad_headline_alone_cannot_declare_crash (test_market_command_v1071.MarketCommandV1071Tests.test_bad_headline_alone_cannot_declare_crash) ... ok
+test_broad_price_and_volatility_confirm_selloff (test_market_command_v1071.MarketCommandV1071Tests.test_broad_price_and_volatility_confirm_selloff) ... ok
+test_coverage_is_not_presented_as_directional_hit_rate (test_market_command_v1071.MarketCommandV1071Tests.test_coverage_is_not_presented_as_directional_hit_rate) ... ok
+test_market_command_is_independent_from_admin_event_watch (test_market_command_v1071.MarketCommandV1071Tests.test_market_command_is_independent_from_admin_event_watch) ... ok
+test_market_command_renderer_imports_html_escape (test_market_command_v1071.MarketCommandV1071Tests.test_market_command_renderer_imports_html_escape) ... ok
+test_market_command_supports_us_market_family (test_market_command_v1071.MarketCommandV1071Tests.test_market_command_supports_us_market_family) ... ok
+test_missing_data_never_fabricates_precision (test_market_command_v1071.MarketCommandV1071Tests.test_missing_data_never_fabricates_precision) ... ok
+test_annotation_adds_visible_shock_metadata (test_market_shock_indicator.MarketShockIndicatorTests.test_annotation_adds_visible_shock_metadata) ... ok
+test_falling_oil_is_not_mislabeled_as_spike (test_market_shock_indicator.MarketShockIndicatorTests.test_falling_oil_is_not_mislabeled_as_spike) ... ok
+test_five_minute_watcher_elevates_l5_to_red_alert (test_market_shock_indicator.MarketShockIndicatorTests.test_five_minute_watcher_elevates_l5_to_red_alert) ... ok
+test_hormuz_and_iran_war_reach_extreme_shock (test_market_shock_indicator.MarketShockIndicatorTests.test_hormuz_and_iran_war_reach_extreme_shock) ... ok
+test_oil_spike_is_stronger_for_airline_than_biotech (test_market_shock_indicator.MarketShockIndicatorTests.test_oil_spike_is_stronger_for_airline_than_biotech) ... ok
+test_tariff_stays_cross_market_l3_not_systemic_l4 (test_market_shock_indicator.MarketShockIndicatorTests.test_tariff_stays_cross_market_l3_not_systemic_l4) ... ok
+test_broad_ustr_headline_cannot_become_yageo_company_risk (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_broad_ustr_headline_cannot_become_yageo_company_risk) ... ok
+test_company_event_outranks_shared_macro_background (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_company_event_outranks_shared_macro_background) ... ok
+test_company_specific_export_control_stays_company_evidence (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_company_specific_export_control_stays_company_evidence) ... ok
+test_delta_q2_release_after_close_waits_for_next_market_reaction (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_delta_q2_release_after_close_waits_for_next_market_reaction) ... ok
+test_engine_is_generic_for_unlisted_tw_and_us_symbols (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_engine_is_generic_for_unlisted_tw_and_us_symbols) ... ok
+test_future_source_timestamp_is_rejected (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_future_source_timestamp_is_rejected) ... ok
+test_generator_input_is_consumed_once_and_counted_correctly (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_generator_input_is_consumed_once_and_counted_correctly) ... ok
+test_intraday_missing_price_timestamp_never_uses_future_close (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_intraday_missing_price_timestamp_never_uses_future_close) ... ok
+test_memory_competition_is_industry_narrative_not_company_event (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_memory_competition_is_industry_narrative_not_company_event) ... ok
+test_new_scheduled_event_outranks_older_earnings_article (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_new_scheduled_event_outranks_older_earnings_article) ... ok
+test_old_company_event_is_context_not_today_cause (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_old_company_event_is_context_not_today_cause) ... ok
+test_preclose_positive_event_can_be_rejected_by_close (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_preclose_positive_event_can_be_rejected_by_close) ... ok
+test_same_earnings_story_is_one_family_even_with_many_publishers (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_same_earnings_story_is_one_family_even_with_many_publishers) ... ok
+test_scheduled_earnings_preview_never_becomes_directional_result (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_scheduled_earnings_preview_never_becomes_directional_result) ... ok
+test_stale_scheduled_preview_does_not_remain_pending (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_stale_scheduled_preview_does_not_remain_pending) ... ok
+test_structured_company_calendar_becomes_pending_catalyst (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_structured_company_calendar_becomes_pending_catalyst) ... ok
+test_tw_after_close_earnings_waits_for_first_market_reaction (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_tw_after_close_earnings_waits_for_first_market_reaction) ... ok
+test_tw_next_formal_close_completes_event_verification (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_tw_next_formal_close_completes_event_verification) ... ok
+test_tw_next_intraday_is_first_reaction_not_completed_session (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_tw_next_intraday_is_first_reaction_not_completed_session) ... ok
+test_us_after_hours_quote_can_only_mark_reaction_in_progress (test_news_causal_intelligence_v1073.NewsCausalIntelligenceV1073Tests.test_us_after_hours_quote_can_only_mark_reaction_in_progress) ... ok
+test_apple_company_bucket_rejects_bmw_pollution (test_news_event_scoring.NewsEventScoringTests.test_apple_company_bucket_rejects_bmw_pollution) ... ok
+test_earnings_publishers_count_as_one_forward_first_family (test_news_event_scoring.NewsEventScoringTests.test_earnings_publishers_count_as_one_forward_first_family) ... ok
+test_policy_geo_is_not_counted_again_as_generic_news (test_news_event_scoring.NewsEventScoringTests.test_policy_geo_is_not_counted_again_as_generic_news) ... ok
+test_tw_company_bucket_requires_code_name_or_alias (test_news_event_scoring.NewsEventScoringTests.test_tw_company_bucket_requires_code_name_or_alias) ... ok
+test_tw_forward_slowdown_outweighs_backward_beat (test_news_event_scoring.NewsEventScoringTests.test_tw_forward_slowdown_outweighs_backward_beat) ... ok
+test_tw_gds_offering_is_negative_capital_event (test_news_event_scoring.NewsEventScoringTests.test_tw_gds_offering_is_negative_capital_event) ... ok
+test_tw_positive_forward_remains_positive (test_news_event_scoring.NewsEventScoringTests.test_tw_positive_forward_remains_positive) ... ok
+test_us_forward_cut_outweighs_backward_beat (test_news_event_scoring.NewsEventScoringTests.test_us_forward_cut_outweighs_backward_beat) ... ok
+test_us_gds_offering_is_negative_even_with_customer_earnings (test_news_event_scoring.NewsEventScoringTests.test_us_gds_offering_is_negative_even_with_customer_earnings) ... ok
+test_us_positive_forward_remains_positive (test_news_event_scoring.NewsEventScoringTests.test_us_positive_forward_remains_positive) ... ok
+test_us_weak_guidance_outweighs_backward_beat (test_news_event_scoring.NewsEventScoringTests.test_us_weak_guidance_outweighs_backward_beat) ... ok
+test_force_times_old_news_is_stale_reindexed (test_news_timestamp_provenance_v1079.NewsTimestampProvenanceV1079Tests.test_force_times_old_news_is_stale_reindexed) ... ok
+test_modified_date_alone_is_not_original_publication (test_news_timestamp_provenance_v1079.NewsTimestampProvenanceV1079Tests.test_modified_date_alone_is_not_original_publication) ... ok
+test_same_day_publisher_date_is_verified (test_news_timestamp_provenance_v1079.NewsTimestampProvenanceV1079Tests.test_same_day_publisher_date_is_verified) ... ok
+test_unverified_google_news_is_blocked_everywhere (test_news_timestamp_provenance_v1079.NewsTimestampProvenanceV1079Tests.test_unverified_google_news_is_blocked_everywhere) ... ok
+test_battle_panel_uses_session_aware_entry_opportunity_engine (test_responsive_ui_v1065.ResponsiveUiV1065Tests.test_battle_panel_uses_session_aware_entry_opportunity_engine) ... ok
+test_left_and_right_iframes_use_aligned_height (test_responsive_ui_v1065.ResponsiveUiV1065Tests.test_left_and_right_iframes_use_aligned_height) ... ok
+test_normal_desktop_no_longer_uses_old_1100_stack_breakpoint (test_responsive_ui_v1065.ResponsiveUiV1065Tests.test_normal_desktop_no_longer_uses_old_1100_stack_breakpoint) ... ok
+test_radar_removes_repeated_row_prefixes (test_responsive_ui_v1065.ResponsiveUiV1065Tests.test_radar_removes_repeated_row_prefixes) ... ok
+test_airline_and_energy_have_opposite_oil_direction (test_ticker_event_exposure.TickerEventExposureTests.test_airline_and_energy_have_opposite_oil_direction) ... ok
+test_biotech_direct_tariff_sensitivity_is_lower_than_ai_supply_chain (test_ticker_event_exposure.TickerEventExposureTests.test_biotech_direct_tariff_sensitivity_is_lower_than_ai_supply_chain) ... ok
+test_global_event_rows_receive_ticker_profile_metadata (test_ticker_event_exposure.TickerEventExposureTests.test_global_event_rows_receive_ticker_profile_metadata) ... ok
+test_memory_and_semiconductor_profiles_are_distinct (test_ticker_event_exposure.TickerEventExposureTests.test_memory_and_semiconductor_profiles_are_distinct) ... ok
+test_delta_q2_release_survives_six_macro_rows (test_tw_company_news_router_v1076.TWCompanyNewsRouterV1076Tests.test_delta_q2_release_survives_six_macro_rows) ... ok
+test_earnings_slot_cannot_be_starved_by_generic_headlines (test_tw_company_news_router_v1076.TWCompanyNewsRouterV1076Tests.test_earnings_slot_cannot_be_starved_by_generic_headlines) ... ok
+test_query_plan_is_generic_and_reserves_earnings_family (test_tw_company_news_router_v1076.TWCompanyNewsRouterV1076Tests.test_query_plan_is_generic_and_reserves_earnings_family) ... ok
+test_admin_ack_patch_avoids_rerun_before_sessioninfo_initializes (test_v1068_data_lifecycle.V1068DataLifecycleTests.test_admin_ack_patch_avoids_rerun_before_sessioninfo_initializes) ... ok
+test_official_sample_is_already_latest_by_ticker_date_and_kind (test_v1068_data_lifecycle.V1068DataLifecycleTests.test_official_sample_is_already_latest_by_ticker_date_and_kind) ... ok
+test_recent_t1_view_keeps_different_target_dates (test_v1068_data_lifecycle.V1068DataLifecycleTests.test_recent_t1_view_keeps_different_target_dates) ... ok
+test_recent_t1_view_keeps_latest_same_ticker_same_target_date (test_v1068_data_lifecycle.V1068DataLifecycleTests.test_recent_t1_view_keeps_latest_same_ticker_same_target_date) ... ok
+test_research_health_uses_high_contrast_metrics (test_v1068_data_lifecycle.V1068DataLifecycleTests.test_research_health_uses_high_contrast_metrics) ... ok
+test_research_status_explains_waiting_and_idle (test_v1068_data_lifecycle.V1068DataLifecycleTests.test_research_status_explains_waiting_and_idle) ... ok
+test_admin_render_is_status_only (test_v1071_ui_unblock_hotfix.V1071UiUnblockHotfixTests.test_admin_render_is_status_only) ... ok
+test_deferred_tickers_are_not_false_errors (test_v1071_ui_unblock_hotfix.V1071UiUnblockHotfixTests.test_deferred_tickers_are_not_false_errors) ... ok
+test_due_calibration_is_not_postponed_by_active_forecast_or_view (test_v1071_ui_unblock_hotfix.V1071UiUnblockHotfixTests.test_due_calibration_is_not_postponed_by_active_forecast_or_view) ... ok
+test_fragment_uses_one_ticker_and_never_full_rerun (test_v1071_ui_unblock_hotfix.V1071UiUnblockHotfixTests.test_fragment_uses_one_ticker_and_never_full_rerun) ... ok
+test_full_main_never_runs_close_recheck (test_v1071_ui_unblock_hotfix.V1071UiUnblockHotfixTests.test_full_main_never_runs_close_recheck) ... ok
+test_tw_auto_audit_cutoff_remains_1410_taipei (test_v1071_ui_unblock_hotfix.V1071UiUnblockHotfixTests.test_tw_auto_audit_cutoff_remains_1410_taipei) ... ok
+test_tw_close_recheck_cutoff_remains_1700_taipei (test_v1071_ui_unblock_hotfix.V1071UiUnblockHotfixTests.test_tw_close_recheck_cutoff_remains_1700_taipei) ... ok
+test_us_auto_audit_cutoff_remains_1615_new_york (test_v1071_ui_unblock_hotfix.V1071UiUnblockHotfixTests.test_us_auto_audit_cutoff_remains_1615_new_york) ... ok
+test_cross_market_selloff_is_explained_as_beta_not_fake_company_news (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_cross_market_selloff_is_explained_as_beta_not_fake_company_news) ... ok
+test_evidence_families_are_unique (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_evidence_families_are_unique) ... ok
+test_glw_backward_beat_and_high_bar_reset_outrank_fomc_template (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_glw_backward_beat_and_high_bar_reset_outrank_fomc_template) ... ok
+test_limit_down_plus_severe_miss_enters_forecast_cooldown (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_limit_down_plus_severe_miss_enters_forecast_cooldown) ... ok
+test_limit_up_inside_long_downtrend_is_countertrend_breakout (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_limit_up_inside_long_downtrend_is_countertrend_breakout) ... ok
+test_severe_miss_preserves_pending_company_event_as_next_catalyst (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_severe_miss_preserves_pending_company_event_as_next_catalyst) ... ok
+test_unexplained_breakdown_explicitly_refuses_to_invent_cause (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_unexplained_breakdown_explicitly_refuses_to_invent_cause) ... ok
+test_us_intraday_repricing_never_says_wait_for_market_open (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_us_intraday_repricing_never_says_wait_for_market_open) ... ok
+test_us_premarket_shock_is_repricing_not_generic_risk (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_us_premarket_shock_is_repricing_not_generic_risk) ... ok
+test_us_premarket_vwap_reclaim_below_ma20_is_countertrend_rebound (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_us_premarket_vwap_reclaim_below_ma20_is_countertrend_rebound) ... ok
+test_verified_company_risk_outranks_generic_repricing_template (test_v1072_decision_thesis.DecisionThesisScenarioTests.test_verified_company_risk_outranks_generic_repricing_template) ... ok
+test_miss_widens_range_but_does_not_move_t1 (test_v1072_decision_thesis.PredictionTrustTests.test_miss_widens_range_but_does_not_move_t1) ... ok
+test_official_eight_percent_miss_blocks_entry_and_caps_maturity (test_v1072_decision_thesis.PredictionTrustTests.test_official_eight_percent_miss_blocks_entry_and_caps_maturity) ... ok
+test_readiness_uses_trust_cap_without_rewriting_prices (test_v1072_decision_thesis.PredictionTrustTests.test_readiness_uses_trust_cap_without_rewriting_prices) ... ok
+test_fresh_formal_close_replaces_stale_header_return (test_v1072_decision_thesis.TaiwanTruthTests.test_fresh_formal_close_replaces_stale_header_return) ... ok
+test_live_row_is_not_its_own_breakout_reference (test_v1072_decision_thesis.TaiwanTruthTests.test_live_row_is_not_its_own_breakout_reference) ... ok
+test_intraday_partial_daily_candle_is_not_formal_close (test_v1072_decision_thesis.USSessionTruthTests.test_intraday_partial_daily_candle_is_not_formal_close) ... ok
+test_intraday_regular_close_repairs_stale_premarket_reference (test_v1072_decision_thesis.USSessionTruthTests.test_intraday_regular_close_repairs_stale_premarket_reference) ... ok
+test_intraday_rows_never_mix_premarket_or_after_hours (test_v1072_decision_thesis.USSessionTruthTests.test_intraday_rows_never_mix_premarket_or_after_hours) ... ok
+test_premarket_partial_daily_candle_is_not_formal_close (test_v1072_decision_thesis.USSessionTruthTests.test_premarket_partial_daily_candle_is_not_formal_close) ... ok
+test_premarket_return_and_formal_return_have_distinct_bases (test_v1072_decision_thesis.USSessionTruthTests.test_premarket_return_and_formal_return_have_distinct_bases) ... ok
+test_unverified_session_vwap_is_never_called_above_or_below (test_v1072_decision_thesis.USSessionTruthTests.test_unverified_session_vwap_is_never_called_above_or_below) ... ok
+test_conflicting_direction_is_explicit_abstention (test_v1077_shadow_research.V1077ShadowResearchTests.test_conflicting_direction_is_explicit_abstention) ... ok
+test_deep_lower_shadow_with_wash_is_exhaustion_not_automatic_buy (test_v1077_shadow_research.V1077ShadowResearchTests.test_deep_lower_shadow_with_wash_is_exhaustion_not_automatic_buy) ... ok
+test_event_time_veto_outranks_rebound_candidate (test_v1077_shadow_research.V1077ShadowResearchTests.test_event_time_veto_outranks_rebound_candidate) ... ok
+test_multi_target_audit_records_path_and_avoidance_without_weight_effect (test_v1077_shadow_research.V1077ShadowResearchTests.test_multi_target_audit_records_path_and_avoidance_without_weight_effect) ... ok
+test_official_sample_key_dedupes_reruns_but_not_raw_prediction_ids (test_v1077_shadow_research.V1077ShadowResearchTests.test_official_sample_key_dedupes_reruns_but_not_raw_prediction_ids) ... ok
+test_orchestrator_runs_final_arbiter_once_without_mutating_formal_outputs (test_v1077_shadow_research.V1077ShadowResearchTests.test_orchestrator_runs_final_arbiter_once_without_mutating_formal_outputs) ... ok
+test_panic_acceleration_is_not_mislabeled_as_rebound (test_v1077_shadow_research.V1077ShadowResearchTests.test_panic_acceleration_is_not_mislabeled_as_rebound) ... ok
+test_rebound_requires_positive_price_confirmation (test_v1077_shadow_research.V1077ShadowResearchTests.test_rebound_requires_positive_price_confirmation) ... ok
+test_regime_core_is_ticker_and_industry_agnostic (test_v1077_shadow_research.V1077ShadowResearchTests.test_regime_core_is_ticker_and_industry_agnostic) ... ok
+test_small_green_below_vwap_is_not_confirmed_rebound (test_v1077_shadow_research.V1077ShadowResearchTests.test_small_green_below_vwap_is_not_confirmed_rebound) ... ok
+
+----------------------------------------------------------------------
+Ran 183 tests in 0.226s
+
+OK
