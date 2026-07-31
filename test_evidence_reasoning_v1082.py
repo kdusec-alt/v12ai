@@ -26,6 +26,7 @@ class EvidenceReasoningV1082Tests(unittest.TestCase):
         self.assertIn("利空被價格吸收", row["decision_message"])
         self.assertIn(row["short_term_bias"], {"偏多", "中性偏多"})
         self.assertIn(row["medium_term_bias"], {"偏空", "中性偏空"})
+        self.assertIn("主導：價格結構", row["headline"])
 
     def test_positive_fundamental_but_weak_price_is_rejected(self):
         forecast = make_forecast(
@@ -42,6 +43,7 @@ class EvidenceReasoningV1082Tests(unittest.TestCase):
         self.assertIn("利多未被價格接受", row["decision_message"])
         self.assertIn(row["short_term_bias"], {"偏空", "中性偏空"})
         self.assertIn(row["medium_term_bias"], {"偏多", "中性偏多"})
+        self.assertIn("主導：價格結構", row["headline"])
 
     def test_relative_weakness_outranks_supportive_market_background(self):
         forecast = make_forecast(
@@ -65,7 +67,7 @@ class EvidenceReasoningV1082Tests(unittest.TestCase):
             last=104.0,
             day_pct=4.0,
             vwap=101.0,
-            evidence="市場傳聞重大訂單｜severity=4｜source_verified=0",
+            evidence="官方市場傳聞重大訂單｜severity=4｜source_verified=0",
             event_verified=False,
             event_severity=4,
             same_session=True,
