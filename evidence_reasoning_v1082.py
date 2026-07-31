@@ -46,6 +46,7 @@ _UNVERIFIED = (
     "event_verified=0", "source_verified=0", "content_verified=0",
 )
 _STALE = ("stale_reindexed", "舊聞重新收錄", "old_reindexed")
+_RESEARCH_ONLY = ("研究模式，不介入決策", "研究模式", "不介入決策")
 
 _RADAR_GROUPS = {
     "event": ("事件/Macro", "Policy/Geo", "Company News", "Daily Headline"),
@@ -263,14 +264,16 @@ def _fundamental_driver(entry: Mapping[str, Any], radar: Mapping[str, Any]) -> D
         stance = 0
     else:
         stance = _numeric_fundamental_stance(text) or _lexical_stance(text)
-    verified = bool(context.get("verified")) or _verified(text, context)
+    research_only = _contains(text, _RESEARCH_ONLY)
+    verified = (bool(context.get("verified")) or _verified(text, context)) and not research_only
+    source = "Fundamental Research Context" if research_only else "Fundamental Intelligence"
     return _driver(
         "fundamental", "基本面／財報", text,
         stance=stance,
         strength=84 if verified and stance else 62 if stance else 52,
         verified=verified,
         horizon="medium",
-        source="Fundamental Intelligence",
+        source=source,
     )
 
 
@@ -379,7 +382,7 @@ def _weighted_bias(drivers: Sequence[Driver], horizon: str) -> tuple[int, str]:
         relevant = [row for row in drivers if row.category in {"price", "event", "chip", "market"}]
         category_weight = {"price": 1.20, "event": 1.0, "chip": 0.9, "market": 0.75}
     else:
-        relevant = [row for row in drivers if row.category == "fundamental"]
+        relevant = [row for row in drivers if row.category == "fundamental" and row.verified]
         category_weight = {"fundamental": 1.0}
     if not relevant:
         return 0, "中性／待確認"
