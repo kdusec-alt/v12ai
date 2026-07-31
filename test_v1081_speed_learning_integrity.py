@@ -98,7 +98,15 @@ class V1081SpeedAndLearningIntegrityTests(unittest.TestCase):
         self.assertTrue(row["full_pipeline_required"])
         self.assertEqual(row["reassessment_priority"], "P1_IMMEDIATE")
 
-    def test_learning_integrity_counts_official_samples_and_audits(self):
+    def test_sync_result_tuple_false_is_not_recorded_as_success(self):
+        self.assertEqual(
+            integrity._interpret_sync_result((False, "remote_verify_mismatch")),
+            (False, "remote_verify_mismatch"),
+        )
+        self.assertEqual(integrity._interpret_sync_result((True, None)), (True, ""))
+        self.assertEqual(integrity._interpret_sync_result(None), (False, "sync_returned_none"))
+
+    def test_learning_integrity_counts_official_and_learning_eligible_separately(self):
         predictions = [
             {
                 "id": "p1", "official_sample_key": "TW|A|2026-07-31|T1",
@@ -125,8 +133,17 @@ class V1081SpeedAndLearningIntegrityTests(unittest.TestCase):
                 "official_sample_key": "TW|A|2026-07-31|T1",
                 "target": "next", "actual_valid": True,
                 "predicted_close": 100, "actual_close": 101, "anchor_close": 98,
+                "price_sample_quality": "verified", "actual_direction": "UP",
                 "audit_time_tw": "2026-07-31T14:20:00+08:00",
-            }
+            },
+            {
+                "audit_id": "limited:next", "prediction_id": "limited",
+                "official_sample_key": "TW|C|2026-07-31|T1",
+                "target": "next", "actual_valid": True,
+                "predicted_close": 80, "actual_close": 79, "anchor_close": 78,
+                "price_sample_quality": "reference_limited", "actual_direction": "UP",
+                "audit_time_tw": "2026-07-31T14:21:00+08:00",
+            },
         ]
         with tempfile.TemporaryDirectory() as tmp:
             fake = types.ModuleType("memory_store")
@@ -146,7 +163,9 @@ class V1081SpeedAndLearningIntegrityTests(unittest.TestCase):
                     sys.modules["memory_store"] = previous
 
         self.assertEqual(row["official_prediction_rows"], 3)
-        self.assertEqual(row["verified_t1_audits"], 1)
+        self.assertEqual(row["formal_t1_audits"], 2)
+        self.assertEqual(row["learning_eligible_t1_audits"], 1)
+        self.assertEqual(row["reference_limited_audits"], 1)
         self.assertEqual(row["pending_official_samples"], 1)
         self.assertEqual(row["duplicate_official_keys"], 1)
         self.assertFalse(row["decision_influence"])
