@@ -1,31 +1,30 @@
 {
   "events": [
     {
-      "acknowledged": true,
-      "acknowledged_at": "2026-07-31T02:59:10+00:00",
+      "acknowledged": false,
       "category": "geo_energy_escalation",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "edcd6d16eb47b499",
+      "fingerprint": "6e7bd0442c6eacbc",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785427466.473459,
-      "last_seen_at": "2026-07-30T16:04:26+00:00",
-      "last_seen_epoch": 1785427466.473459,
-      "last_transition_at": "2026-07-31T02:59:10+00:00",
+      "last_evidence_epoch": 1785518555.621171,
+      "last_seen_at": "2026-07-31T17:22:35+00:00",
+      "last_seen_epoch": 1785518555.621171,
+      "last_transition_at": "2026-07-31T17:22:35+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 198,
+      "reinforcement_count": 199,
       "related_fingerprints": [
-        "05a828cdfe09d03e",
         "89f503aa89723729",
         "e3a403e5c3b41a51",
         "853c89056676b1a2",
         "1333c1315057e732",
         "08f501a906c44b1d",
         "9abb5c83e4507f26",
-        "39693c53ce9e7638"
+        "39693c53ce9e7638",
+        "edcd6d16eb47b499"
       ],
       "risk_sign": -1,
       "scope": "global",
@@ -46,8 +45,8 @@
         "GLOBAL"
       ],
       "status": "active_yellow",
-      "title": "Global Event Core｜油價快速回落｜WTI -0.51%／Brent -1.68%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
-      "transition_reason": "Admin 已讀並關閉畫面警示"
+      "title": "Global Event Core｜油價快速上漲｜WTI +1.66%／Brent +1.10%｜此列只確認油價幅度，不自行推定戰爭原因；若戰爭/供給中斷新聞同步成立則升級衝擊｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
+      "transition_reason": "市場衝擊 L2 產業衝擊 30/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
       "acknowledged": true,
@@ -174,5 +173,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-31T16:04:27+00:00"
+  "updated_at": "2026-07-31T17:22:35+00:00"
 }
