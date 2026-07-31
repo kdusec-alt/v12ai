@@ -14,11 +14,19 @@ ROOT = Path(__file__).resolve().parent
 
 
 def forecast_for_session(market="US", session="intraday", target_date="2026-07-31"):
+    if session == "intraday":
+        label = "盤中資料"
+    elif session == "pre_market":
+        label = "盤前資料"
+    elif session == "after_hours":
+        label = "盤後資料"
+    else:
+        label = "收盤資料"
     return SimpleNamespace(
         ticker=SimpleNamespace(market=market, resolved_symbol="GENERIC"),
         price_date=target_date,
         decision_card={
-            "資料標題": "盤中資料" if session == "intraday" else "盤後資料",
+            "資料標題": label,
             "_price_meta": {"session": session, "price_date": target_date},
             "_decision_thesis": {"price_truth": {"session": session, "price_date": target_date}},
         },
@@ -34,10 +42,10 @@ class SessionTruthAndMarketCommandV1081Tests(unittest.TestCase):
             "sox": -4.0,
             "smh": -3.5,
             "as_of": {
-                "nq": "2026-07-31 08:30:00",
-                "qqq": "2026-07-30 16:00:00",
-                "sox": "2026-07-30 16:00:00",
-                "smh": "2026-07-30 16:00:00",
+                "nq": "2026-07-31 08:30:00-04:00 pre_market",
+                "qqq": "2026-07-30 16:00:00-04:00 official_close",
+                "sox": "2026-07-30 16:00:00-04:00 official_close",
+                "smh": "2026-07-30 16:00:00-04:00 official_close",
             },
         }
         truth = build_cross_asset_session_truth(forecast_for_session(), proxies)
@@ -53,12 +61,71 @@ class SessionTruthAndMarketCommandV1081Tests(unittest.TestCase):
             "qqq": 2.2,
             "sox": 4.0,
             "smh": 3.5,
-            "as_of": {key: "2026-07-31 11:00:00" for key in ("nq", "qqq", "sox", "smh")},
+            "as_of": {
+                key: "2026-07-31 11:00:00-04:00 intraday"
+                for key in ("nq", "qqq", "sox", "smh")
+            },
         }
         truth = build_cross_asset_session_truth(forecast_for_session(), proxies)
         self.assertTrue(truth["same_session"])
         self.assertEqual(truth["vote_scope"], "same_session")
+        self.assertEqual(truth["vote_group_session"], "intraday")
         self.assertEqual(len(truth["eligible_keys"]), 4)
+
+    def test_same_date_premarket_does_not_mix_with_official_close(self):
+        proxies = {
+            "accepted": True,
+            "nq": 3.0,
+            "qqq": 1.0,
+            "sox": 2.0,
+            "smh": 1.5,
+            "as_of": {
+                "nq": "2026-07-31 08:20:00-04:00 pre_market",
+                "qqq": "2026-07-31 16:00:00-04:00 official_close",
+                "sox": "2026-07-31 16:00:00-04:00 official_close",
+                "smh": "2026-07-31 16:00:00-04:00 official_close",
+            },
+        }
+        truth = build_cross_asset_session_truth(
+            forecast_for_session(session="pre_market"), proxies
+        )
+        self.assertFalse(truth["same_session"])
+        self.assertEqual(set(truth["eligible_keys"]), {"qqq", "sox", "smh"})
+        self.assertEqual(truth["vote_group_session"], "official_close")
+        self.assertIn("nq", truth["excluded_keys"])
+
+    def test_two_current_premarket_rows_form_same_session(self):
+        proxies = {
+            "accepted": True,
+            "nq": 3.0,
+            "qqq": 2.5,
+            "sox": 1.0,
+            "as_of": {
+                "nq": "2026-07-31 08:20:00-04:00 pre_market",
+                "qqq": "2026-07-31 08:25:00-04:00 pre_market",
+                "sox": "2026-07-30 16:00:00-04:00 official_close",
+            },
+        }
+        truth = build_cross_asset_session_truth(
+            forecast_for_session(session="pre_market"), proxies
+        )
+        self.assertTrue(truth["same_session"])
+        self.assertEqual(set(truth["eligible_keys"]), {"nq", "qqq"})
+        self.assertEqual(truth["vote_group_session"], "pre_market")
+
+    def test_naive_timestamp_never_proves_current_session(self):
+        proxies = {
+            "accepted": True,
+            "nq": 2.0,
+            "qqq": 2.2,
+            "as_of": {
+                "nq": "2026-07-31 11:00:00",
+                "qqq": "2026-07-31 11:01:00",
+            },
+        }
+        truth = build_cross_asset_session_truth(forecast_for_session(), proxies)
+        self.assertFalse(truth["same_session"])
+        self.assertEqual(truth["vote_group_session"], "unknown")
 
     def test_market_vote_filters_excluded_session_keys(self):
         truth = {
