@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-VERSION = "TINO V1081｜Unified Web Decision Architecture + Bounded Fast Analysis｜V9 Frontend Contract"
+VERSION = "TINO V1082｜Evidence Reasoning Layer + Unified Web Decision Architecture｜V9 Frontend Contract"
 
 CONSTITUTION = """
 V12 是唯一正式版本，取代 V9，但不得低於 V9。

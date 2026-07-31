@@ -19,6 +19,21 @@ except Exception:
             "show_score": False,
         }
 
+try:
+    from evidence_reasoning_v1082 import build_evidence_reasoning
+except Exception:
+    def build_evidence_reasoning(_forecast, entry=None):
+        return {
+            "headline": "證據待確認",
+            "decision_message": str((entry or {}).get("canonical_main_message") or "等待價格與證據同步"),
+            "short_term_bias": "待確認",
+            "medium_term_bias": "待確認",
+            "price_acceptance": {"label": "價格接受度待確認"},
+            "conflict": "推理層暫時無法載入",
+            "top_drivers": [],
+            "top_driver_summary": "等待價格、事件、基本面與籌碼確認",
+        }
+
 
 def _title_price(v):
     try:
@@ -152,21 +167,42 @@ def render_battle_panel(st, forecast):
     header_streak_positive = "+" in header_trend.split("│", 1)[0]
 
     entry = assess_entry_opportunity(p)
+    reasoning = build_evidence_reasoning(p, entry)
+    try:
+        d["_evidence_reasoning_v1082"] = reasoning
+    except Exception:
+        pass
+
     entry_color = str(entry.get("color") or "yellow")
     entry_icon = safe(entry.get("icon") or "⚪")
     entry_label = safe(entry.get("label") or "資料待確認")
     entry_summary = safe(entry.get("summary") or "等待價格與時段確認")
-    main_message = safe(entry.get("canonical_main_message") or d.get("主訊息"))
+    main_message = safe(reasoning.get("decision_message") or entry.get("canonical_main_message") or d.get("主訊息"))
     entry_score_html = ""
     if bool(entry.get("show_score")):
         entry_score_html = f"<span class='score'>{int(entry.get('score') or 0)}%</span>"
+
+    legacy_conditions = list(entry.get("conditions") or [])[:4]
     entry_items = []
-    for row in list(entry.get("conditions") or [])[:4]:
-        ok = bool(row.get("ok"))
+    for row in list(reasoning.get("top_drivers") or [])[:3]:
+        stance = str(row.get("stance") or "中性")
+        ok = stance == "偏多"
         cls = "ok" if ok else "wait"
-        symbol = "✓" if ok else "✕"
-        entry_items.append(f"<span class='{cls}'>{symbol} {safe(row.get('text'))}</span>")
+        symbol = "✓" if ok else "✕" if stance == "偏空" else "•"
+        verified = "" if bool(row.get("verified")) else "／待驗證"
+        entry_items.append(
+            f"<span class='{cls}'>{symbol} {safe(row.get('label'))} {safe(row.get('stars'))} {safe(stance)}{safe(verified)}</span>"
+        )
+    if len(entry_items) < 4:
+        for row in legacy_conditions:
+            if len(entry_items) >= 4:
+                break
+            ok = bool(row.get("ok"))
+            cls = "ok" if ok else "wait"
+            symbol = "✓" if ok else "✕"
+            entry_items.append(f"<span class='{cls}'>{symbol} {safe(row.get('text'))}</span>")
     entry_detail = "".join(entry_items)
+
     entry_price_strategy_raw = str(entry.get("price_strategy_text") or "等待價格與時段確認")
     entry_price_strategy = safe(entry_price_strategy_raw)
     raw_price_tiles = list(entry.get("price_tiles") or [])
@@ -186,18 +222,26 @@ def render_battle_panel(st, forecast):
         for row in raw_price_tiles[:5]
     )
 
-    decision_title_raw = _strip_compare_prefix(
-        d.get("標題", "AI決策"), "AI進場決策卡｜", "AI進場決策卡 |"
-    )
+    decision_title_raw = str(reasoning.get("headline") or "").strip()
+    if not decision_title_raw:
+        decision_title_raw = _strip_compare_prefix(
+            d.get("標題", "AI決策"), "AI進場決策卡｜", "AI進場決策卡 |"
+        )
     decision_title = safe(decision_title_raw or "AI決策")
     evidence_raw = str(d.get("證據鏈", "") or "")
     market_raw = str(p.radar.get("市場風控", "") or "")
     chip_raw = str(p.radar.get("左側籌碼摘要", "") or "")
-    evidence_summary_raw = _compact_evidence_summary(evidence_raw, market_raw, chip_raw, str(t.market or ""))
+    fallback_summary = _compact_evidence_summary(evidence_raw, market_raw, chip_raw, str(t.market or ""))
+    evidence_summary_raw = str(reasoning.get("top_driver_summary") or fallback_summary)
     evidence_summary = safe(evidence_summary_raw)
     evidence = safe(evidence_raw)
     market = safe(market_raw)
     chip = safe(chip_raw)
+    reasoning_horizon = safe(
+        f"短線 {reasoning.get('short_term_bias') or '待確認'}｜中線 {reasoning.get('medium_term_bias') or '待確認'}｜"
+        f"價格接受度 {((reasoning.get('price_acceptance') or {}).get('label') or '待確認')}"
+    )
+    reasoning_conflict = safe(reasoning.get("conflict") or "有效證據尚未形成單一主導方向")
 
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
@@ -215,10 +259,12 @@ def render_battle_panel(st, forecast):
     .entrytop{{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-weight:950;color:#fff}}.entrytop .name{{font-size:12.5px}}.entrytop .score{{font-size:18px}}.entrytop .state{{font-size:11.5px;color:#fff5b8}}
     .entrysummary{{margin-top:1px;color:#eaf7ff;font-size:10.2px;font-weight:780;line-height:1.12}}.entryfacts{{margin-top:2px;display:flex;gap:4px 9px;flex-wrap:wrap;font-size:9px;font-weight:750}}.entryfacts .ok{{color:#7dffbd}}.entryfacts .wait{{color:#ffd27a}}
     .decision{{margin-top:5px;border:1px solid rgba(255,211,78,.48);border-radius:12px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:5px 7px}}
-    .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}.main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:11.6px;line-height:1.10;font-weight:850;padding:5px 8px;margin-bottom:4px}}
-    .evidence-summary{{border-left:3px solid #ff6f8e;padding:3px 6px 3px 7px;color:#dff2ff;background:rgba(4,18,30,.72);font-size:9.4px;font-weight:700;line-height:1.22;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0 6px 6px 0}}
+    .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}.main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:11.4px;line-height:1.10;font-weight:850;padding:4px 8px;margin-bottom:2px}}
+    .reasoning-line{{padding:2px 6px;border-left:3px solid #74f4c3;background:rgba(3,31,33,.62);color:#d9fff1;font-size:8.8px;line-height:1.15;border-radius:0 6px 6px 0;margin-bottom:2px}}
+    .reasoning-line b{{color:#74f4c3;margin-right:4px}}.reasoning-conflict{{display:block;color:#cfe7f7;margin-top:1px}}
+    .evidence-summary{{border-left:3px solid #ff6f8e;padding:3px 6px 3px 7px;color:#dff2ff;background:rgba(4,18,30,.72);font-size:9.2px;font-weight:700;line-height:1.18;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0 6px 6px 0}}
     .evidence-summary b{{color:#8fd7ff;margin-right:4px}}
-    .evidence-details{{margin:2px 0 4px 3px;color:#bfe8ff;font-size:9px}}
+    .evidence-details{{margin:2px 0 3px 3px;color:#bfe8ff;font-size:8.8px}}
     .evidence-details summary{{cursor:pointer;color:#8fd7ff;font-weight:850;list-style:none;user-select:none}}
     .evidence-details summary::-webkit-details-marker{{display:none}}
     .evidence-details summary::before{{content:'＋ ';color:#ffd96a}}.evidence-details[open] summary::before{{content:'－ '}}
@@ -232,8 +278,8 @@ def render_battle_panel(st, forecast):
       h1{{font-size:18.2px}}.streak{{font-size:10px}}.fvleft{{padding:4px 7px;font-size:9.5px;line-height:1.08}}.fvleft b{{font-size:8.7px}}.fvnote{{font-size:8.1px}}
       .info{{margin-top:4px;padding:4px 7px;font-size:10.4px;line-height:1.08}}.ptime{{font-size:8.6px}}
       .entrylamp{{margin-top:4px;padding:5px 7px}}.entrytop{{gap:6px}}.entrytop .name{{font-size:11.5px}}.entrytop .score{{font-size:16.5px}}.entrytop .state{{font-size:10.5px}}.entrysummary{{font-size:9.4px}}.entryfacts{{font-size:8.3px;gap:2px 7px}}
-      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.4px;padding:4px 7px;margin-bottom:3px;line-height:1.06}}
-      .evidence-summary{{font-size:8.6px;padding:3px 5px 3px 6px}}.evidence-details{{font-size:8.3px;margin-bottom:3px}}.evidence-full{{font-size:8.5px;max-height:130px}}
+      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.2px;padding:4px 7px;margin-bottom:2px;line-height:1.06}}
+      .reasoning-line{{font-size:8.1px;padding:2px 5px}}.evidence-summary{{font-size:8.4px;padding:2px 5px 2px 6px}}.evidence-details{{font-size:8.1px;margin-bottom:2px}}.evidence-full{{font-size:8.5px;max-height:130px}}
       .priceitem{{padding:3px 4px;font-size:8.7px}}.priceitem b{{font-size:8.2px;margin-right:2px}}
       .t1{{margin-top:4px;padding-top:3px}}.tl{{font-size:9.9px}}.tm{{font-size:14.6px}}.ts{{font-size:9.3px}}
     }}
@@ -247,8 +293,9 @@ def render_battle_panel(st, forecast):
       <div class='decision'>
         <div class='dt'>AI決策｜{decision_title}</div>
         <div class='main'>{main_message}</div>
-        <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>證據摘要</b>{evidence_summary}</div>
-        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
+        <div class='reasoning-line'><b>AI推理</b>{reasoning_horizon}<span class='reasoning-conflict'>{reasoning_conflict}</span></div>
+        <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>前三大主因</b>{evidence_summary}</div>
+        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
         <div class='pricebar'>{price_tiles_html}</div>
       </div>
       <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>
