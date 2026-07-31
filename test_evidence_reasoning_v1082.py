@@ -78,18 +78,33 @@ class EvidenceReasoningV1082Tests(unittest.TestCase):
         self.assertNotEqual(row["dominant_category"], "event")
         self.assertEqual(row["price_acceptance"]["code"], "UNRESOLVED")
 
-    def test_numeric_growth_support_can_flag_verified_weak_fundamental(self):
+    def test_research_growth_support_is_context_not_formal_catalyst(self):
         forecast = make_forecast(
             last=111.0,
             day_pct=9.36,
             vwap=104.0,
-            fundamental_text="EPS 0.11｜成長支撐 -11｜來源 FinMind財報",
+            fundamental_text="EPS 0.11｜成長支撐 -11｜研究模式，不介入決策｜來源 FinMind財報",
+        )
+        row = build_evidence_reasoning(forecast)
+        fundamental = next(item for item in row["top_drivers"] if item["category"] == "fundamental")
+        self.assertEqual(fundamental["stance"], "偏空")
+        self.assertFalse(fundamental["verified"])
+        self.assertEqual(row["price_acceptance"]["code"], "UNRESOLVED")
+        self.assertEqual(row["medium_term_bias"], "中性／待確認")
+
+    def test_verified_eps_yoy_decline_is_formal_negative_catalyst(self):
+        forecast = make_forecast(
+            last=111.0,
+            day_pct=9.36,
+            vwap=104.0,
+            fundamental_text="EPS YoY -80%｜來源 FinMind財報",
         )
         row = build_evidence_reasoning(forecast)
         fundamental = next(item for item in row["top_drivers"] if item["category"] == "fundamental")
         self.assertEqual(fundamental["stance"], "偏空")
         self.assertTrue(fundamental["verified"])
         self.assertEqual(row["price_acceptance"]["code"], "NEGATIVE_ABSORBED")
+        self.assertIn(row["medium_term_bias"], {"偏空", "中性偏空"})
 
     def test_numeric_institution_flow_is_parsed_without_ticker_rules(self):
         forecast = make_forecast(last=104.0, day_pct=4.0, vwap=101.0)
