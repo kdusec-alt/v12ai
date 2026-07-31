@@ -22,21 +22,24 @@ class CompactDecisionPanelV1066Tests(unittest.TestCase):
         self.assertIn("class='pricebar'", self.source)
         self.assertNotIn("<div class='grid'>", self.source)
         self.assertNotIn("<div class='mini'>", self.source)
-        for label in ("低接", "攻擊", "轉強", "停手", "不追"):
+        for label in ("進場", "攻擊", "轉強", "停手", "不追"):
             self.assertIn(f"<b>{label}</b>", self.source)
 
     def test_duplicate_footer_sections_are_not_rendered(self):
         self.assertNotIn("<div class='bottom'>一句話", self.source)
         self.assertNotIn("籌碼摘要：{safe(p.radar.get('左側籌碼摘要'))}", self.source)
 
-    def test_readiness_keeps_price_path_but_limits_reason_chips(self):
-        self.assertIn("readiness_summary", self.source)
-        self.assertIn("list(readiness.get(\"conditions\") or [])[:2]", self.source)
-        self.assertIn("✓ 操作價格已同步", self.source)
+    def test_entry_timing_keeps_dynamic_strategy_and_limits_reason_chips(self):
+        self.assertIn("entry_summary", self.source)
+        self.assertIn("list(entry.get(\"conditions\") or [])[:3]", self.source)
+        self.assertIn("entry_price_strategy", self.source)
+        self.assertIn("AI進場時機", self.source)
+        self.assertNotIn("AI低接成熟度", self.source)
 
-    def test_price_strip_uses_existing_decision_card_prices(self):
-        for key in ("低接第一批", "低接第二批", "攻擊", "轉強", "防守", "不追"):
+    def test_price_strip_preserves_existing_risk_and_trigger_prices(self):
+        for key in ("攻擊", "轉強", "防守", "不追"):
             self.assertIn(f"d.get('{key}')", self.source)
+        self.assertIn("entry_price_strategy", self.source)
 
 
 if __name__ == "__main__":

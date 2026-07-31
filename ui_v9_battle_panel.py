@@ -4,16 +4,18 @@ from __future__ import annotations
 from ui_html import fmt, html_block, safe
 
 try:
-    from low_entry_readiness_v1065 import assess_low_entry_readiness
+    from entry_opportunity_v1080 import assess_entry_opportunity
 except Exception:
-    def assess_low_entry_readiness(_forecast):
+    def assess_entry_opportunity(_forecast):
         return {
-            "score": 0,
+            "state": "DATA_WAIT",
             "label": "資料待確認",
             "color": "yellow",
-            "icon": "🟡",
-            "summary": "低接成熟度模組暫時無法載入",
+            "icon": "⚪",
+            "summary": "AI進場時機模組暫時無法載入",
             "conditions": [],
+            "price_strategy_text": "等待資料同步",
+            "show_score": False,
         }
 
 
@@ -148,23 +150,24 @@ def render_battle_panel(st, forecast):
     header_trend = _header_trend_line(p)
     header_streak_positive = "+" in header_trend.split("│", 1)[0]
 
-    readiness = assess_low_entry_readiness(p)
-    readiness_color = str(readiness.get("color") or "yellow")
-    readiness_icon = safe(readiness.get("icon") or "🟡")
-    readiness_score = int(readiness.get("score") or 0)
-    readiness_label = safe(readiness.get("label") or "再等等")
-    readiness_summary = safe(readiness.get("summary") or "等待價格與籌碼確認")
-    main_message = safe(readiness.get("canonical_main_message") or d.get("主訊息"))
-    readiness_items = []
-    consistency = dict(readiness.get("price_consistency") or {})
-    if consistency.get("consistent"):
-        readiness_items.append("<span class='ok'>✓ 操作價格已同步</span>")
-    for row in list(readiness.get("conditions") or [])[:2]:
+    entry = assess_entry_opportunity(p)
+    entry_color = str(entry.get("color") or "yellow")
+    entry_icon = safe(entry.get("icon") or "⚪")
+    entry_label = safe(entry.get("label") or "資料待確認")
+    entry_summary = safe(entry.get("summary") or "等待價格與時段確認")
+    main_message = safe(entry.get("canonical_main_message") or d.get("主訊息"))
+    entry_score_html = ""
+    if bool(entry.get("show_score")):
+        entry_score_html = f"<span class='score'>{int(entry.get('score') or 0)}%</span>"
+    entry_items = []
+    for row in list(entry.get("conditions") or [])[:3]:
         ok = bool(row.get("ok"))
         cls = "ok" if ok else "wait"
         symbol = "✓" if ok else "✕"
-        readiness_items.append(f"<span class='{cls}'>{symbol} {safe(row.get('text'))}</span>")
-    readiness_detail = "".join(readiness_items)
+        entry_items.append(f"<span class='{cls}'>{symbol} {safe(row.get('text'))}</span>")
+    entry_detail = "".join(entry_items)
+    entry_price_strategy_raw = str(entry.get("price_strategy_text") or "等待價格與時段確認")
+    entry_price_strategy = safe(entry_price_strategy_raw)
 
     decision_title_raw = _strip_compare_prefix(
         d.get("標題", "AI決策"), "AI進場決策卡｜", "AI進場決策卡 |"
@@ -223,14 +226,14 @@ def render_battle_panel(st, forecast):
     </style></head><body><div class='panel'>
       <div class='head'><div><h1>{safe(t.resolved_symbol)}｜{safe(t.name)}</h1><div class='streak'>{safe(header_trend)}</div>{persona_html}</div><div class='fvleft'><b>技術情境價格帶 / TECHNICAL RANGE</b>{fair}<span class='fvnote'>現價 ± ATR 技術情境｜不是基本面估值</span></div></div>
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜{safe(d.get('漲跌標籤','漲跌'))}：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>{safe(d.get('價格範圍標籤','今日'))}高：{fmt(d.get('最高'))}｜{safe(d.get('價格範圍標籤','今日'))}低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
-      <div class='entrylamp {readiness_color}'><div class='entrytop'><span class='name'>{readiness_icon} AI低接成熟度</span><span class='score'>{readiness_score}%</span><span class='state'>{readiness_label}</span></div><div class='entrysummary'>{readiness_summary}</div><div class='entryfacts'>{readiness_detail}</div></div>
+      <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI進場時機</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div><div class='entryfacts'>{entry_detail}</div></div>
       <div class='decision'>
         <div class='dt'>AI決策｜{decision_title}</div>
         <div class='main'>{main_message}</div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>證據摘要</b>{evidence_summary}</div>
         <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
         <div class='pricebar'>
-          <div class='priceitem' title='第一批與第二批低接價'><b>低接</b>{fmt(d.get('低接第一批'))}／{fmt(d.get('低接第二批'))}</div>
+          <div class='priceitem' title='{safe(entry_price_strategy_raw)}'><b>進場</b>{entry_price_strategy}</div>
           <div class='priceitem' title='{safe(d.get('攻擊'))}'><b>攻擊</b>{safe(d.get('攻擊'))}</div>
           <div class='priceitem' title='{safe(d.get('轉強'))}'><b>轉強</b>{safe(d.get('轉強'))}</div>
           <div class='priceitem' title='防守價'><b>停手</b>{fmt(d.get('防守'))}</div>

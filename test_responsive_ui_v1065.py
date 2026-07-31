@@ -30,10 +30,12 @@ class ResponsiveUiV1065Tests(unittest.TestCase):
         self.assertIn("html_block(html, height=642, scrolling=False)", self.radar_source)
         self.assertIn("min-height:624px", self.radar_source)
 
-    def test_battle_panel_uses_explicit_wait_price_engine(self):
-        self.assertIn("from low_entry_readiness_v1065 import assess_low_entry_readiness", self.battle_source)
+    def test_battle_panel_uses_session_aware_entry_opportunity_engine(self):
+        self.assertIn("from entry_opportunity_v1080 import assess_entry_opportunity", self.battle_source)
         self.assertIn("canonical_main_message", self.battle_source)
-        self.assertIn("操作價格已同步", self.battle_source)
+        self.assertIn("AI進場時機", self.battle_source)
+        self.assertIn("entry_price_strategy", self.battle_source)
+        self.assertNotIn("from low_entry_readiness_v1065 import assess_low_entry_readiness", self.battle_source)
 
 
 if __name__ == "__main__":
