@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
 """Cross-asset Session Truth for TINO V1081.
 
-The proxy provider already records one ``as_of`` value per instrument.  This
-module converts those timestamps into one auditable vote group so a live or
-pre-market NQ row can never be mixed with previous-close QQQ/SOX/SMH rows in
-the same risk vote.
+Cross-asset confirmation must match both the trading date and the trading
+session.  A live/pre-market NQ row must never share one vote with previous-close
+QQQ/SOX/SMH merely because all rows contain the same calendar date.
 
-A coherent previous-session group may still be shown as market background, but
-only a group that matches the ticker's target session may be used as current
-cross-market confirmation by the individual entry engine.
+Rows with a coherent but non-matching or unknown session remain visible as
+market background.  They cannot enter the individual entry engine's current
+confirmation vote.
 """
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import datetime, time as dt_time
 import re
 from typing import Any, Dict, Mapping
 from zoneinfo import ZoneInfo
@@ -26,6 +25,25 @@ _NEW_YORK = ZoneInfo("America/New_York")
 _RELEVANT = {
     "TW": ("taiex", "tpex", "tx_night", "tsm_adr", "sox", "nq", "qqq", "smh"),
     "US": ("qqq", "sox", "smh", "nq", "spy", "vix_change"),
+}
+
+_SESSION_ALIASES = {
+    "pre_market": (
+        "pre_market", "premarket", "pre-market", "盤前", "美股盤前",
+    ),
+    "intraday": (
+        "intraday", "regular", "regular_session", "market_open", "盤中", "即時", "realtime", "live",
+    ),
+    "after_hours": (
+        "after_hours", "after-hours", "post_market", "postmarket", "盤後", "延長交易",
+    ),
+    "official_close": (
+        "official_close", "previous_close", "prior_close", "closed_reference", "after_close",
+        "正式收盤", "前一收盤", "昨收", "前收", "收盤參考",
+    ),
+    "overnight": (
+        "overnight", "night_session", "夜盤", "電子盤",
+    ),
 }
 
 
@@ -45,6 +63,39 @@ def _date_text(value: Any) -> str:
     return f"{int(match.group(1)):04d}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    raw = _text(value)
+    if not raw:
+        return None
+    candidates = [raw]
+    match = re.search(
+        r"20\d{2}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\s*[+-]\d{2}:?\d{2}|Z)?",
+        raw,
+    )
+    if match:
+        candidates.insert(0, match.group(0).replace("/", "-"))
+    for candidate in candidates:
+        normalized = candidate.strip().replace("Z", "+00:00")
+        # Convert +0800 to +08:00 for fromisoformat.
+        normalized = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", normalized)
+        try:
+            parsed = datetime.fromisoformat(normalized)
+            return parsed
+        except Exception:
+            continue
+    return None
+
+
+def _explicit_session(value: Any) -> str:
+    low = _text(value).lower()
+    if not low:
+        return ""
+    for canonical, aliases in _SESSION_ALIASES.items():
+        if any(alias.lower() in low for alias in aliases):
+            return canonical
+    return ""
+
+
 def _session(forecast: Any) -> str:
     decision = _mapping(getattr(forecast, "decision_card", {}))
     thesis = _mapping(decision.get("_decision_thesis") or decision.get("_decision_narrative"))
@@ -52,11 +103,11 @@ def _session(forecast: Any) -> str:
     truth.update(_mapping(thesis.get("price_truth")))
     direct = _text(truth.get("session") or truth.get("market_status")).lower()
     if direct:
-        return direct
+        return _normalize_target_session(direct)
     meta = _mapping(decision.get("_price_meta"))
     direct = _text(meta.get("session") or meta.get("market_status")).lower()
     if direct:
-        return direct
+        return _normalize_target_session(direct)
     title = _text(decision.get("資料標題"))
     if title.startswith("盤中"):
         return "intraday"
@@ -65,15 +116,27 @@ def _session(forecast: Any) -> str:
     if title.startswith("盤後"):
         return "after_hours"
     if title.startswith("收盤"):
-        return "after_close"
+        return "official_close"
+    if title.startswith("休市"):
+        return "official_close"
     return "unknown"
+
+
+def _normalize_target_session(value: str) -> str:
+    explicit = _explicit_session(value)
+    if explicit:
+        return explicit
+    low = _text(value).lower()
+    if low in {"close_confirm", "closed", "after_close", "closed_reference"}:
+        return "official_close"
+    return low or "unknown"
 
 
 def _market(forecast: Any) -> str:
     return _text(getattr(getattr(forecast, "ticker", None), "market", "")).upper()
 
 
-def _target_date(forecast: Any, market: str, session: str) -> str:
+def _target_date(forecast: Any, market: str) -> str:
     decision = _mapping(getattr(forecast, "decision_card", {}))
     thesis = _mapping(decision.get("_decision_thesis") or decision.get("_decision_narrative"))
     truth = _mapping(decision.get("_price_truth"))
@@ -89,49 +152,69 @@ def _target_date(forecast: Any, market: str, session: str) -> str:
         parsed = _date_text(value)
         if parsed:
             return parsed
-    # Last-resort calendar fallback is explicit and marked in the result.  For
-    # US sessions use New York's date, not the following Taipei morning.
     now = datetime.now(_NEW_YORK if market == "US" else _TAIPEI)
     return now.date().isoformat()
 
 
-def _proxy_dates(proxies: Mapping[str, Any], market: str) -> Dict[str, str]:
+def _session_from_clock(value: Any, market: str) -> str:
+    parsed = _parse_timestamp(value)
+    if parsed is None or parsed.tzinfo is None:
+        # A naive timestamp has no provable timezone.  Keep it unknown rather
+        # than guessing and accidentally mixing sessions.
+        return "unknown"
+    local = parsed.astimezone(_NEW_YORK if market == "US" else _TAIPEI)
+    clock = local.time().replace(tzinfo=None)
+    if market == "US":
+        if dt_time(4, 0) <= clock < dt_time(9, 30):
+            return "pre_market"
+        if dt_time(9, 30) <= clock < dt_time(16, 0):
+            return "intraday"
+        if dt_time(16, 0) <= clock < dt_time(20, 0):
+            return "after_hours"
+        return "overnight"
+    # Taiwan cash session.  Overseas/TAIFEX rows should normally provide an
+    # explicit label; clock inference is only used when the timezone is known.
+    if dt_time(8, 30) <= clock < dt_time(13, 35):
+        return "intraday"
+    if dt_time(13, 35) <= clock < dt_time(15, 30):
+        return "official_close"
+    return "overnight"
+
+
+def _proxy_rows(proxies: Mapping[str, Any], market: str) -> Dict[str, Dict[str, str]]:
     as_of = _mapping(proxies.get("as_of"))
-    output: Dict[str, str] = {}
+    session_map = _mapping(proxies.get("session") or proxies.get("sessions") or proxies.get("market_status"))
+    output: Dict[str, Dict[str, str]] = {}
     for key in _RELEVANT.get(market, ()):
-        value = proxies.get(key)
-        if value is None:
+        if proxies.get(key) is None:
             continue
-        parsed = _date_text(as_of.get(key))
-        if parsed:
-            output[key] = parsed
+        raw_as_of = as_of.get(key)
+        row_date = _date_text(raw_as_of)
+        explicit = _explicit_session(session_map.get(key)) or _explicit_session(raw_as_of)
+        bucket = explicit or _session_from_clock(raw_as_of, market)
+        output[key] = {
+            "as_of": _text(raw_as_of),
+            "date": row_date,
+            "session_bucket": bucket or "unknown",
+        }
     return output
 
 
 def _preferred_group(
     groups: Mapping[str, list[str]],
     *,
-    target_date: str,
+    target_key: str,
 ) -> tuple[str, list[str]]:
-    candidates = [
-        (group_date, sorted(keys))
-        for group_date, keys in groups.items()
-        if group_date and keys
-    ]
+    candidates = [(key, sorted(values)) for key, values in groups.items() if key and values]
     if not candidates:
         return "", []
-    target_keys = sorted(groups.get(target_date) or [])
-    if len(target_keys) >= 2:
-        # Two or more current-session rows form a usable live group even when a
-        # larger previous-close bundle exists.  A single live future still may
-        # not override a coherent prior-session group.
-        return target_date, target_keys
-    # Otherwise prefer the largest coherent set.  Ties prefer the ticker's
-    # target date, then the newest date.
+    exact = sorted(groups.get(target_key) or [])
+    if len(exact) >= 2:
+        return target_key, exact
     candidates.sort(
         key=lambda item: (
             len(item[1]),
-            1 if item[0] == target_date else 0,
+            1 if item[0] == target_key else 0,
             item[0],
         ),
         reverse=True,
@@ -145,32 +228,32 @@ def build_cross_asset_session_truth(
 ) -> Dict[str, Any]:
     data = dict(proxies or {})
     market = _market(forecast)
-    session = _session(forecast)
-    target_date = _target_date(forecast, market, session)
-    dates = _proxy_dates(data, market)
-    groups: Dict[str, list[str]] = defaultdict(list)
-    for key, as_of_date in dates.items():
-        groups[as_of_date].append(key)
-    vote_date, eligible = _preferred_group(groups, target_date=target_date)
-    all_keys = sorted(dates)
-    excluded = sorted(key for key in all_keys if key not in set(eligible))
+    target_session = _session(forecast)
+    target_date = _target_date(forecast, market)
+    rows = _proxy_rows(data, market)
 
-    same_date = bool(vote_date and vote_date == target_date)
+    groups: Dict[str, list[str]] = defaultdict(list)
+    for key, meta in rows.items():
+        row_date = meta.get("date") or "unknown_date"
+        bucket = meta.get("session_bucket") or "unknown"
+        groups[f"{row_date}|{bucket}"].append(key)
+
+    target_key = f"{target_date}|{target_session}"
+    vote_key, eligible = _preferred_group(groups, target_key=target_key)
+    vote_date, _, vote_session = vote_key.partition("|")
+    all_keys = sorted(rows)
+    eligible_set = set(eligible)
+    excluded = sorted(key for key in all_keys if key not in eligible_set)
+
     same_session = bool(
-        same_date
+        vote_key == target_key
+        and target_session not in {"unknown", "overnight"}
         and len(eligible) >= 2
-        and session in {"intraday", "close_confirm", "after_close", "closed_reference"}
-        and market == "US"
     )
-    # Taiwan same-session confirmation requires Taiwan index rows.  Overseas
-    # closes remain context even when their calendar date coincides.
-    if market == "TW":
-        tw_same = [key for key in eligible if key in {"taiex", "tpex"}]
-        same_session = bool(
-            same_date
-            and len(tw_same) >= 1
-            and session in {"intraday", "close_confirm", "after_close", "closed_reference"}
-        )
+    if market == "TW" and same_session:
+        # A Taiwan individual confirmation requires at least one Taiwan cash
+        # index row.  Overseas rows alone remain contextual.
+        same_session = any(key in {"taiex", "tpex"} for key in eligible)
 
     if len(eligible) < 2:
         vote_scope = "insufficient"
@@ -179,34 +262,36 @@ def build_cross_asset_session_truth(
     else:
         vote_scope = "coherent_context_session"
 
-    rows = {
+    proxy_rows = {
         key: {
-            "as_of": _text(_mapping(data.get("as_of")).get(key)),
-            "date": dates.get(key, ""),
-            "eligible": key in set(eligible),
-            "reason": "coherent_vote_group" if key in set(eligible) else "different_session_excluded",
+            **meta,
+            "eligible": key in eligible_set,
+            "reason": "coherent_vote_group" if key in eligible_set else "different_session_excluded",
         }
-        for key in all_keys
+        for key, meta in rows.items()
     }
     return {
         "schema": SCHEMA,
         "market": market,
-        "target_session": session,
+        "target_session": target_session,
         "target_date": target_date,
-        "vote_group_date": vote_date,
+        "target_group_key": target_key,
+        "vote_group_key": vote_key,
+        "vote_group_date": vote_date if vote_date != "unknown_date" else "",
+        "vote_group_session": vote_session or "unknown",
         "vote_scope": vote_scope,
         "same_session": same_session,
         "eligible_keys": eligible,
         "excluded_keys": excluded,
-        "proxy_rows": rows,
+        "proxy_rows": proxy_rows,
         "group_sizes": {key: len(value) for key, value in sorted(groups.items())},
         "verified": bool(len(eligible) >= 2),
         "reason": (
-            "同Session跨資產資料可進確認"
+            "同日期同Session跨資產資料可進個股確認"
             if same_session else
-            "跨資產資料只作一致時段背景，不作個股同Session確認"
+            "跨資產資料僅為一致時段背景，不作個股當前Session確認"
             if len(eligible) >= 2 else
-            "可用同時段跨資產資料不足"
+            "可用同日期同Session跨資產資料不足"
         ),
         "decision_influence": "session_filter_only",
     }
