@@ -78,10 +78,7 @@ def make_forecast(
         decision["_market_regime_v1077"] = {"state": regime_state}
     if limit_locked is not None:
         decision["_price_meta"]["exchange_rule"] = {"is_limit_up_locked": limit_locked}
-    radar = {
-        "事件/Macro": evidence,
-        "基本面": fundamental_text,
-    }
+    radar = {"事件/Macro": evidence, "基本面": fundamental_text}
     return SimpleNamespace(
         decision_card=decision,
         radar=radar,
@@ -100,6 +97,18 @@ class DecisionArchitectureV1081Tests(unittest.TestCase):
         self.assertIn("收復", row["canonical_main_message"])
         self.assertNotIn("今日等回測", row["canonical_main_message"])
         self.assertEqual(row["price_tiles"][0]["label"], "狀態")
+        self.assertTrue(row["price_shape"]["opening_selloff"])
+
+    def test_alternate_today_ohlc_keys_feed_price_shape(self):
+        forecast = make_forecast(last=156.75, day_pct=2.79, vwap=159.75)
+        forecast.decision_card.pop("開盤")
+        forecast.decision_card.pop("最高")
+        forecast.decision_card.pop("最低")
+        forecast.decision_card.update({"今日開盤": 167.5, "今日高": 167.5, "今日低": 155.0})
+        row = assess_entry_opportunity(forecast)
+        self.assertEqual(row["state"], "WAIT_VWAP_RECLAIM")
+        self.assertTrue(row["price_shape"]["opening_selloff"])
+        self.assertIn("開高後", row["summary"])
 
     def test_above_vwap_can_wait_for_real_pullback(self):
         row = assess_entry_opportunity(make_forecast(
@@ -112,6 +121,24 @@ class DecisionArchitectureV1081Tests(unittest.TestCase):
         row = assess_entry_opportunity(make_forecast(last=100.02, vwap=100.0, day_pct=1.2))
         self.assertEqual(row["state"], "WAIT_RECLAIM_HOLD")
         self.assertIn("維持", row["canonical_main_message"])
+
+    def test_selling_exhaustion_above_vwap_reaches_small_confirmation(self):
+        row = assess_entry_opportunity(make_forecast(
+            last=102.0, day_pct=1.8, vwap=100.0,
+            open_price=99.0, high=103.0, low=97.5,
+            regime_state="selling_exhaustion",
+            thesis_state="neutral",
+        ))
+        self.assertEqual(row["state"], "BUY_TODAY_CONFIRM")
+        self.assertIn("賣壓已由擴張轉為衰竭", row["summary"])
+        self.assertIn("小量", row["canonical_main_message"])
+
+    def test_selling_exhaustion_below_vwap_still_requires_reclaim(self):
+        row = assess_entry_opportunity(make_forecast(
+            last=98.0, day_pct=-0.8, vwap=100.0,
+            regime_state="selling_exhaustion",
+        ))
+        self.assertEqual(row["state"], "WAIT_VWAP_RECLAIM")
 
     def test_event_state_without_clock_does_not_create_permanent_15_30_template(self):
         row = assess_entry_opportunity(make_forecast(
@@ -135,6 +162,17 @@ class DecisionArchitectureV1081Tests(unittest.TestCase):
         self.assertEqual(row["state"], "WAIT_VWAP_PULLBACK")
         self.assertIn("12", row["summary"])
         self.assertEqual(row["reassessment_priority"], "P1_IMMEDIATE_RECALC")
+
+    def test_event_over_30_minutes_does_not_keep_wait_template(self):
+        row = assess_entry_opportunity(make_forecast(
+            market="US", last=108.0, day_pct=8.0, vwap=104.0,
+            thesis_state="event_reaction_in_progress",
+            event_verified=True, event_elapsed=45, event_severity=3,
+            evidence="即時 QQQ +3.0%｜SOX +5.0%",
+            same_session=True,
+        ))
+        self.assertEqual(row["state"], "BUY_TODAY_CONFIRM")
+        self.assertFalse(row["event_context"]["wait_active"])
 
     def test_event_wait_never_overrides_selling_red(self):
         row = assess_entry_opportunity(make_forecast(
@@ -198,6 +236,15 @@ class DecisionArchitectureV1081Tests(unittest.TestCase):
         self.assertIn("限價", row["canonical_main_message"])
         self.assertNotEqual(row["state"], "WAIT_NEXT_SESSION")
 
+    def test_opened_limit_can_fall_through_to_live_price_logic(self):
+        row = assess_entry_opportunity(make_forecast(
+            last=108.0, day_pct=8.0, vwap=106.0,
+            open_price=109.99, high=109.99, low=105.5,
+            limit_locked=False,
+        ))
+        self.assertNotEqual(row["state"], "LIMIT_LIQUIDITY_WAIT")
+        self.assertIn(row["state"], {"WAIT_VWAP_PULLBACK", "BUY_TODAY_CONFIRM", "OVERHEATED_NO_CHASE"})
+
     def test_after_hours_waits_for_regular_session(self):
         row = assess_entry_opportunity(make_forecast(
             market="US", session="after_hours", last=160.0,
@@ -211,6 +258,7 @@ class DecisionArchitectureV1081Tests(unittest.TestCase):
             make_forecast(last=102.0, vwap=100.0),
             make_forecast(last=90.0, day_pct=-7.0, vwap=96.0, regime_state="selling_expansion"),
             make_forecast(last=109.99, day_pct=9.99, vwap=107.0, open_price=109.99, high=109.99, low=109.99),
+            make_forecast(last=102.0, vwap=100.0, regime_state="selling_exhaustion"),
         ]
         for forecast in scenarios:
             with self.subTest(state=assess_entry_opportunity(forecast)["state"]):
