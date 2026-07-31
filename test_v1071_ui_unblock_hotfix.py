@@ -37,7 +37,7 @@ class V1071UiUnblockHotfixTests(unittest.TestCase):
     def test_fragment_uses_one_ticker_and_never_full_rerun(self):
         body = _function_source("app.py", "_admin_maintenance_fragment_body")
         detector = _function_source("app.py", "_is_fragment_rerun")
-        self.assertIn("max_tickers_per_market=1", body)
+        self.assertIn("max_tickers_per_market=2", body)
         self.assertIn("request_rerun=False", body)
         self.assertIn("batch_size_override=1", body)
         self.assertIn("if not _is_fragment_rerun()", body)

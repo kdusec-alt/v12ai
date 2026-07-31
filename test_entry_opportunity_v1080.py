@@ -159,9 +159,10 @@ class EntryOpportunityV1080Tests(unittest.TestCase):
 
     def test_battle_panel_uses_entry_timing_not_low_entry_maturity(self):
         source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
-        self.assertIn("from entry_opportunity_v1080 import assess_entry_opportunity", source)
+        self.assertIn("from decision_architecture_v1081 import assess_entry_opportunity", source)
         self.assertIn("AI進場時機", source)
-        self.assertIn("<b>進場</b>", source)
+        self.assertIn("price_tiles_html", source)
+        self.assertIn('entry.get("price_tiles")', source)
         self.assertNotIn("AI低接成熟度", source)
         self.assertNotIn("from low_entry_readiness_v1065 import assess_low_entry_readiness", source)
 

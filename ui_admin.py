@@ -190,6 +190,14 @@ def _render_admin_auto_audit_status(st) -> None:
     else:
         st.sidebar.caption("Auto Audit：Admin 登入後自動分段執行，不阻塞主畫面。")
 
+    integrity = st.session_state.get("learning_integrity_v1081")
+    if isinstance(integrity, dict) and str(integrity.get("text") or "").strip():
+        text = str(integrity.get("text") or "")
+        if str(integrity.get("level") or "").lower() == "warning":
+            st.sidebar.warning(text)
+        else:
+            st.sidebar.caption(text)
+
 
 def run_admin_auto_audit_cycle(st, *, max_tickers_per_market: int = 1) -> Dict[str, Any]:
     """Run a tiny close-time audit once per market/date in this Admin session.
