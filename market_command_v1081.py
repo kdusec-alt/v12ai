@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """V1081 ticker-independent market command with Session Truth.
 
-Red means risk is still accelerating.  Purple means a large amount of fear has
-already been released but price has not completed a bottom; purple is never a
-direct entry signal.  Cross-asset votes use one coherent ``as_of`` group and do
-not mix a live/pre-market future with previous-close ETFs or cash indices.
+Red means risk is still accelerating. Purple means fear has been released but
+price has not completed a bottom; purple is never a direct entry signal.
+Cross-asset votes require at least two exact-session rows. A single Taiwan cash
+index may benchmark individual relative strength, but cannot prove cross-asset
+market confirmation by itself.
 """
 from __future__ import annotations
 
@@ -31,9 +32,12 @@ def _num(value: Any) -> float | None:
 
 
 def _item_value(item: Any, key: str) -> Any:
-    if isinstance(item, Mapping):
-        return item.get(key)
-    return getattr(item, key, None)
+    return item.get(key) if isinstance(item, Mapping) else getattr(item, key, None)
+
+
+def _tag_truth(tag: str, key: str) -> bool | None:
+    match = re.search(rf"(?:^|[|;,\s]){re.escape(key)}\s*=\s*([01])(?:$|[|;,\s])", tag.lower())
+    return bool(int(match.group(1))) if match else None
 
 
 def _event_risk(news: Sequence[Any] | None) -> tuple[float, str, bool]:
@@ -44,11 +48,19 @@ def _event_risk(news: Sequence[Any] | None) -> tuple[float, str, bool]:
         if not timestamp_is_model_eligible(item):
             continue
         tag = str(_item_value(item, "tag") or "")
-        low_tag = tag.lower()
-        if "event_verified=0" in low_tag or "source_verified=0" in low_tag:
+        explicit_values = [
+            _tag_truth(tag, "event_verified"),
+            _tag_truth(tag, "source_verified"),
+            _tag_truth(tag, "content_verified"),
+            _tag_truth(tag, "model_eligible"),
+        ]
+        explicit = next((value for value in explicit_values if value is not None), None)
+        # Severity identifies importance, not authenticity. Without an explicit
+        # positive truth field, the headline remains context-only.
+        if explicit is not True:
             continue
         title = str(_item_value(item, "title") or "")
-        match = re.search(r"(?:shock_level|severity)=([0-5])", tag)
+        match = re.search(r"(?:shock_level|severity)=([0-5])", tag.lower())
         level = int(match.group(1)) if match else 0
         candidate = level * 6.0
         if candidate > score:
@@ -59,59 +71,42 @@ def _event_risk(news: Sequence[Any] | None) -> tuple[float, str, bool]:
 
 
 def _state(score: float, rebound: bool, market: str) -> tuple[str, str, str]:
-    # Risk acceleration always outranks relief.  A small rebound inside a very
-    # high stress score may not demote red to purple.
     if score >= 70:
         return (
-            "CRASH",
-            "🔴 風險加速／流動性踩踏",
+            "CRASH", "🔴 風險加速／流動性踩踏",
             "停止新增方向性部位並保留現金；至少等待跨市場跌勢、成交賣壓與波動率同步收斂",
         )
     if rebound and score >= 45:
         return (
-            "CAPITULATION",
-            "🟣 恐慌已宣洩／尚未止跌",
+            "CAPITULATION", "🟣 恐慌已宣洩／尚未止跌",
             "停止追空；等待缺口收斂、拋售量縮、VIX回落與VWAP承接。紫燈不是直接進場訊號",
         )
     if score >= 48:
         return (
-            "SELL_OFF",
-            "🟠 廣泛賣壓",
+            "SELL_OFF", "🟠 廣泛賣壓",
             "將新倉降為確認單；不把急跌視為折價，先等指數、廣度與波動率止穩",
         )
     if score >= 28:
         return (
-            "CAUTION",
-            "🟡 風險升溫",
+            "CAUTION", "🟡 風險升溫",
             "風險預算降至中性偏低；不追價，既有部位依支撐與曝險比例管理",
         )
     return (
-        "NORMAL",
-        "🟢 正常／風險可控",
+        "NORMAL", "🟢 正常／風險可控",
         "維持既定風險預算；個股仍須通過價格、事件、基本面與部位確認",
     )
 
 
 def _market_thesis(
-    *,
-    observed_count: int,
-    falling: int,
-    improving: int,
-    vix: float | None,
-    price_confirmed: bool,
-    same_session_confirmed: bool,
-    event_reason: str,
-    event_verified: bool,
-    vote_scope: str,
-    excluded_count: int,
+    *, observed_count: int, falling: int, improving: int, vix: float | None,
+    price_confirmed: bool, same_session_confirmed: bool,
+    event_reason: str, event_verified: bool, vote_scope: str, excluded_count: int,
 ) -> str:
     if observed_count < 2:
         return "可用同時段跨市場證據不足，現階段不能對大盤方向形成高品質判讀"
-
     breadth = f"{falling}/{observed_count} 項同組風險代理走弱"
     volatility = f"VIX {vix:.2f}" if vix is not None else "波動率資料尚未同步"
     exclusion = f"；另排除 {excluded_count} 項不同Session資料" if excluded_count else ""
-
     if same_session_confirmed and event_reason and event_verified:
         return (
             f"{breadth}，{volatility}{exclusion}；已驗證事件《{event_reason}》與同Session價格反應一致，"
@@ -146,20 +141,22 @@ def assess_market_command(
     family = str(market or "").upper()
     data = dict(proxies or {})
     event_score, event_reason, event_verified = _event_risk(news)
-    if family == "TW":
-        fields = (("tx_night", 16.0), ("tsm_adr", 10.0), ("sox", 8.0), ("nq", 6.0))
-    else:
-        fields = (("sox", 15.0), ("nq", 13.0), ("qqq", 9.0), ("smh", 8.0))
+    fields = (
+        (("tx_night", 16.0), ("tsm_adr", 10.0), ("sox", 8.0), ("nq", 6.0))
+        if family == "TW" else
+        (("sox", 15.0), ("nq", 13.0), ("qqq", 9.0), ("smh", 8.0))
+    )
 
     session_truth = dict(data.get("_session_truth_v1081") or {})
-    eligible_keys = set(str(key).lower() for key in (session_truth.get("eligible_keys") or []))
-    excluded_keys = set(str(key).lower() for key in (session_truth.get("excluded_keys") or []))
-    # The guard remains active even when it concludes that only zero or
-    # one row is eligible; otherwise an "insufficient" result would fall back
-    # to mixing every unscoped proxy again.
+    eligible_keys = {str(key).lower() for key in (session_truth.get("eligible_keys") or [])}
+    excluded_keys = {str(key).lower() for key in (session_truth.get("excluded_keys") or [])}
     guard_active = bool(session_truth.get("schema"))
     vote_scope = str(session_truth.get("vote_scope") or "legacy_unscoped")
-    same_session = bool(session_truth.get("same_session"))
+    cross_asset_same_session = bool(
+        session_truth.get("cross_asset_same_session")
+        if "cross_asset_same_session" in session_truth
+        else session_truth.get("same_session")
+    )
 
     score = 0.0
     observed: list[str] = []
@@ -191,44 +188,31 @@ def assess_market_command(
         score += min(8.0, vix_change * 0.7)
 
     price_confirmed = falling >= 2 or (vix is not None and vix >= 25 and vix_eligible)
-    same_session_confirmed = bool(price_confirmed and same_session)
-    # A verified headline may add full event pressure only after the same
-    # Session price group confirms it.  Otherwise it remains a bounded context.
-    if same_session_confirmed and event_verified:
-        score += event_score
-    else:
-        score += min(6.0, event_score)
+    same_session_confirmed = bool(price_confirmed and cross_asset_same_session)
+    score += event_score if same_session_confirmed and event_verified else min(6.0, event_score)
 
     radar_count = sum(1 for value in (radar or {}).values() if str(value or "").strip())
     coverage = min(88, 28 + len(set(observed)) * 9 + min(12, radar_count))
     rebound = bool(
-        falling >= 2
-        and improving >= 1
-        and vix_change is not None
-        and vix_change < 0
-        and vix_eligible
+        falling >= 2 and improving >= 1 and vix_change is not None
+        and vix_change < 0 and vix_eligible
     )
     code, label, action = _state(min(100.0, score), rebound, family)
     if len(set(observed)) < 2:
         code, label, action = (
-            "WAIT_CONFIRM",
-            "⚪ 同時段資料不足／等待確認",
+            "WAIT_CONFIRM", "⚪ 同時段資料不足／等待確認",
             "暫不改變部位；等待至少兩項一致Session市場資料同步",
         )
     thesis = _market_thesis(
-        observed_count=len(set(observed)),
-        falling=falling,
-        improving=improving,
-        vix=vix if vix_eligible else None,
-        price_confirmed=price_confirmed,
-        same_session_confirmed=same_session_confirmed,
-        event_reason=event_reason,
-        event_verified=event_verified,
-        vote_scope=vote_scope,
+        observed_count=len(set(observed)), falling=falling, improving=improving,
+        vix=vix if vix_eligible else None, price_confirmed=price_confirmed,
+        same_session_confirmed=same_session_confirmed, event_reason=event_reason,
+        event_verified=event_verified, vote_scope=vote_scope,
         excluded_count=len(excluded_keys),
     )
     session_fact = {
         "same_session": "同Session",
+        "same_session_benchmark": "同Session單一基準",
         "coherent_context_session": "一致背景Session",
         "insufficient": "Session不足",
     }.get(vote_scope, "Session未分組")
