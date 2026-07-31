@@ -95,7 +95,8 @@
       "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
     },
     {
-      "acknowledged": false,
+      "acknowledged": true,
+      "acknowledged_at": "2026-07-31T09:50:03+00:00",
       "category": "macro_release_pending",
       "cooling_count": 0,
       "event_id": "EV-717A2AC87DC8DC",
@@ -107,7 +108,7 @@
       "last_evidence_epoch": 1785396057.001838,
       "last_seen_at": "2026-07-30T07:20:57+00:00",
       "last_seen_epoch": 1785396057.001838,
-      "last_transition_at": "2026-07-30T13:25:29+00:00",
+      "last_transition_at": "2026-07-31T09:50:03+00:00",
       "peak_severity": 3,
       "reinforcement_count": 21,
       "related_fingerprints": [
@@ -136,7 +137,7 @@
       ],
       "status": "cooling",
       "title": "Banking Essentials Newsletter: July 29th Edition - spglobal.com",
-      "transition_reason": "長時間無新增風險證據，自動降為黃燈觀察"
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
       "acknowledged": false,
@@ -211,5 +212,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-31T08:58:11+00:00"
+  "updated_at": "2026-07-31T09:50:03+00:00"
 }
