@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent
 def integrity_snapshot(predictions, audits):
     with tempfile.TemporaryDirectory() as tmp:
         fake = types.ModuleType("memory_store")
+        fake.DEFAULT_VISIBLE_LOG_ROWS = 900
         fake.PREDICTION_LOG = Path(tmp) / "prediction_log.jsonl"
         fake.AUDIT_LOG = Path(tmp) / "audit_log.jsonl"
         fake.TICKER_PROFILE = Path(tmp) / "ticker_profiles.json"
@@ -135,7 +136,7 @@ class V1081IntegrityHardeningTests(unittest.TestCase):
                 "price_sample_quality": "verified",
                 "event_revision": True,
                 "event_bundle_id": "verified-bundle",
-                "revision_type": "INTRADAY_EVENT",
+                "revision_type": "EVENT_REASSESSMENT",
             },
         ]
         row = integrity_snapshot(predictions, [])
@@ -143,7 +144,7 @@ class V1081IntegrityHardeningTests(unittest.TestCase):
         self.assertEqual(row["duplicate_official_keys"], 0)
         self.assertFalse(any("重複" in warning for warning in row["warnings"]))
 
-    def test_non_event_duplicate_is_reported(self):
+    def test_non_event_refresh_is_query_revision_not_corrupt_duplicate(self):
         key = "TW|B|2026-07-31|T1"
         predictions = [
             {
@@ -165,8 +166,41 @@ class V1081IntegrityHardeningTests(unittest.TestCase):
         ]
         row = integrity_snapshot(predictions, [])
         self.assertEqual(row["event_revision_groups"], 0)
-        self.assertEqual(row["duplicate_official_keys"], 1)
-        self.assertTrue(any("重複" in warning for warning in row["warnings"]))
+        self.assertEqual(row["query_revision_groups"], 1)
+        self.assertEqual(row["duplicate_official_keys"], 0)
+        self.assertFalse(any("重複" in warning for warning in row["warnings"]))
+
+    def test_us_same_session_t1_is_quarantined_from_learning(self):
+        key = "US|SKHY|2026-07-31|T1"
+        predictions = [{
+            "id": "us-bad-target",
+            "official_sample_key": key,
+            "target_kind": "T1_CLOSE_NEXT_SESSION",
+            "target_trade_date": "2026-07-31",
+            "run_time_tw": "2026-07-31T22:33:00+08:00",
+            "market": "US",
+            "ticker": "SKHY",
+            "next_close_est": 143.33,
+            "valid_price_sample": True,
+            "price_sample_quality": "verified",
+        }]
+        audits = [{
+            "audit_id": "us-bad-target:next",
+            "prediction_id": "us-bad-target",
+            "official_sample_key": key,
+            "target": "next",
+            "actual_valid": True,
+            "predicted_close": 143.33,
+            "actual_close": 148.19,
+            "anchor_close": 146.95,
+            "price_sample_quality": "verified",
+            "actual_direction": "UP",
+        }]
+        row = integrity_snapshot(predictions, audits)
+        self.assertEqual(row["invalid_target_session_groups"], 1)
+        self.assertEqual(row["quarantined_target_session_audits"], 1)
+        self.assertEqual(row["learning_eligible_t1_audits"], 0)
+        self.assertTrue(any("美股T1目標日錯置" in warning for warning in row["warnings"]))
 
     def test_admin_ui_surfaces_compact_learning_integrity(self):
         source = (ROOT / "ui_admin.py").read_text(encoding="utf-8")

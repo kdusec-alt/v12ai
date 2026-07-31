@@ -47,25 +47,27 @@ def _session_mode(forecast: FinalForecast) -> str:
     return "unknown"
 
 
+def _first_truth_date(forecast: FinalForecast) -> date | None:
+    for truth in getattr(forecast, "data_truths", None) or []:
+        parsed = _parse_date(getattr(truth, "date", ""))
+        if parsed:
+            return parsed
+    return None
+
+
 def target_trade_date_for_forecast(forecast: FinalForecast) -> str:
-    """Return the exact market session targeted by T1."""
+    """Return the exact official market session targeted by T1.
+
+    T1 is always ``next session close``.  A US pre-market or intraday forecast
+    therefore targets the following US trading day, not the current session's
+    close.  The current/verified session date remains the T0/Audit anchor.
+    """
     market = str(getattr(getattr(forecast, "ticker", None), "market", "") or "").upper()
     if market != "US":
-        return _next_weekday(datetime.now(_TW).date()).isoformat()
+        return _next_weekday(_first_truth_date(forecast) or datetime.now(_TW).date()).isoformat()
 
-    now_ny = datetime.now(_NY)
-    active = now_ny.date()
-    if _session_mode(forecast) in {"pre_market", "intraday"}:
-        while active.weekday() >= 5:
-            active = _next_weekday(active)
-        return active.isoformat()
-
-    truth_date = None
-    for truth in getattr(forecast, "data_truths", None) or []:
-        truth_date = _parse_date(getattr(truth, "date", ""))
-        if truth_date:
-            break
-    return _next_weekday(truth_date or active).isoformat()
+    session_date = _first_truth_date(forecast) or datetime.now(_NY).date()
+    return _next_weekday(session_date).isoformat()
 
 
 def fetch_actual_daily_snapshot(ticker: str) -> Dict[str, Any]:

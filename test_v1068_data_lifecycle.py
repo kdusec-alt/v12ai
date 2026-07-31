@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
 from learning_center_core import _latest_formal_samples
+from learning_market_clock import target_trade_date_for_forecast
 from v1068_runtime_patches import latest_t1_audit_records, research_status_text
 
 
@@ -44,6 +46,21 @@ class V1068DataLifecycleTests(unittest.TestCase):
         self.assertEqual(len(visible), 1)
         self.assertEqual(visible[0]["next_close_est"], 482.6)
         self.assertEqual(len(rows), 2, "raw prediction history must not be overwritten")
+
+    def test_us_intraday_t1_is_always_next_official_session(self):
+        friday = SimpleNamespace(
+            ticker=SimpleNamespace(market="US"),
+            decision_card={"資料標題": "盤中資料"},
+            data_truths=[SimpleNamespace(date="2026-07-31")],
+        )
+        self.assertEqual(target_trade_date_for_forecast(friday), "2026-08-03")
+
+        premarket = SimpleNamespace(
+            ticker=SimpleNamespace(market="US"),
+            decision_card={"資料標題": "盤前資料"},
+            data_truths=[SimpleNamespace(date="2026-07-30")],
+        )
+        self.assertEqual(target_trade_date_for_forecast(premarket), "2026-07-31")
 
     def test_research_status_explains_waiting_and_idle(self):
         waiting = research_status_text({"status": "waiting", "waiting_institution": 3}, {})

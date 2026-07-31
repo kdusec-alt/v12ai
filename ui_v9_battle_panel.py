@@ -140,6 +140,71 @@ def _compact_evidence_summary(evidence: object, market: object, chip: object, ma
     return "｜".join(parts) or "等待價格、海外市場與籌碼確認"
 
 
+def _entry_range_text(lower, upper) -> str:
+    if lower in (None, "") and upper in (None, ""):
+        return "--"
+    if lower in (None, ""):
+        return _title_price(upper)
+    if upper in (None, ""):
+        return _title_price(lower)
+    try:
+        lo, hi = sorted((float(lower), float(upper)))
+        if abs(hi - lo) <= max(abs(lo) * 0.0002, 0.01):
+            return _title_price(lo)
+        return f"{_title_price(lo)}～{_title_price(hi)}"
+    except Exception:
+        return "--"
+
+
+def _entry_map_tiles(plan, fallback_tiles):
+    """Render V1083.1 as one consistent five-column execution map."""
+    if not isinstance(plan, dict) or not plan:
+        return list(fallback_tiles or [])
+
+    zone = plan.get("low_entry_zone") if isinstance(plan.get("low_entry_zone"), dict) else {}
+    low_condition = str(plan.get("low_entry_condition") or zone.get("text") or "")
+    low_value = _entry_range_text(zone.get("lower"), zone.get("upper"))
+    if low_value == "--" and "禁止" in low_condition:
+        low_value = "禁止"
+    elif low_value == "--" and low_condition:
+        low_value = "等待"
+
+    current_price = _title_price(plan.get("current_price"))
+    current_location = str(plan.get("current_location") or "位置待確認")
+    current_action = str(plan.get("current_action") or "等待同源價格")
+    confirmation = _title_price(plan.get("confirmation_price"))
+    add_price = _title_price(plan.get("add_price"))
+    invalid = _title_price(plan.get("invalidation_price"))
+
+    return [
+        {
+            "label": "現在",
+            "value": f"{current_price}｜{current_location}",
+            "title": current_action,
+        },
+        {
+            "label": "低接",
+            "value": low_value,
+            "title": low_condition or "目前不建立左側低接價",
+        },
+        {
+            "label": "確認",
+            "value": confirmation,
+            "title": str(plan.get("confirmation_text") or "等待右側確認"),
+        },
+        {
+            "label": "加碼",
+            "value": add_price,
+            "title": str(plan.get("add_text") or "突破確認後再評估"),
+        },
+        {
+            "label": "失效",
+            "value": f"{invalid}跌破" if invalid != "--" else "條件失效",
+            "title": str(plan.get("invalidation_text") or plan.get("invalidation") or "條件失效即取消"),
+        },
+    ]
+
+
 def render_battle_panel(st, forecast):
     if forecast.stopped:
         st.error(forecast.stop_reason)
@@ -176,6 +241,7 @@ def render_battle_panel(st, forecast):
 
     entry = assess_entry_opportunity(p)
     reasoning = build_evidence_reasoning(p, entry)
+    entry_plan = reasoning.get("recommended_entry") if isinstance(reasoning.get("recommended_entry"), dict) else {}
     try:
         d["_evidence_arbitration_v1083"] = reasoning
     except Exception:
@@ -213,16 +279,16 @@ def render_battle_panel(st, forecast):
     entry_detail = "".join(entry_items)
 
     entry_price_strategy_raw = str(entry.get("price_strategy_text") or "等待價格與時段確認")
-    entry_price_strategy = safe(entry_price_strategy_raw)
-    raw_price_tiles = list(entry.get("price_tiles") or [])
-    if len(raw_price_tiles) < 5:
-        raw_price_tiles = [
+    legacy_price_tiles = list(entry.get("price_tiles") or [])
+    if len(legacy_price_tiles) < 5:
+        legacy_price_tiles = [
             {"label": "進場", "value": entry_price_strategy_raw},
             {"label": "攻擊", "value": d.get("攻擊")},
             {"label": "轉強", "value": d.get("轉強")},
             {"label": "停手", "value": fmt(d.get("防守"))},
             {"label": "不追", "value": fmt(d.get("不追"))},
         ]
+    raw_price_tiles = _entry_map_tiles(entry_plan, legacy_price_tiles)
     price_tiles_html = "".join(
         "<div class='priceitem' title='"
         + safe(row.get("title") or row.get("value") or "")
@@ -230,6 +296,13 @@ def render_battle_panel(st, forecast):
         + safe(row.get("value") or "--") + "</div>"
         for row in raw_price_tiles[:5]
     )
+
+    current_action_raw = (
+        f"目前動作｜{_title_price(entry_plan.get('current_price'))}｜"
+        f"{entry_plan.get('current_location') or '位置待確認'}："
+        f"{entry_plan.get('current_action') or '等待價格與Session確認'}"
+    ) if entry_plan else f"目前動作｜{entry.get('label') or '等待確認'}：{entry.get('summary') or '等待價格與Session確認'}"
+    current_action_text = safe(current_action_raw)
 
     decision_title_raw = str(reasoning.get("headline") or "").strip()
     if not decision_title_raw:
@@ -247,20 +320,21 @@ def render_battle_panel(st, forecast):
     market = safe(market_raw)
     chip = safe(chip_raw)
     acceptance = (reasoning.get("price_acceptance") or {})
-    entry_plan = (reasoning.get("recommended_entry") or {})
     reasoning_horizon = safe(
         f"短線 {reasoning.get('short_term_bias') or '待確認'}｜中線 {reasoning.get('medium_term_bias') or '待確認'}｜"
         f"{acceptance.get('label') or '價格接受度待確認'}"
     )
     reasoning_conflict = safe(reasoning.get("conflict") or "有效證據尚未形成單一主導方向")
-    entry_plan_raw = "｜".join(
-        item for item in (
-            f"{entry_plan.get('label') or '建議進場'} {entry_plan.get('headline') or '等待同源價格'}",
-            str(entry_plan.get("condition") or ""),
-            str(entry_plan.get("secondary") or ""),
-            f"失效：{entry_plan.get('invalidation')}" if entry_plan.get("invalidation") else "",
-        ) if item
-    )
+    entry_plan_raw = str(entry_plan.get("display_line") or "").strip()
+    if not entry_plan_raw:
+        entry_plan_raw = "｜".join(
+            item for item in (
+                f"{entry_plan.get('label') or '建議進場'} {entry_plan.get('headline') or '等待同源價格'}",
+                str(entry_plan.get("condition") or ""),
+                str(entry_plan.get("secondary") or ""),
+                f"失效：{entry_plan.get('invalidation')}" if entry_plan.get("invalidation") else "",
+            ) if item
+        )
     entry_plan_text = safe(entry_plan_raw)
     abc_detail = safe((reasoning.get("abc_context") or {}).get("text") or "未形成")
     quantum_detail = safe((reasoning.get("quantum_context") or {}).get("text") or "未形成")
@@ -281,7 +355,9 @@ def render_battle_panel(st, forecast):
     .entrytop{{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-weight:950;color:#fff}}.entrytop .name{{font-size:12.5px}}.entrytop .score{{font-size:18px}}.entrytop .state{{font-size:11.5px;color:#fff5b8}}
     .entrysummary{{margin-top:1px;color:#eaf7ff;font-size:10.2px;font-weight:780;line-height:1.12}}.entryfacts{{margin-top:2px;display:flex;gap:4px 9px;flex-wrap:wrap;font-size:9px;font-weight:750}}.entryfacts .ok{{color:#7dffbd}}.entryfacts .wait{{color:#ffd27a}}
     .decision{{margin-top:5px;border:1px solid rgba(255,211,78,.48);border-radius:12px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:5px 7px}}
-    .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}.main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:11.2px;line-height:1.08;font-weight:850;padding:4px 8px;margin-bottom:2px}}
+    .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}
+    .action-now{{border:1px solid rgba(95,244,255,.42);border-left:4px solid #5ff4ff;border-radius:8px;background:linear-gradient(90deg,rgba(0,78,102,.48),rgba(4,17,25,.88));color:#eaffff;font-size:11.5px;line-height:1.12;font-weight:950;padding:5px 8px;margin-bottom:3px}}
+    .main{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:10.7px;line-height:1.08;font-weight:820;padding:3px 8px;margin-bottom:2px}}
     .reasoning-line{{padding:2px 6px;border-left:3px solid #74f4c3;background:rgba(3,31,33,.62);color:#d9fff1;font-size:8.7px;line-height:1.14;border-radius:0 6px 6px 0;margin-bottom:2px}}
     .reasoning-line b{{color:#74f4c3;margin-right:4px}}.reasoning-conflict{{display:block;color:#cfe7f7;margin-top:1px}}.reasoning-price{{display:block;color:#fff1a8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.reasoning-price b{{color:#ffd96a}}
     .evidence-summary{{border-left:3px solid #ff6f8e;padding:3px 6px 3px 7px;color:#dff2ff;background:rgba(4,18,30,.72);font-size:9.1px;font-weight:700;line-height:1.16;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0 6px 6px 0}}
@@ -292,7 +368,7 @@ def render_battle_panel(st, forecast):
     .evidence-details summary::before{{content:'＋ ';color:#ffd96a}}.evidence-details[open] summary::before{{content:'－ '}}
     .evidence-full{{margin-top:3px;padding:6px 8px;border:1px solid rgba(85,170,255,.28);border-radius:8px;background:#06111d;color:#e9f6ff;line-height:1.35;font-size:9.2px;max-height:150px;overflow:auto}}
     .evidence-full b{{color:#9bdcff}}
-    .pricebar{{margin-top:0;border:1px solid rgba(85,170,255,.28);background:#071727;border-radius:9px;display:grid;grid-template-columns:1.35fr 1.15fr 1.15fr .95fr .95fr;overflow:hidden;clear:both}}
+    .pricebar{{margin-top:0;border:1px solid rgba(85,170,255,.28);background:#071727;border-radius:9px;display:grid;grid-template-columns:1.38fr 1.1fr .92fr .92fr 1fr;overflow:hidden;clear:both}}
     .priceitem{{min-width:0;padding:4px 6px;border-right:1px solid rgba(85,170,255,.18);font-size:9.7px;font-weight:760;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.priceitem:last-child{{border-right:0}}.priceitem b{{color:#9bdcff;margin-right:3px;font-size:9.2px}}
     .t1{{margin-top:5px;border-top:1px solid rgba(55,230,255,.18);padding-top:4px}}.tl{{font-size:10.8px;color:#9bdcff;font-weight:800}}.tm{{font-size:15.8px;line-height:1.0;color:#5ff4ff;font-weight:900}}.ts{{color:#d8f2ff;font-weight:650;font-size:10.3px}}
     @media(max-width:1020px) and (min-width:721px){{
@@ -300,7 +376,7 @@ def render_battle_panel(st, forecast):
       h1{{font-size:18.2px}}.streak{{font-size:10px}}.fvleft{{padding:4px 7px;font-size:9.5px;line-height:1.08}}.fvleft b{{font-size:8.7px}}.fvnote{{font-size:8.1px}}
       .info{{margin-top:4px;padding:4px 7px;font-size:10.4px;line-height:1.08}}.ptime{{font-size:8.6px}}
       .entrylamp{{margin-top:4px;padding:5px 7px}}.entrytop{{gap:6px}}.entrytop .name{{font-size:11.5px}}.entrytop .score{{font-size:16.5px}}.entrytop .state{{font-size:10.5px}}.entrysummary{{font-size:9.4px}}.entryfacts{{font-size:8.3px;gap:2px 7px}}
-      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.main{{font-size:10.1px;padding:4px 7px;margin-bottom:2px;line-height:1.05}}
+      .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.action-now{{font-size:10.3px;padding:4px 7px}}.main{{font-size:9.8px;padding:3px 7px;margin-bottom:2px;line-height:1.05}}
       .reasoning-line{{font-size:8px;padding:2px 5px}}.evidence-summary{{font-size:8.3px;padding:2px 5px 2px 6px}}.evidence-details{{font-size:8px;margin-bottom:2px}}.evidence-full{{font-size:8.5px;max-height:130px}}
       .priceitem{{padding:3px 4px;font-size:8.7px}}.priceitem b{{font-size:8.2px;margin-right:2px}}
       .t1{{margin-top:4px;padding-top:3px}}.tl{{font-size:9.9px}}.tm{{font-size:14.6px}}.ts{{font-size:9.3px}}
@@ -314,6 +390,7 @@ def render_battle_panel(st, forecast):
       <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI進場時機</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div><div class='entryfacts'>{entry_detail}</div></div>
       <div class='decision'>
         <div class='dt'>AI決策｜{decision_title}</div>
+        <div class='action-now'>{current_action_text}</div>
         <div class='main'>{main_message}</div>
         <div class='reasoning-line'><b>AI推理</b>{reasoning_horizon}<span class='reasoning-conflict'>{reasoning_conflict}</span><span class='reasoning-price' title='{safe(entry_plan_raw)}'><b>AI建議進場</b>{entry_plan_text}</span></div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>前三大主因</b>{evidence_summary}</div>
