@@ -4,12 +4,13 @@
 This module never changes a forecast or a learned weight.  It verifies the
 append-only chain:
 formal prediction -> official target session -> verified actual close -> Audit
--> bounded profile update.  It also records remote-memory sync success/failure
-without allowing persistence outages to crash analysis.
+-> bounded profile update.  It also records the real result of remote-memory
+sync without allowing persistence outages to crash analysis.
 """
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 import os
 import threading
@@ -23,9 +24,16 @@ _SYNC_STATE: Dict[str, Any] = {
     "last_status": "never_observed",
     "last_path": "",
     "last_error": "",
+    "last_checked_at": "",
+    "last_success_at": "",
+    "last_failure_at": "",
     "success_count": 0,
     "failure_count": 0,
 }
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _text(value: Any) -> str:
@@ -48,13 +56,21 @@ def _is_official_prediction(row: Mapping[str, Any]) -> bool:
     )
 
 
-def _is_verified_t1_audit(row: Mapping[str, Any]) -> bool:
+def _is_formal_t1_audit(row: Mapping[str, Any]) -> bool:
     return bool(
         str(row.get("target") or "").lower() == "next"
         and row.get("actual_valid") is True
         and _positive_number(row.get("predicted_close"))
         and _positive_number(row.get("actual_close"))
         and _positive_number(row.get("anchor_close"))
+    )
+
+
+def _is_learning_eligible_t1_audit(row: Mapping[str, Any]) -> bool:
+    return bool(
+        _is_formal_t1_audit(row)
+        and row.get("price_sample_quality") == "verified"
+        and str(row.get("actual_direction") or "") in {"UP", "DOWN", "NEUTRAL"}
     )
 
 
@@ -69,6 +85,32 @@ def _latest_timestamp(rows: list[Mapping[str, Any]], *keys: str) -> str:
     return max(values, default="")
 
 
+def _interpret_sync_result(result: Any) -> tuple[bool, str]:
+    """Normalize the persistent-store contract without assuming exceptions.
+
+    ``_sync_file_to_remote`` returns ``(ok, error)`` on normal failures.  A
+    wrapper that treats any return as success creates a false-green health card.
+    """
+    if isinstance(result, tuple):
+        ok = bool(result[0]) if result else False
+        error = _text(result[1]) if len(result) > 1 else ""
+        return ok, error
+    if isinstance(result, Mapping):
+        status = _text(result.get("status")).upper()
+        ok_value = result.get("ok")
+        if ok_value is not None:
+            return bool(ok_value), _text(result.get("error") or result.get("reason"))
+        return status in {"OK", "PASS", "SUCCESS", "DONE"}, _text(
+            result.get("error") or result.get("reason")
+        )
+    if isinstance(result, bool):
+        return result, "" if result else "sync_returned_false"
+    # Existing sync implementation should never return None as success.
+    if result is None:
+        return False, "sync_returned_none"
+    return True, ""
+
+
 def install_persistence_health_guard() -> Dict[str, Any]:
     """Wrap remote sync for observability; preserve the existing fail-safe."""
     try:
@@ -79,6 +121,7 @@ def install_persistence_health_guard() -> Dict[str, Any]:
                 "installed": False,
                 "last_status": "module_unavailable",
                 "last_error": type(exc).__name__,
+                "last_checked_at": _now_iso(),
             })
         return dict(_SYNC_STATE)
     if getattr(store, "_v1081_sync_health_installed", False):
@@ -88,20 +131,32 @@ def install_persistence_health_guard() -> Dict[str, Any]:
     original = getattr(store, "_sync_file_to_remote", None)
     if not callable(original):
         with _SYNC_LOCK:
-            _SYNC_STATE.update({"installed": False, "last_status": "sync_function_unavailable"})
+            _SYNC_STATE.update({
+                "installed": False,
+                "last_status": "sync_function_unavailable",
+                "last_checked_at": _now_iso(),
+            })
         return dict(_SYNC_STATE)
 
     def sync_file_to_remote_v1081(path, *args, **kwargs):
+        checked_at = _now_iso()
         try:
             result = original(path, *args, **kwargs)
+            ok, error = _interpret_sync_result(result)
             with _SYNC_LOCK:
                 _SYNC_STATE.update({
                     "installed": True,
-                    "last_status": "success",
+                    "last_status": "success" if ok else "failed",
                     "last_path": str(path or ""),
-                    "last_error": "",
-                    "success_count": int(_SYNC_STATE.get("success_count") or 0) + 1,
+                    "last_error": "" if ok else (error or "remote_sync_failed"),
+                    "last_checked_at": checked_at,
                 })
+                if ok:
+                    _SYNC_STATE["success_count"] = int(_SYNC_STATE.get("success_count") or 0) + 1
+                    _SYNC_STATE["last_success_at"] = checked_at
+                else:
+                    _SYNC_STATE["failure_count"] = int(_SYNC_STATE.get("failure_count") or 0) + 1
+                    _SYNC_STATE["last_failure_at"] = checked_at
             return result
         except Exception as exc:
             with _SYNC_LOCK:
@@ -110,6 +165,8 @@ def install_persistence_health_guard() -> Dict[str, Any]:
                     "last_status": "failed",
                     "last_path": str(path or ""),
                     "last_error": f"{type(exc).__name__}: {exc}",
+                    "last_checked_at": checked_at,
+                    "last_failure_at": checked_at,
                     "failure_count": int(_SYNC_STATE.get("failure_count") or 0) + 1,
                 })
             raise
@@ -147,7 +204,8 @@ def learning_integrity_snapshot(limit: int = 1200) -> Dict[str, Any]:
     predictions = [dict(row) for row in read_prediction_log(max_rows) if isinstance(row, Mapping)]
     audits = [dict(row) for row in read_audit_log(max_rows) if isinstance(row, Mapping)]
     official = [row for row in predictions if _is_official_prediction(row)]
-    verified_audits = [row for row in audits if _is_verified_t1_audit(row)]
+    formal_audits = [row for row in audits if _is_formal_t1_audit(row)]
+    learning_audits = [row for row in formal_audits if _is_learning_eligible_t1_audit(row)]
 
     official_keys = [
         _text(row.get("official_sample_key"))
@@ -163,7 +221,7 @@ def learning_integrity_snapshot(limit: int = 1200) -> Dict[str, Any]:
             _text(row.get("market")), _text(row.get("ticker")),
             _text(row.get("target_trade_date")), "T1_CLOSE_NEXT_SESSION",
         ))
-        for row in verified_audits
+        for row in formal_audits
     }
     rows_by_key: Dict[str, list[Dict[str, Any]]] = {}
     for row, key in zip(official, official_keys):
@@ -177,7 +235,7 @@ def learning_integrity_snapshot(limit: int = 1200) -> Dict[str, Any]:
         if any(
             bool(row.get("event_revision"))
             or bool(row.get("event_bundle_id"))
-            or str(row.get("revision_type") or "").strip()
+            or _text(row.get("revision_type"))
             for row in rows
         ):
             revision_groups += 1
@@ -187,12 +245,15 @@ def learning_integrity_snapshot(limit: int = 1200) -> Dict[str, Any]:
 
     prediction_ids = {_text(row.get("id")) for row in predictions if _text(row.get("id"))}
     orphan_audits = sum(
-        1 for row in verified_audits
+        1 for row in formal_audits
         if _text(row.get("prediction_id")) and _text(row.get("prediction_id")) not in prediction_ids
     )
     invalid_actual_rows = sum(
         1 for row in audits
         if str(row.get("target") or "").lower() == "next" and row.get("actual_valid") is not True
+    )
+    limited_audits = sum(
+        1 for row in formal_audits if row.get("price_sample_quality") != "verified"
     )
 
     files: Dict[str, Dict[str, Any]] = {}
@@ -224,6 +285,8 @@ def learning_integrity_snapshot(limit: int = 1200) -> Dict[str, Any]:
     sync = remote_sync_health()
     if sync.get("configured") and sync.get("last_status") == "failed":
         warnings.append("最近一次遠端Memory同步失敗")
+    if sync.get("configured") and sync.get("last_status") == "never_observed":
+        warnings.append("遠端Memory同步尚未觀測到結果")
 
     status = "OK" if not warnings else "WARNING"
     return {
@@ -232,7 +295,11 @@ def learning_integrity_snapshot(limit: int = 1200) -> Dict[str, Any]:
         "warnings": warnings,
         "prediction_rows": len(predictions),
         "official_prediction_rows": len(official),
-        "verified_t1_audits": len(verified_audits),
+        "formal_t1_audits": len(formal_audits),
+        "learning_eligible_t1_audits": len(learning_audits),
+        # Compatibility field: now explicitly means formal close comparisons.
+        "verified_t1_audits": len(formal_audits),
+        "reference_limited_audits": limited_audits,
         "pending_official_samples": len(pending_keys),
         "pending_sample_keys": pending_keys[:20],
         "duplicate_official_keys": duplicate_official_keys,
@@ -253,17 +320,18 @@ def compact_learning_health(limit: int = 600) -> Dict[str, Any]:
     if row.get("status") == "DEGRADED":
         return {"level": "warning", "text": "預測學習檢核暫時不可用", "raw": row}
     pending = int(row.get("pending_official_samples") or 0)
-    audited = int(row.get("verified_t1_audits") or 0)
+    formal = int(row.get("formal_t1_audits") or row.get("verified_t1_audits") or 0)
+    eligible = int(row.get("learning_eligible_t1_audits") or 0)
     warnings = list(row.get("warnings") or [])
     if warnings:
         return {
             "level": "warning",
-            "text": f"預測學習需檢查｜已稽核 {audited}｜待處理 {pending}｜{'；'.join(warnings[:2])}",
+            "text": f"預測學習需檢查｜昨測今收 {formal}｜可學習 {eligible}｜待處理 {pending}｜{'；'.join(warnings[:2])}",
             "raw": row,
         }
     return {
         "level": "ok",
-        "text": f"預測學習正常｜已稽核 {audited}｜待處理 {pending}｜昨測今收鏈完整",
+        "text": f"預測學習正常｜昨測今收 {formal}｜可學習 {eligible}｜待處理 {pending}",
         "raw": row,
     }
 
