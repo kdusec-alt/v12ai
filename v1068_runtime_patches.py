@@ -61,6 +61,47 @@ def _install_learning_latest_view() -> None:
     core._v1068_latest_view_installed = True
 
 
+def _install_learning_heartbeat_view() -> None:
+    """Clarify the 900-row UI window and render real database growth."""
+    import ui_learning_center as learning_ui
+    from learning_heartbeat_v1084 import learning_heartbeat_snapshot, render_learning_heartbeat
+
+    if getattr(learning_ui, "_v1084_1_learning_heartbeat_installed", False):
+        return
+    original_metric_cards = learning_ui._metric_cards
+
+    def _metric_cards_v1084_1(st, metrics):
+        overview = any(str(label) == "總分析次數" for label, _value, _help in metrics)
+        if not overview:
+            return original_metric_cards(st, metrics)
+
+        transformed = []
+        for label, value, help_text in metrics:
+            if str(label) == "總分析次數":
+                transformed.append((
+                    "近30日分析窗",
+                    value,
+                    "前台為效能只讀取最近900筆；此數字不是資料庫歷史總量。",
+                ))
+            else:
+                transformed.append((label, value, help_text))
+        original_metric_cards(st, transformed)
+        heartbeat = learning_heartbeat_snapshot()
+        st.session_state["learning_heartbeat_v1084"] = {
+            key: heartbeat.get(key)
+            for key in (
+                "schema", "database_total_predictions", "database_total_audits",
+                "today_predictions", "today_audits", "learning_queue",
+                "last_prediction_time", "last_audit_time", "health_level", "health_label",
+                "remote_status", "remote_verified",
+            )
+        }
+        render_learning_heartbeat(st, heartbeat)
+
+    learning_ui._metric_cards = _metric_cards_v1084_1
+    learning_ui._v1084_1_learning_heartbeat_installed = True
+
+
 def _install_fragment_safe_admin_ack() -> None:
     import event_lifecycle as lifecycle
 
@@ -168,6 +209,7 @@ def install_v1068_runtime_patches() -> None:
     if _INSTALLED:
         return
     _install_learning_latest_view()
+    _install_learning_heartbeat_view()
     _install_fragment_safe_admin_ack()
     _install_research_ui_contrast()
     _INSTALLED = True
