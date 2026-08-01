@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
+from datetime import datetime
+import json
 from pathlib import Path
 from types import SimpleNamespace
+import tempfile
 import unittest
+from zoneinfo import ZoneInfo
 
 from learning_center_core import _latest_formal_samples
+from learning_heartbeat_v1084 import _scan_jsonl
 from learning_market_clock import target_trade_date_for_forecast
 from v1068_runtime_patches import latest_t1_audit_records, research_status_text
 
@@ -61,6 +66,30 @@ class V1068DataLifecycleTests(unittest.TestCase):
             data_truths=[SimpleNamespace(date="2026-07-30")],
         )
         self.assertEqual(target_trade_date_for_forecast(premarket), "2026-07-31")
+
+    def test_learning_heartbeat_streams_beyond_900_visible_rows(self):
+        now = datetime.now(ZoneInfo("Asia/Taipei")).isoformat(timespec="seconds")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prediction_log.jsonl"
+            with path.open("w", encoding="utf-8") as handle:
+                for index in range(905):
+                    handle.write(json.dumps({"id": f"p{index}", "run_time_tw": now}) + "\n")
+            row = _scan_jsonl(path, ("run_time_tw",))
+        self.assertEqual(row["physical_rows"], 905)
+        self.assertEqual(row["valid_rows"], 905)
+        self.assertEqual(row["today"], 905)
+
+    def test_learning_center_explains_900_as_window_and_installs_heartbeat(self):
+        patch_source = (ROOT / "v1068_runtime_patches.py").read_text(encoding="utf-8")
+        heartbeat_source = (ROOT / "learning_heartbeat_v1084.py").read_text(encoding="utf-8")
+        self.assertIn("近30日分析窗", patch_source)
+        self.assertIn("前台為效能只讀取最近900筆", patch_source)
+        self.assertIn("_install_learning_heartbeat_view()", patch_source)
+        self.assertIn("資料庫總分析", heartbeat_source)
+        self.assertIn('"decision_influence": False', heartbeat_source)
+        self.assertIn('"formal_weights_changed": False', heartbeat_source)
+        self.assertNotIn("pandas", heartbeat_source.lower())
+        self.assertNotIn("pyarrow", heartbeat_source.lower())
 
     def test_research_status_explains_waiting_and_idle(self):
         waiting = research_status_text({"status": "waiting", "waiting_institution": 3}, {})
