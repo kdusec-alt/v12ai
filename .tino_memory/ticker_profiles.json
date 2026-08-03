@@ -16329,8 +16329,8 @@
   "ONDS": {
     "active_family_count": 6,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-08-01T04:27:01+08:00",
-    "approved_bias": 0.0025,
+    "approved_at_tw": "2026-08-04T04:25:00+08:00",
+    "approved_bias": 0.0075,
     "audit_count": 27,
     "avg_abs_error_pct": 2.5502,
     "avg_direction_brier": 0.305585,
