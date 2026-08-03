@@ -1,7 +1,8 @@
 {
   "events": [
     {
-      "acknowledged": false,
+      "acknowledged": true,
+      "acknowledged_at": "2026-08-03T08:18:47+00:00",
       "category": "geo_energy_escalation",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
@@ -13,7 +14,7 @@
       "last_evidence_epoch": 1785740934.303779,
       "last_seen_at": "2026-08-03T07:08:54+00:00",
       "last_seen_epoch": 1785740934.303779,
-      "last_transition_at": "2026-08-03T07:08:54+00:00",
+      "last_transition_at": "2026-08-03T08:18:47+00:00",
       "peak_severity": 4,
       "reinforcement_count": 202,
       "related_fingerprints": [
@@ -46,7 +47,7 @@
       ],
       "status": "active_red",
       "title": "Global Event Core｜油價快速回落｜WTI -6.60%／Brent +0.00%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
-      "transition_reason": "市場衝擊 L2 產業衝擊 12/100｜跨市場事件｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "transition_reason": "Admin 已讀並關閉畫面警示"
     },
     {
       "acknowledged": true,
@@ -174,5 +175,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-08-03T07:45:13+00:00"
+  "updated_at": "2026-08-03T08:18:47+00:00"
 }
