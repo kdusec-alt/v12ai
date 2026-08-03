@@ -84,9 +84,24 @@ def compose_action_language(
                 "instruction": f"先降低持股｜跌破 {invalid} 全出｜未重新取得買進資格前不低接",
                 "reason": f"價格尚未收復關鍵結構，且{t1_text}；偏空證據由{driver}主導"}
 
-    if situation == "SELL_INVALID":
+    if situation == "SELL_PRICE_INVALID":
         return {"label": "賣出", "instruction": f"賣出｜取消低接｜未重建結構前不進場",
                 "reason": f"現價已跌破 {invalid}，原交易結構正式失效"}
+
+    if situation == "REDUCE_INTRADAY_BREACH_RECLAIMED":
+        return {"label": "減碼觀察｜空手不買",
+                "instruction": f"盤中跌破後已收回 {invalid}｜先降低部位，確認站穩前不低接",
+                "reason": f"盤中最低價曾跌破 {invalid}，但現價 {current} 已收回；依收復狀態管理風險"}
+
+    if situation == "REDUCE_FAILED_BREAKOUT":
+        return {"label": "突破失敗減碼｜空手不買",
+                "instruction": f"退出短線突破部位｜未重新站回 {confirmation} 前不重進｜失效防線 {invalid}",
+                "reason": f"原突破條件已失敗，由{driver}主導；現價未跌破本卡失效價，不宣稱價格失效"}
+
+    if situation == "REDUCE_SELLING_EXPANSION":
+        return {"label": "減碼｜空手不接刀",
+                "instruction": f"先降低持股風險｜等待賣壓量縮並收復 {confirmation}｜跌破 {invalid} 才升級賣出",
+                "reason": f"賣壓擴張且{driver}偏空；現價 {current} 仍未跌破 {invalid}，因此不是結構失效賣出"}
 
     if situation == "BLOCK_DATA":
         return {"label": "禁止進場", "instruction": "同源價格或Session未驗證｜不建立新部位",
