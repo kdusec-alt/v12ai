@@ -25,19 +25,21 @@ import re
 from typing import Any, Dict, Iterable, Mapping, Sequence
 
 
-SCHEMA = "TINO_WEB_DECISION_ARCHITECTURE_V1081"
+SCHEMA = "TINO_WEB_DECISION_ARCHITECTURE_V1085"
 
 _STATE_META = {
-    "BUY_TODAY_CONFIRM": ("green", "🟢", "今日可小量參與"),
-    "WAIT_VWAP_PULLBACK": ("yellow", "🟡", "今日等回測"),
-    "WAIT_VWAP_RECLAIM": ("yellow", "🟡", "等待收復確認"),
-    "WAIT_RECLAIM_HOLD": ("yellow", "🟡", "收復後等承接"),
-    "WAIT_NEXT_SESSION": ("yellow", "🟡", "等下一交易時段"),
-    "LIMIT_LIQUIDITY_WAIT": ("yellow", "🟡", "漲停成交待確認"),
-    "OVERHEATED_NO_CHASE": ("yellow", "🟠", "過熱不追"),
-    "SELLING_EXPANSION_BLOCK": ("red", "🔴", "賣壓未止"),
-    "FAILED_BREAKOUT_EXIT": ("red", "🔴", "突破失敗／取消"),
-    "DATA_WAIT": ("yellow", "⚪", "資料待確認"),
+    # Internal states remain stable for Audit compatibility. Public labels must be
+    # executable decisions; V1085 arbitration may further promote/downgrade them.
+    "BUY_TODAY_CONFIRM": ("green", "🟢", "買進"),
+    "WAIT_VWAP_PULLBACK": ("yellow", "🟡", "續抱／空手不進"),
+    "WAIT_VWAP_RECLAIM": ("red", "🔴", "禁止進場"),
+    "WAIT_RECLAIM_HOLD": ("yellow", "🟡", "續抱／空手不進"),
+    "WAIT_NEXT_SESSION": ("red", "🔴", "禁止進場"),
+    "LIMIT_LIQUIDITY_WAIT": ("yellow", "🟡", "續抱／禁止追價"),
+    "OVERHEATED_NO_CHASE": ("yellow", "🟠", "減碼／禁止追價"),
+    "SELLING_EXPANSION_BLOCK": ("red", "🔴", "賣出"),
+    "FAILED_BREAKOUT_EXIT": ("red", "🔴", "賣出"),
+    "DATA_WAIT": ("red", "⚪", "禁止進場"),
 }
 
 _SELLING_STATES = {"panic_acceleration", "deleveraging", "selling_expansion"}

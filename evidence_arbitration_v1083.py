@@ -383,34 +383,108 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _conclusion(base: Mapping[str, Any], entry: Mapping[str, Any], plan: Mapping[str, Any], acceptance: Mapping[str, Any], top: list[Dict[str, Any]]) -> str:
-    state = _text(entry.get("state"))
-    short = _text(base.get("short_term_bias")) or "待確認"
-    medium = _text(base.get("medium_term_bias")) or "待確認"
+def _decisive_action(
+    entry: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    acceptance: Mapping[str, Any],
+    top: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Return exactly one executable public action.
+
+    The V1081 state remains available for Audit compatibility.  This layer is the
+    final entry/position decision shown to the user and may veto a permissive VWAP
+    state when the ranked evidence conflicts.
+    """
+    state = _text(entry.get("state")) or "DATA_WAIT"
+    score = int(_num(acceptance.get("score")) or 0)
+    bullish = sum(int(_num(x.get("strength")) or 0) for x in top if int(x.get("stance_value") or 0) > 0)
+    bearish = sum(int(_num(x.get("strength")) or 0) for x in top if int(x.get("stance_value") or 0) < 0)
+    dominance = bullish - bearish
+    invalid = _price(plan.get("invalidation_price"))
+    confirm = _price(plan.get("confirmation_price"))
+    current = _price(plan.get("current_price"))
+
+    code = "BLOCK"
+    reason = "證據不足以建立新部位"
+    if state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
+        code = "SELL"
+        reason = "賣壓擴張或原突破結構已失效"
+    elif state == "OVERHEATED_NO_CHASE":
+        code = "REDUCE"
+        reason = "價格過熱，新增部位的風險報酬不合格"
+    elif state == "BUY_TODAY_CONFIRM":
+        if score >= 55 and dominance >= -20:
+            code = "BUY"
+            reason = "價格結構與有效證據已達買進門檻"
+        else:
+            reason = "VWAP偏多但跨證據衝突，否決買進"
+    elif state == "WAIT_VWAP_PULLBACK":
+        if score >= 65 and dominance >= 0:
+            code = "HOLD"
+            reason = "方向仍偏多，但現價沒有新增部位優勢"
+        else:
+            reason = "VWAP上方不足以抵銷ABC、法人或其他偏空證據"
+    elif state == "WAIT_RECLAIM_HOLD":
+        if score >= 62 and dominance >= 0:
+            code = "HOLD"
+            reason = "既有多方結構尚未失效，但不核准加碼"
+        elif bearish > bullish:
+            code = "REDUCE"
+            reason = "多空交界且偏空證據占優"
+    elif state == "WAIT_VWAP_RECLAIM":
+        if bearish > bullish or score < 50:
+            code = "REDUCE"
+            reason = "價格未收復VWAP且偏空證據占優"
+        else:
+            reason = "價格尚未完成收復，不核准新部位"
+    elif state == "LIMIT_LIQUIDITY_WAIT":
+        if score >= 60 and dominance >= 0:
+            code = "HOLD"
+            reason = "趨勢仍強，但流動性不足以核准追價"
+        else:
+            reason = "成交與流動性未通過買進門檻"
+
+    meta = {
+        "BUY": ("買進", "🟢", "green"),
+        "HOLD": ("續抱", "🟢", "green"),
+        "REDUCE": ("減碼", "🟠", "yellow"),
+        "SELL": ("賣出", "🔴", "red"),
+        "BLOCK": ("禁止進場", "🔴", "red"),
+    }
+    label, icon, color = meta[code]
+    if code == "BUY":
+        instruction = f"買進｜{current}附近小量｜跌破 {invalid} 停損"
+    elif code == "HOLD":
+        instruction = f"續抱｜空手不買｜跌破 {invalid} 減碼"
+    elif code == "REDUCE":
+        instruction = f"減碼｜空手禁止進場｜跌破 {invalid} 全出"
+    elif code == "SELL":
+        instruction = f"賣出｜取消低接｜未收復 {confirm} 不重進"
+    else:
+        instruction = "禁止進場｜不建立新部位"
+
+    return {
+        "code": code,
+        "label": label,
+        "icon": icon,
+        "color": color,
+        "instruction": instruction,
+        "reason": reason,
+        "acceptance_score": score,
+        "bullish_evidence": bullish,
+        "bearish_evidence": bearish,
+        "evidence_dominance": dominance,
+        "source_state": state,
+        "single_action": True,
+    }
+
+
+def _conclusion(base: Mapping[str, Any], entry: Mapping[str, Any], plan: Mapping[str, Any], acceptance: Mapping[str, Any], top: list[Dict[str, Any]], action: Mapping[str, Any]) -> str:
+    label = _text(action.get("label")) or "禁止進場"
+    instruction = _text(action.get("instruction")) or label
+    reason = _text(action.get("reason")) or "有效證據不足"
     winner = _text(top[0].get("label")) if top else "有效證據"
-    current = _text(plan.get("headline"))
-    low_entry = _text(plan.get("condition"))
-    confirm_add = _text(plan.get("secondary"))
-    invalid = _text(plan.get("invalidation"))
-    if state == "BUY_TODAY_CONFIRM":
-        return f"{winner}勝出，短線{short}；{current}。{low_entry}；{confirm_add}；失效{invalid}。"
-    if state == "WAIT_VWAP_PULLBACK":
-        return f"方向仍為{short}但不追延伸段；{current}。{low_entry}；{confirm_add}。"
-    if state == "WAIT_VWAP_RECLAIM":
-        return f"同時保留低接與右側確認兩條路；{current}。{low_entry}；{confirm_add}；失效{invalid}。"
-    if state == "WAIT_RECLAIM_HOLD":
-        return f"{acceptance['label']}，短線{short}、中線{medium}；{current}。{low_entry}；{confirm_add}。"
-    if state == "LIMIT_LIQUIDITY_WAIT":
-        return f"價格強勢但流動性未驗證；{current}。{confirm_add}。"
-    if state == "OVERHEATED_NO_CHASE":
-        return f"方向可能偏多但價格過熱；{current}。{low_entry}。"
-    if state == "SELLING_EXPANSION_BLOCK":
-        return f"{winner}偏空證據勝出；{current}。{low_entry}；{confirm_add}。"
-    if state == "FAILED_BREAKOUT_EXIT":
-        return f"原突破條件失效；{current}。{low_entry}；{confirm_add}。"
-    if state == "WAIT_NEXT_SESSION":
-        return f"目前Session不建立買點；{current}。{low_entry}；{confirm_add}。"
-    return f"{acceptance['label']}；{current}。{low_entry}；{confirm_add}。"
+    return f"最終決策：{label}｜{instruction}。主因：{reason}；{winner}主導；{acceptance.get('label') or '價格接受度待確認'}。"
 
 
 def build_evidence_arbitration(forecast: Any, entry: Mapping[str, Any] | None = None) -> Dict[str, Any]:
@@ -424,7 +498,8 @@ def build_evidence_arbitration(forecast: Any, entry: Mapping[str, Any] | None = 
     top = ranked[:3]
     acceptance = _acceptance(entry, _map(base.get("price_acceptance")), abc, quantum)
     plan = _entry_plan(forecast, entry)
-    conclusion = _conclusion(base, entry, plan, acceptance, top)
+    action = _decisive_action(entry, plan, acceptance, top)
+    conclusion = _conclusion(base, entry, plan, acceptance, top, action)
     top_rows = []
     for i, row in enumerate(top, 1):
         row = dict(row)
@@ -441,12 +516,14 @@ def build_evidence_arbitration(forecast: Any, entry: Mapping[str, Any] | None = 
         "evidence_winner": {k: winner.get(k) for k in ("category", "label", "stance", "reason")},
         "price_acceptance": acceptance,
         "recommended_entry": plan,
+        "action_decision": action,
         "top_drivers": top_rows,
         "top_driver_summary": summary,
         "abc_context": abc or {},
         "quantum_context": quantum or {},
-        "narrative_only": True,
-        "decision_influence": False,
+        "narrative_only": False,
+        "decision_influence": True,
+        "entry_decision_influence": True,
         "formal_forecast_unchanged": True,
         "formal_price_model_unchanged": True,
         "learning_sample_unchanged": True,
