@@ -89,7 +89,7 @@ def test_selling_expansion_above_invalidation_reduces_without_false_breach_claim
     entry = {"state": "SELLING_EXPANSION_BLOCK", "operative_price": 1592.5, "vwap": 1606}
     plan = {
         "current_price": 1592.5, "session_low": 1560, "invalidation_price": 1412,
-        "confirmation_price": 1606, "breakout_price": None, "trigger_status": "NO_ENTRY",
+        "confirmation_price": None, "breakout_price": None, "trigger_status": "NO_ENTRY",
         "price_order_valid": False, "actionable": False, "entry_state_label": "本日無買進資格",
     }
     action = _decisive_action(entry, plan, {"score": 38}, _chip(-1, 86), {}, forecast)
@@ -101,6 +101,8 @@ def test_selling_expansion_above_invalidation_reduces_without_false_breach_claim
     assert "減碼" in action["label"]
     assert "現價已跌破" not in action["reason"]
     assert "仍未跌破" in action["reason"]
+    assert "--" not in action["instruction"]
+    assert "VWAP／關鍵均價" in action["instruction"]
 
 
 def test_failed_breakout_above_invalidation_has_its_own_reason():
