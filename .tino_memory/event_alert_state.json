@@ -7,24 +7,24 @@
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "bf0368271a0e405a",
+      "fingerprint": "de9116fbdc5d23f7",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785532102.05856,
-      "last_seen_at": "2026-07-31T21:08:22+00:00",
-      "last_seen_epoch": 1785532102.05856,
-      "last_transition_at": "2026-07-31T21:08:22+00:00",
+      "last_evidence_epoch": 1785719450.132634,
+      "last_seen_at": "2026-08-03T01:10:50+00:00",
+      "last_seen_epoch": 1785719450.132634,
+      "last_transition_at": "2026-08-03T01:10:50+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 200,
+      "reinforcement_count": 201,
       "related_fingerprints": [
-        "e3a403e5c3b41a51",
         "853c89056676b1a2",
         "1333c1315057e732",
         "08f501a906c44b1d",
         "9abb5c83e4507f26",
         "39693c53ce9e7638",
         "edcd6d16eb47b499",
-        "6e7bd0442c6eacbc"
+        "6e7bd0442c6eacbc",
+        "bf0368271a0e405a"
       ],
       "risk_sign": -1,
       "scope": "global",
@@ -45,8 +45,8 @@
         "GLOBAL"
       ],
       "status": "active_red",
-      "title": "Global Event Core｜油價快速上漲｜WTI +3.53%／Brent +1.22%｜此列只確認油價幅度，不自行推定戰爭原因；若戰爭/供給中斷新聞同步成立則升級衝擊｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
-      "transition_reason": "市場衝擊 L3 跨市場衝擊 55/100｜油價急升｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
+      "title": "Global Event Core｜油價快速回落｜WTI -4.91%／Brent +0.00%｜傳導：能源成本與通膨預期↓→利率壓力緩和；仍待美債、美元與股價確認",
+      "transition_reason": "市場衝擊 L2 產業衝擊 12/100｜跨市場事件｜油價供應衝擊是市場級事件，需要重跑跨資產與產業傳導"
     },
     {
       "acknowledged": true,
@@ -173,5 +173,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-07-31T21:08:22+00:00"
+  "updated_at": "2026-08-03T01:10:50+00:00"
 }
