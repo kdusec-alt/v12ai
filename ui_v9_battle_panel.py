@@ -183,17 +183,17 @@ def _entry_map_tiles(plan, fallback_tiles):
             "title": current_action,
         },
         {
-            "label": "回測區",
+            "label": "低接",
             "value": low_value,
             "title": low_condition or "目前不建立左側低接價",
         },
         {
-            "label": "買進觸發",
+            "label": "確認",
             "value": confirmation,
             "title": str(plan.get("confirmation_text") or "本日無回測買點"),
         },
         {
-            "label": "突破觸發",
+            "label": "加碼",
             "value": add_price,
             "title": str(plan.get("breakout_text") or plan.get("add_text") or "本日無突破買點"),
         },
