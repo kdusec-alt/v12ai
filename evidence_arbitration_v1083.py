@@ -389,64 +389,78 @@ def _decisive_action(
     acceptance: Mapping[str, Any],
     top: list[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Return exactly one executable public action.
+    """Return one public action without turning normal uncertainty into BLOCK.
 
-    The V1081 state remains available for Audit compatibility.  This layer is the
-    final entry/position decision shown to the user and may veto a permissive VWAP
-    state when the ranked evidence conflicts.
+    BLOCK is reserved for invalid/unverifiable data or a genuine hard-risk veto.
+    When holdings are unknown, a healthy but extended structure uses a dual-path
+    HOLD decision: existing holders keep the position, cash investors do not chase.
     """
     state = _text(entry.get("state")) or "DATA_WAIT"
     score = int(_num(acceptance.get("score")) or 0)
     bullish = sum(int(_num(x.get("strength")) or 0) for x in top if int(x.get("stance_value") or 0) > 0)
     bearish = sum(int(_num(x.get("strength")) or 0) for x in top if int(x.get("stance_value") or 0) < 0)
     dominance = bullish - bearish
-    invalid = _price(plan.get("invalidation_price"))
+    invalid_n = _num(plan.get("invalidation_price"))
+    current_n = _num(plan.get("current_price"))
+    invalid = _price(invalid_n)
     confirm = _price(plan.get("confirmation_price"))
-    current = _price(plan.get("current_price"))
+    current = _price(current_n)
 
-    code = "BLOCK"
-    reason = "證據不足以建立新部位"
-    if state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
+    # BLOCK must never be the generic fallback.  It is a hard-risk/data veto only.
+    code = "HOLD"
+    reason = "方向尚未失效；空手不追，持股依失效價管理"
+    hard_bearish = score < 42 and dominance <= -120
+
+    if current_n is not None and invalid_n is not None and current_n < invalid_n:
+        code = "SELL"
+        reason = "現價已跌破失效價，原交易結構失效"
+    elif state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
         code = "SELL"
         reason = "賣壓擴張或原突破結構已失效"
+    elif state in {"DATA_WAIT", "WAIT_NEXT_SESSION"}:
+        code = "BLOCK"
+        reason = "Session或同源價格無法驗證，禁止以失真資料下單"
     elif state == "OVERHEATED_NO_CHASE":
-        code = "REDUCE"
-        reason = "價格過熱，新增部位的風險報酬不合格"
+        code = "HOLD"
+        reason = "趨勢未失效但價格過熱；空手不追，持股續抱"
+    elif state == "LIMIT_LIQUIDITY_WAIT":
+        code = "HOLD"
+        reason = "趨勢仍在但成交與流動性不足；空手不追，持股續抱"
     elif state == "BUY_TODAY_CONFIRM":
         if score >= 55 and dominance >= -20:
             code = "BUY"
             reason = "價格結構與有效證據已達買進門檻"
+        elif hard_bearish:
+            code = "BLOCK"
+            reason = "價格接受度不足且多項強空證據共振"
         else:
-            reason = "VWAP偏多但跨證據衝突，否決買進"
+            code = "HOLD"
+            reason = "買點未通過，但多方結構尚未失效；空手不追，持股續抱"
     elif state == "WAIT_VWAP_PULLBACK":
-        if score >= 65 and dominance >= 0:
-            code = "HOLD"
-            reason = "方向仍偏多，但現價沒有新增部位優勢"
+        if hard_bearish:
+            code = "BLOCK"
+            reason = "價格接受度不足且多項強空證據共振"
         else:
-            reason = "VWAP上方不足以抵銷ABC、法人或其他偏空證據"
+            code = "HOLD"
+            reason = "價格仍在VWAP上方；空手不追，持股續抱"
     elif state == "WAIT_RECLAIM_HOLD":
-        if score >= 62 and dominance >= 0:
-            code = "HOLD"
-            reason = "既有多方結構尚未失效，但不核准加碼"
-        elif bearish > bullish:
+        if score < 45 and dominance <= -60:
             code = "REDUCE"
-            reason = "多空交界且偏空證據占優"
+            reason = "多空交界且偏空證據明顯占優"
+        else:
+            code = "HOLD"
+            reason = "既有多方結構尚未失效；空手不追，持股續抱"
     elif state == "WAIT_VWAP_RECLAIM":
-        if bearish > bullish or score < 50:
+        if score < 50 or dominance <= -60:
             code = "REDUCE"
-            reason = "價格未收復VWAP且偏空證據占優"
+            reason = "價格未收復VWAP且偏空證據明顯占優"
         else:
-            reason = "價格尚未完成收復，不核准新部位"
-    elif state == "LIMIT_LIQUIDITY_WAIT":
-        if score >= 60 and dominance >= 0:
             code = "HOLD"
-            reason = "趨勢仍強，但流動性不足以核准追價"
-        else:
-            reason = "成交與流動性未通過買進門檻"
+            reason = "尚未收復VWAP；空手不買，持股守失效價"
 
     meta = {
         "BUY": ("買進", "🟢", "green"),
-        "HOLD": ("續抱", "🟢", "green"),
+        "HOLD": ("空手不追｜持股續抱", "🟢", "green"),
         "REDUCE": ("減碼", "🟠", "yellow"),
         "SELL": ("賣出", "🔴", "red"),
         "BLOCK": ("禁止進場", "🔴", "red"),
@@ -455,9 +469,9 @@ def _decisive_action(
     if code == "BUY":
         instruction = f"買進｜{current}附近小量｜跌破 {invalid} 停損"
     elif code == "HOLD":
-        instruction = f"續抱｜空手不買｜跌破 {invalid} 減碼"
+        instruction = f"空手不追｜持股續抱｜跌破 {invalid} 減碼"
     elif code == "REDUCE":
-        instruction = f"減碼｜空手禁止進場｜跌破 {invalid} 全出"
+        instruction = f"減碼｜空手不買｜跌破 {invalid} 全出"
     elif code == "SELL":
         instruction = f"賣出｜取消低接｜未收復 {confirm} 不重進"
     else:
@@ -475,9 +489,9 @@ def _decisive_action(
         "bearish_evidence": bearish,
         "evidence_dominance": dominance,
         "source_state": state,
+        "hard_risk_veto": code == "BLOCK",
         "single_action": True,
     }
-
 
 def _conclusion(base: Mapping[str, Any], entry: Mapping[str, Any], plan: Mapping[str, Any], acceptance: Mapping[str, Any], top: list[Dict[str, Any]], action: Mapping[str, Any]) -> str:
     label = _text(action.get("label")) or "禁止進場"
