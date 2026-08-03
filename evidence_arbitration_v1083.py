@@ -18,7 +18,7 @@ try:
 except Exception:  # deployment fallback keeps the panel alive during rolling update
     compose_action_language = None
 
-SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1087"
+SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1089"
 
 
 def _text(v: Any) -> str:
@@ -97,15 +97,28 @@ def _abc(radar: Mapping[str, Any]) -> Dict[str, Any] | None:
         return None
     av, bv, cv = float(a or 0), float(b or 0), float(c or 0)
     spread = av - bv
-    stance = -1 if cv >= 20 or spread <= -12 else 1 if av >= 45 and spread >= 8 else 0
-    score = int(max(48, min(92, 58 + abs(spread) + cv * .35)))
-    verdict = "突破占優" if stance > 0 else "回測／防守優先" if stance < 0 else "突破與回測接近"
+    if cv >= 35:
+        path_code, label, stance = "DEFENSE", "ABC防守風險", -1
+        verdict = "防守情境主導"
+        score = int(max(68, min(92, 70 + (cv - 35))))
+    elif bv >= 45 and bv >= max(av, cv):
+        path_code, label, stance = "PULLBACK", "ABC回測情境", 0
+        verdict = "回測情境主導"
+        score = int(max(48, min(92, bv)))
+    elif av >= 45 and spread >= 8:
+        path_code, label, stance = "BREAKOUT", "ABC突破情境", 1
+        verdict = "突破情境主導"
+        score = int(max(48, min(92, av)))
+    else:
+        path_code, label, stance = "MIXED", "ABC情境", 0
+        verdict = "突破與回測接近"
+        score = int(max(48, min(76, max(av, bv, cv))))
     return {
-        "category": "abc", "label": "ABC情境", "stance_value": stance,
+        "category": "abc", "label": label, "stance_value": stance,
         "stance": "偏多" if stance > 0 else "偏空" if stance < 0 else "中性",
         "strength": score, "stars": _stars(score), "verified": True,
         "text": f"A突破 {av:.0f}%｜B回測 {bv:.0f}%｜C防守 {cv:.0f}%｜{verdict}",
-        "a": a, "b": b, "c": c,
+        "a": a, "b": b, "c": c, "path_code": path_code,
     }
 
 
@@ -199,10 +212,11 @@ def _acceptance(entry: Mapping[str, Any], base: Mapping[str, Any], abc: Mapping[
         (pos if catalyst_delta > 0 else neg).append(_text(base.get("label")))
     if abc and abc.get("a") is not None and abc.get("b") is not None:
         spread = float(abc["a"]) - float(abc["b"])
-        if spread >= 8:
+        path_code = _text(abc.get("path_code"))
+        if path_code == "BREAKOUT" and spread >= 8:
             score += 5; pos.append(f"ABC突破 +{spread:.0f}pp")
-        elif spread <= -8:
-            score -= 4; neg.append(f"ABC回測 +{abs(spread):.0f}pp")
+        elif path_code == "DEFENSE":
+            score -= 4; neg.append(f"ABC防守 {float(abc.get('c') or 0):.0f}%")
     if quantum and quantum.get("stance_value"):
         score += 5 if quantum["stance_value"] > 0 else -5
         (pos if quantum["stance_value"] > 0 else neg).append("Quantum偏多" if quantum["stance_value"] > 0 else "Quantum偏空")
@@ -386,12 +400,17 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
     legacy_confirm = _first_num(d.get("轉強")) or _first_num(d.get("攻擊"))
     stop = _num(d.get("防守"))
     no_chase = _num(d.get("不追"))
+    ticker = getattr(forecast, "ticker", None)
+    market = _text(getattr(ticker, "market", "")).upper()
+    asset_type = _text(getattr(ticker, "asset_type", "stock")).lower()
+    is_tw_etf = market == "TW" and asset_type in {"etf", "etn"}
 
     def tick(price: float | None) -> float:
         if price is None or price <= 0:
             return 0.01
-        market = _text(getattr(getattr(forecast, "ticker", None), "market", "")).upper()
         if market == "TW":
+            if asset_type in {"etf", "etn"}:
+                return 0.01 if price < 50 else 0.05
             if price < 10:
                 return 0.01
             if price < 50:
@@ -458,6 +477,8 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
     if actionable and zone_hi is not None:
         # Pullback confirmation must sit strictly above the whole low-entry zone.
         confirmation_price = max(zone_hi + step, vwap + step if vwap is not None else zone_hi + step) if not gate or bool(gate.get("allow_pullback", True)) else None
+        if is_tw_etf and confirmation_price is not None:
+            confirmation_price = round(math.ceil((confirmation_price - 1e-9) / step) * step, 2)
         # If price is already above the zone, require a reclaim of the current
         # reference after the pullback instead of reusing VWAP as a fake trigger.
         if confirmation_price is not None and last is not None and last > confirmation_price:
@@ -472,12 +493,20 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         if not gate or bool(gate.get("allow_breakout", True)):
             confirm_floor = confirmation_price if confirmation_price is not None else zone_hi
             breakout_price = max(breakout_base + tick(breakout_base), confirm_floor + step)
+            if is_tw_etf:
+                breakout_step = tick(breakout_price)
+                breakout_price = round(math.ceil((breakout_price - 1e-9) / breakout_step) * breakout_step, 2)
             breakout_condition = "放量站穩後觸發突破買進"
     elif actionable:
         actionable = False
         trigger_mode = "NONE"
         low_entry_condition = "缺少可驗證區間，本日無買點"
 
+    session_touched_zone = bool(
+        zone_lo is not None and zone_hi is not None and low is not None and high is not None
+        and low <= zone_hi and high >= zone_lo
+    )
+    entry_sequence_verified = not session_touched_zone
     if not actionable:
         entry_state_code, entry_state_label, missing = "NO_ENTRY", "本日無買進資格", list(gate.get("reasons") or [])[:3]
     elif state == "BUY_TODAY_CONFIRM" and (not gate or bool(gate.get("allow_immediate_buy", True))):
@@ -485,7 +514,16 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
     elif zone_lo is not None and zone_hi is not None and last is not None and zone_lo <= last <= zone_hi:
         entry_state_code, entry_state_label, missing = "IN_PULLBACK", "已進入回測區", ["量縮守穩", "重新站回確認價"]
     elif zone_hi is not None and last is not None and last > zone_hi:
-        entry_state_code, entry_state_label, missing = "WAIT_PULLBACK", "尚未完成回測", ["回測進入價格區", "量縮守穩", "重新站回"]
+        if session_touched_zone:
+            entry_state_code, entry_state_label, missing = (
+                "WAIT_PULLBACK_RECLAIM", "等待再次回測後站回",
+                ["再次回測進入價格區", "量縮守穩", "重新站回確認價"],
+            )
+        else:
+            entry_state_code, entry_state_label, missing = (
+                "WAIT_PULLBACK", "尚未進入回測區",
+                ["回測進入價格區", "量縮守穩", "重新站回確認價"],
+            )
     else:
         entry_state_code, entry_state_label, missing = "WAIT_STABILIZE", "等待止跌結構", ["低點不再下移", "賣壓量縮", "重新站回"]
 
@@ -502,7 +540,13 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
 
     low_entry_text = f"{_range_text(*low_zone)}（{low_entry_condition}）" if any(v is not None for v in low_zone) else low_entry_condition
     confirmation_text = f"{_price(confirmation_price)}（{confirmation_condition}）" if confirmation_price is not None else "本日無回測買點"
-    breakout_text = f"{_price(breakout_price)}（{breakout_condition}）" if breakout_price is not None else "本日無突破買點"
+    if breakout_price is not None:
+        breakout_text = f"{_price(breakout_price)}（{breakout_condition}）"
+    elif gate and not bool(gate.get("allow_breakout", True)):
+        abc_reason = next((str(x) for x in list(gate.get("reasons") or []) if str(x).startswith("ABC突破")), "跨模組未通過")
+        breakout_text = f"突破資格關閉（{abc_reason}）"
+    else:
+        breakout_text = "本日無突破買點"
     invalid_text = f"{_price(invalid_price)}跌破，取消買進計畫" if invalid_price is not None else "條件失效即取消"
     current_text = f"{_price(last)}｜{location}，{current_action}" if last is not None else f"--｜{location}"
     display_line = (
@@ -533,6 +577,12 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         "entry_state_code": entry_state_code,
         "entry_state_label": entry_state_label,
         "missing_conditions": missing,
+        "entry_sequence_verified": entry_sequence_verified,
+        "session_touched_entry_zone": session_touched_zone,
+        "entry_sequence_note": (
+            "OHLC顯示價格曾進入回測區，但無法驗證盤中先後順序；等待再次回測後站回"
+            if session_touched_zone else "當日價格尚未觸及回測區"
+        ),
         "qualification_gate": dict(gate),
         "current_price": last,
         "session_low": low,
@@ -551,7 +601,7 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         "stop_price": stop,
         "no_chase_price": no_chase,
         "price_order_valid": price_order_valid,
-        "source": "V1086 Entry Trigger Engine + verified session OHLC/VWAP geometry",
+        "source": "V1089 ETF-aware Entry Trigger + verified session OHLC/VWAP geometry",
         "formal_price_model_unchanged": True,
     }
 def _decisive_action(
