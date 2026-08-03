@@ -82,3 +82,76 @@ def test_positive_t1_abc_and_trigger_can_reach_buy_for_tw_or_us():
         assert action["code"] == "BUY"
         assert action["language_schema"] == "V1087_EVIDENCE_LANGUAGE"
         assert "買進" in action["label"]
+
+
+def test_selling_expansion_above_invalidation_reduces_without_false_breach_claim():
+    forecast = _forecast("2308", 1592.5, 1560, 1640, 1570)
+    entry = {"state": "SELLING_EXPANSION_BLOCK", "operative_price": 1592.5, "vwap": 1606}
+    plan = {
+        "current_price": 1592.5, "session_low": 1560, "invalidation_price": 1412,
+        "confirmation_price": None, "breakout_price": None, "trigger_status": "NO_ENTRY",
+        "price_order_valid": False, "actionable": False, "entry_state_label": "本日無買進資格",
+    }
+    action = _decisive_action(entry, plan, {"score": 38}, _chip(-1, 86), {}, forecast)
+
+    assert action["code"] == "REDUCE"
+    assert action["situation_code"] == "REDUCE_SELLING_EXPANSION"
+    assert action["exit_basis"] == "SELLING_EXPANSION"
+    assert action["current_vs_invalidation"] == "ABOVE_OR_EQUAL"
+    assert "減碼" in action["label"]
+    assert "現價已跌破" not in action["reason"]
+    assert "仍未跌破" in action["reason"]
+    assert "--" not in action["instruction"]
+    assert "VWAP／關鍵均價" in action["instruction"]
+
+
+def test_failed_breakout_above_invalidation_has_its_own_reason():
+    forecast = _forecast("TEST", 105, 101, 110, 104)
+    entry = {"state": "FAILED_BREAKOUT_EXIT", "operative_price": 105, "vwap": 106}
+    plan = {
+        "current_price": 105, "session_low": 101, "invalidation_price": 98,
+        "confirmation_price": 108, "breakout_price": None, "trigger_status": "NO_ENTRY",
+        "price_order_valid": False, "actionable": False, "entry_state_label": "本日無買進資格",
+    }
+    action = _decisive_action(entry, plan, {"score": 45}, _chip(-1, 70), {}, forecast)
+
+    assert action["code"] == "REDUCE"
+    assert action["situation_code"] == "REDUCE_FAILED_BREAKOUT"
+    assert action["exit_basis"] == "FAILED_BREAKOUT"
+    assert "突破失敗" in action["label"]
+    assert "現價已跌破" not in action["reason"]
+
+
+def test_current_price_below_invalidation_is_the_only_direct_price_sell():
+    forecast = _forecast("TEST", 97, 96, 105, 95)
+    entry = {"state": "SELLING_EXPANSION_BLOCK", "operative_price": 97, "vwap": 100}
+    plan = {
+        "current_price": 97, "session_low": 96, "invalidation_price": 98,
+        "confirmation_price": 100, "breakout_price": None, "trigger_status": "NO_ENTRY",
+        "price_order_valid": False, "actionable": False, "entry_state_label": "本日無買進資格",
+    }
+    action = _decisive_action(entry, plan, {"score": 35}, _chip(-1, 90), {}, forecast)
+
+    assert action["code"] == "SELL"
+    assert action["situation_code"] == "SELL_PRICE_INVALID"
+    assert action["exit_basis"] == "CURRENT_PRICE_INVALIDATION"
+    assert action["current_vs_invalidation"] == "BELOW"
+    assert "現價已跌破" in action["reason"]
+
+
+def test_intraday_breach_recovered_is_not_reported_as_current_price_breach():
+    forecast = _forecast("TEST", 101, 97, 104, 102)
+    entry = {"state": "SELLING_EXPANSION_BLOCK", "operative_price": 101, "vwap": 100}
+    plan = {
+        "current_price": 101, "session_low": 97, "invalidation_price": 98,
+        "confirmation_price": 102, "breakout_price": None, "trigger_status": "NO_ENTRY",
+        "price_order_valid": False, "actionable": False, "entry_state_label": "本日無買進資格",
+    }
+    action = _decisive_action(entry, plan, {"score": 48}, _chip(-1, 75), {}, forecast)
+
+    assert action["code"] == "REDUCE"
+    assert action["situation_code"] == "REDUCE_INTRADAY_BREACH_RECLAIMED"
+    assert action["exit_basis"] == "INTRADAY_BREACH_RECLAIMED"
+    assert action["intraday_breach_recovered"] is True
+    assert "現價已跌破" not in action["reason"]
+    assert "已收回" in action["reason"]

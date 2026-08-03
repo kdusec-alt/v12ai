@@ -535,6 +535,7 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         "missing_conditions": missing,
         "qualification_gate": dict(gate),
         "current_price": last,
+        "session_low": low,
         "current_location": location,
         "current_action": current_action,
         "low_entry_zone": {"lower": zone_lo, "upper": zone_hi, "text": low_entry_text},
@@ -569,6 +570,7 @@ def _decisive_action(
     dominance = bullish - bearish
     invalid_n = _num(plan.get("invalidation_price"))
     current_n = _num(plan.get("current_price"))
+    session_low_n = _num(plan.get("session_low"))
     invalid = _price(invalid_n)
     confirm = _price(plan.get("confirmation_price"))
     breakout = _price(plan.get("breakout_price"))
@@ -582,12 +584,26 @@ def _decisive_action(
     hard_bearish = score < 42 and dominance <= -120
 
     situation = "HOLD_TRIGGER_PENDING"
-    if current_n is not None and invalid_n is not None and current_n < invalid_n:
+    exit_basis = "NONE"
+    current_below_invalid = bool(
+        current_n is not None and invalid_n is not None and current_n < invalid_n
+    )
+    intraday_breach_recovered = bool(
+        current_n is not None and session_low_n is not None and invalid_n is not None
+        and session_low_n < invalid_n <= current_n
+    )
+    if current_below_invalid:
         code, reason = "SELL", "現價已跌破失效價，原交易結構失效"
-        situation = "SELL_INVALID"
-    elif state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
-        code, reason = "SELL", "賣壓擴張或原突破結構已失效"
-        situation = "SELL_INVALID"
+        situation, exit_basis = "SELL_PRICE_INVALID", "CURRENT_PRICE_INVALIDATION"
+    elif intraday_breach_recovered:
+        code, reason = "REDUCE", "盤中曾跌破失效價，但現價已收回；先降低風險並觀察收復是否有效"
+        situation, exit_basis = "REDUCE_INTRADAY_BREACH_RECLAIMED", "INTRADAY_BREACH_RECLAIMED"
+    elif state == "FAILED_BREAKOUT_EXIT":
+        code, reason = "REDUCE", "原突破條件失敗，但現價並未跌破本卡失效價"
+        situation, exit_basis = "REDUCE_FAILED_BREAKOUT", "FAILED_BREAKOUT"
+    elif state == "SELLING_EXPANSION_BLOCK":
+        code, reason = "REDUCE", "賣壓擴張，先降低曝險；不得改寫成跌破失效價"
+        situation, exit_basis = "REDUCE_SELLING_EXPANSION", "SELLING_EXPANSION"
     elif state in {"DATA_WAIT", "WAIT_NEXT_SESSION"}:
         code, reason = "BLOCK", "Session或同源價格無法驗證，禁止以失真資料下單"
         situation = "BLOCK_DATA"
@@ -674,6 +690,14 @@ def _decisive_action(
         "trigger_status": trigger_status,
         "situation_code": situation,
         "language_schema": "V1087_EVIDENCE_LANGUAGE",
+        "exit_reason_schema": "V1088_SEPARATED_EXIT_REASON",
+        "exit_basis": exit_basis,
+        "current_vs_invalidation": (
+            "BELOW" if current_below_invalid else
+            "ABOVE_OR_EQUAL" if current_n is not None and invalid_n is not None else
+            "UNKNOWN"
+        ),
+        "intraday_breach_recovered": intraday_breach_recovered,
     }
 def _conclusion(base: Mapping[str, Any], entry: Mapping[str, Any], plan: Mapping[str, Any], acceptance: Mapping[str, Any], top: list[Dict[str, Any]], action: Mapping[str, Any]) -> str:
     label = _text(action.get("label")) or "禁止進場"
