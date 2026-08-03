@@ -320,6 +320,17 @@ def render_battle_panel(st, forecast):
     market = safe(market_raw)
     chip = safe(chip_raw)
     acceptance = (reasoning.get("price_acceptance") or {})
+    cross_gate = (reasoning.get("cross_module_gate") or {})
+    gate_reasons = "、".join(str(x) for x in list(cross_gate.get("reasons") or [])[:3])
+    gate_detail_raw = f"{cross_gate.get('label') or '跨模組待確認'}"
+    if gate_reasons:
+        gate_detail_raw += f"｜{gate_reasons}"
+    entry_state_detail_raw = str(entry_plan.get("entry_state_label") or "進場狀態待確認")
+    missing_conditions = "、".join(str(x) for x in list(entry_plan.get("missing_conditions") or [])[:3])
+    if missing_conditions:
+        entry_state_detail_raw += f"｜尚缺：{missing_conditions}"
+    gate_detail = safe(gate_detail_raw)
+    entry_state_detail = safe(entry_state_detail_raw)
     reasoning_horizon = safe(
         f"短線 {reasoning.get('short_term_bias') or '待確認'}｜中線 {reasoning.get('medium_term_bias') or '待確認'}｜"
         f"{acceptance.get('label') or '價格接受度待確認'}"
@@ -392,9 +403,9 @@ def render_battle_panel(st, forecast):
         <div class='dt'>AI決策｜{decision_title}</div>
         <div class='action-now'>{current_action_text}</div>
         <div class='main'>{main_message}</div>
-        <div class='reasoning-line'><b>AI推理</b>{reasoning_horizon}<span class='reasoning-conflict'>{reasoning_conflict}</span><span class='reasoning-price' title='{safe(entry_plan_raw)}'><b>AI執行價格</b>{entry_plan_text}</span></div>
+        <div class='reasoning-line'><b>AI推理</b>{reasoning_horizon}<span class='reasoning-conflict'>{reasoning_conflict}</span><span class='reasoning-conflict'><b>跨模組門檻</b>{gate_detail}</span><span class='reasoning-conflict'><b>進場狀態</b>{entry_state_detail}</span><span class='reasoning-price' title='{safe(entry_plan_raw)}'><b>AI執行價格</b>{entry_plan_text}</span></div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>前三大主因</b>{evidence_summary}</div>
-        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
+        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
         <div class='pricebar'>{price_tiles_html}</div>
       </div>
       <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>
