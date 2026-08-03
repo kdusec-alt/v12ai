@@ -162,6 +162,45 @@ def _numeric_chip_stance(text: str) -> int:
     return 0
 
 
+def _etf_institutional_flow(text: str) -> tuple[int, int | None, int | None]:
+    """Return a conservative ETF flow direction from official actor totals.
+
+    ETF dealer activity contains market-making, arbitrage and creation/redemption
+    flow, so it must not be interpreted with the single-company chip vocabulary.
+    We use only the first official Today/10-day row for each actor and classify
+    conflicting horizons as neutral.
+    """
+    today_values: list[int] = []
+    ten_day_values: list[int] = []
+    for actor in ("外資", "投信", "自營"):
+        match = re.search(
+            rf"{actor}\s*今日\s*([+-]\d[\d,]*)\s*張?.{{0,100}}?"
+            rf"10日\s*([+-]\d[\d,]*)\s*張?",
+            text,
+            flags=re.I,
+        )
+        if not match:
+            continue
+        today = _num(match.group(1))
+        ten_day = _num(match.group(2))
+        if today is not None:
+            today_values.append(int(today))
+        if ten_day is not None:
+            ten_day_values.append(int(ten_day))
+    if not today_values and not ten_day_values:
+        return 0, None, None
+    today_total = sum(today_values) if today_values else None
+    ten_day_total = sum(ten_day_values) if ten_day_values else None
+    today_sign = 1 if (today_total or 0) > 0 else -1 if (today_total or 0) < 0 else 0
+    ten_day_sign = 1 if (ten_day_total or 0) > 0 else -1 if (ten_day_total or 0) < 0 else 0
+    stance = today_sign if today_sign == ten_day_sign else 0
+    if today_sign == 0:
+        stance = ten_day_sign
+    elif ten_day_sign == 0:
+        stance = today_sign
+    return stance, today_total, ten_day_total
+
+
 def _verified(text: str, structured: Mapping[str, Any] | None = None) -> bool:
     row = dict(structured or {})
     for key in ("verified", "accepted", "model_eligible", "source_verified", "content_verified"):
@@ -297,10 +336,34 @@ def _event_driver(entry: Mapping[str, Any], radar: Mapping[str, Any]) -> Driver 
     )
 
 
-def _chip_driver(radar: Mapping[str, Any]) -> Driver | None:
+def _chip_driver(radar: Mapping[str, Any], asset_type: str = "stock") -> Driver | None:
     text = _radar_text(radar, _RADAR_GROUPS["chip"])
     if not text:
         return None
+    if _text(asset_type).lower() == "etf":
+        stance, today_total, ten_day_total = _etf_institutional_flow(text)
+        verified = _verified(text)
+        if today_total is None and ten_day_total is None:
+            return _driver(
+                "chip", "ETF申贖／法人流向", "ETF法人流向待確認｜不以個股籌碼語意替代",
+                stance=0, strength=48, verified=False, horizon="short",
+                source="ETF Institution Flow Adapter",
+            )
+        horizon = (
+            "混合偏多" if stance > 0 else "混合偏空" if stance < 0 else
+            "短中期方向分歧"
+        )
+        today_text = f"{today_total:+,d}張" if today_total is not None else "待確認"
+        ten_day_text = f"{ten_day_total:+,d}張" if ten_day_total is not None else "待確認"
+        flow_text = (
+            f"今日合計 {today_text}｜10日合計 {ten_day_text}｜{horizon}｜"
+            "自營商含造市／套利／申贖，不等同個股主力賣壓"
+        )
+        return _driver(
+            "chip", "ETF申贖／法人流向", flow_text,
+            stance=stance, strength=64 if stance else 52,
+            verified=verified, horizon="short", source="ETF Institution Flow Adapter",
+        )
     stance = _numeric_chip_stance(text) or _lexical_stance(text)
     verified = _verified(text)
     return _driver(
@@ -468,12 +531,13 @@ def build_evidence_reasoning(forecast: Any, entry: Mapping[str, Any] | None = No
         except Exception:
             entry_row = {}
     radar = _mapping(getattr(forecast, "radar", {}))
+    asset_type = _text(getattr(getattr(forecast, "ticker", None), "asset_type", "stock")).lower()
 
     drivers = [_price_driver(entry_row)]
     for candidate in (
         _fundamental_driver(entry_row, radar),
         _event_driver(entry_row, radar),
-        _chip_driver(radar),
+        _chip_driver(radar, asset_type),
         _market_driver(entry_row, radar),
     ):
         if candidate is not None:
