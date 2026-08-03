@@ -263,6 +263,12 @@ def _current_location(*, state: str, last: float | None, low_zone: tuple[float |
 
 
 def _entry_plan(forecast: Any, entry: Mapping[str, Any]) -> Dict[str, Any]:
+    """Build an executable entry plan from verified session geometry.
+
+    V1086 guarantees that a pullback confirmation is above the low-entry zone
+    and that a breakout trigger is above both the confirmation and current price.
+    These are execution triggers only; the formal T0/T1 price model is unchanged.
+    """
     d = _map(getattr(forecast, "decision_card", {}))
     state = _text(entry.get("state")) or "DATA_WAIT"
     last = _num(entry.get("operative_price")) or _num(d.get("現價"))
@@ -272,129 +278,158 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any]) -> Dict[str, Any]:
     legacy_confirm = _first_num(d.get("轉強")) or _first_num(d.get("攻擊"))
     stop = _num(d.get("防守"))
     no_chase = _num(d.get("不追"))
-    add_price = legacy_confirm
-    if vwap is not None and add_price is not None and add_price <= vwap * 1.001:
-        add_price = high if high is not None and high > vwap else None
-    if add_price is None and high is not None and (vwap is None or high > vwap):
-        add_price = high
+
+    def tick(price: float | None) -> float:
+        if price is None or price <= 0:
+            return 0.01
+        market = _text(getattr(getattr(forecast, "ticker", None), "market", "")).upper()
+        if market == "TW":
+            if price < 10:
+                return 0.01
+            if price < 50:
+                return 0.05
+            if price < 100:
+                return 0.10
+            if price < 500:
+                return 0.50
+            if price < 1000:
+                return 1.00
+            return 5.00
+        return 0.01
+
     low_zone = (None, None)
-    confirmation_price = None
     invalid_price = None
     low_entry_condition = ""
     confirmation_condition = ""
-    add_condition = ""
+    breakout_condition = ""
     actionable = False
-    if state == "BUY_TODAY_CONFIRM":
+    trigger_mode = "NONE"
+
+    if state in {"BUY_TODAY_CONFIRM", "WAIT_VWAP_PULLBACK", "WAIT_RECLAIM_HOLD", "OVERHEATED_NO_CHASE"}:
         low_zone = _pullback_band(low=low, high=high, vwap=vwap, last=last)
-        confirmation_price = last
-        invalid_price = vwap or stop or low
-        low_entry_condition = "第二筆等VWAP回測不破"
-        confirmation_condition = "現價附近只做小量確認單"
-        add_condition = f"站穩 {_price(add_price)}再加碼" if add_price else "突破平台後再加碼"
-        actionable = True
-    elif state == "WAIT_VWAP_PULLBACK":
-        low_zone = _pullback_band(low=low, high=high, vwap=vwap, last=last)
-        confirmation_price = vwap
-        invalid_price = low or stop or vwap
-        low_entry_condition = "回測不破且賣壓量縮才參與"
-        confirmation_condition = "VWAP承接完成後小量"
-        add_condition = f"站穩 {_price(add_price)}再加碼" if add_price else "重新放量再加碼"
-        actionable = True
     elif state == "WAIT_VWAP_RECLAIM":
         low_zone = _reclaim_low_zone(low=low, vwap=vwap, last=last)
-        confirmation_price = vwap
+
+    if state in {"BUY_TODAY_CONFIRM", "WAIT_VWAP_PULLBACK", "WAIT_RECLAIM_HOLD"}:
+        invalid_price = low or stop or vwap
+        actionable = True
+        trigger_mode = "PULLBACK_OR_BREAKOUT"
+        low_entry_condition = "量縮守穩後，重新站回回測確認價才買進"
+    elif state == "WAIT_VWAP_RECLAIM":
         invalid_price = low or stop
-        low_entry_condition = "低點不再下移且賣壓量縮才低接"
-        confirmation_condition = f"站回 {_price(vwap)} 並回踩不破" if vwap else "收復關鍵均價並回踩不破"
-        add_condition = f"突破 {_price(add_price)}再加碼" if add_price else "突破盤中高點再加碼"
         actionable = True
-    elif state == "WAIT_RECLAIM_HOLD":
-        low_zone = _pullback_band(low=low, high=high, vwap=vwap, last=last)
-        confirmation_price = vwap
-        invalid_price = low or vwap or stop
-        low_entry_condition = "VWAP附近維持5–15分鐘或回踩不破"
-        confirmation_condition = "確認承接後才小量"
-        add_condition = f"站穩 {_price(add_price)}再加碼" if add_price else "高點抬升再加碼"
-        actionable = True
-    elif state == "LIMIT_LIQUIDITY_WAIT":
-        confirmation_price = last
-        invalid_price = vwap or low
-        confirmation_condition = "只可限價小量排隊，成交不確定"
-        add_condition = "開板後重新驗證，不得加價追單"
+        trigger_mode = "RECLAIM_OR_BREAKOUT"
+        low_entry_condition = "低點不再下移且賣壓量縮，重新站回確認價才買進"
     elif state == "OVERHEATED_NO_CHASE":
-        low_zone = _pullback_band(low=low, high=high, vwap=vwap, last=last)
-        confirmation_price = vwap
         invalid_price = low or stop
-        low_entry_condition = "等待量縮回測才重新評估"
-        confirmation_condition = "現在沒有追價買點"
-        add_condition = f"不追 {_price(no_chase)}以上" if no_chase else "第三段加速不追"
-    elif state == "SELLING_EXPANSION_BLOCK":
-        confirmation_price = vwap
+        actionable = True
+        trigger_mode = "PULLBACK_OR_BREAKOUT"
+        low_entry_condition = "量縮回測守穩後，重新站回確認價才買進"
+    elif state == "LIMIT_LIQUIDITY_WAIT":
+        invalid_price = vwap or low or stop
+        low_entry_condition = "開板並恢復可成交後才重算買點"
+    elif state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
         invalid_price = stop or low
-        low_entry_condition = "禁止接刀，不提供低接價"
-        confirmation_condition = f"至少先收復 {_price(vwap)}" if vwap else "至少先止跌並收復均價"
-        add_condition = "低點停止下移後才重算"
-    elif state == "FAILED_BREAKOUT_EXIT":
-        confirmation_price = vwap
-        invalid_price = stop or low
-        low_entry_condition = "取消原進場計畫"
-        confirmation_condition = f"收復 {_price(vwap)}後再評估" if vwap else "重回突破平台後再評估"
-        add_condition = "未修復前不新增"
+        low_entry_condition = "原結構失效，本日無買點"
     elif state == "WAIT_NEXT_SESSION":
         invalid_price = low
-        low_entry_condition = "不沿用舊低接價"
-        confirmation_condition = "下一正式盤以新VWAP重算"
-        add_condition = "先驗證缺口與量能"
+        low_entry_condition = "下一正式Session以新OHLC與VWAP重算"
     else:
-        low_entry_condition = "不建立買點"
-        confirmation_condition = "等待同源價格與Session"
-        add_condition = "驗證完成後重算"
-    location, current_action = _current_location(state=state, last=last, low_zone=low_zone, confirmation=confirmation_price, add_price=add_price, invalid_price=invalid_price)
-    low_entry_text = f"{_range_text(*low_zone)}（{low_entry_condition}）" if any(v is not None for v in low_zone) else low_entry_condition or "--"
-    confirmation_text = f"{_price(confirmation_price)}（{confirmation_condition}）" if confirmation_price is not None else confirmation_condition or "--"
-    add_text = f"{_price(add_price)}（{add_condition}）" if add_price is not None else add_condition or "--"
-    invalid_text = f"{_price(invalid_price)}跌破" if invalid_price is not None else "條件失效即取消"
+        low_entry_condition = "資料不足，本日無買點"
+
+    zone_lo, zone_hi = low_zone
+    step = tick(last or vwap or zone_hi)
+    confirmation_price = None
+    breakout_price = None
+    if actionable and zone_hi is not None:
+        # Pullback confirmation must sit strictly above the whole low-entry zone.
+        confirmation_price = max(zone_hi + step, vwap + step if vwap is not None else zone_hi + step)
+        # If price is already above the zone, require a reclaim of the current
+        # reference after the pullback instead of reusing VWAP as a fake trigger.
+        if last is not None and last > confirmation_price:
+            confirmation_price = last
+        confirmation_condition = "回測量縮守穩後重新站回，觸發小量買進"
+
+        candidates = [x for x in (high, legacy_confirm, no_chase) if x is not None]
+        breakout_base = max(candidates) if candidates else confirmation_price
+        if last is not None:
+            breakout_base = max(breakout_base, last)
+        breakout_price = max(breakout_base + tick(breakout_base), confirmation_price + step)
+        breakout_condition = "放量站穩後觸發突破買進"
+    elif actionable:
+        actionable = False
+        trigger_mode = "NONE"
+        low_entry_condition = "缺少可驗證區間，本日無買點"
+
+    location, current_action = _current_location(
+        state=state, last=last, low_zone=low_zone, confirmation=confirmation_price,
+        add_price=breakout_price, invalid_price=invalid_price,
+    )
+    if state == "BUY_TODAY_CONFIRM" and actionable:
+        current_action = "買進條件已成立，小量執行"
+    elif actionable:
+        current_action = "尚未買進；等待回測或突破觸發"
+    elif state not in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
+        current_action = "本日無買點"
+
+    low_entry_text = f"{_range_text(*low_zone)}（{low_entry_condition}）" if any(v is not None for v in low_zone) else low_entry_condition
+    confirmation_text = f"{_price(confirmation_price)}（{confirmation_condition}）" if confirmation_price is not None else "本日無回測買點"
+    breakout_text = f"{_price(breakout_price)}（{breakout_condition}）" if breakout_price is not None else "本日無突破買點"
+    invalid_text = f"{_price(invalid_price)}跌破，取消買進計畫" if invalid_price is not None else "條件失效即取消"
     current_text = f"{_price(last)}｜{location}，{current_action}" if last is not None else f"--｜{location}"
-    display_line = f"現在 {current_text}｜低接 {low_entry_text}｜確認 {confirmation_text}｜加碼 {add_text}｜失效 {invalid_text}"
+    display_line = (
+        f"現在 {current_text}｜回測區 {low_entry_text}｜"
+        f"買進觸發 {confirmation_text}｜突破觸發 {breakout_text}｜失效 {invalid_text}"
+    )
+    price_order_valid = bool(
+        actionable and zone_hi is not None and confirmation_price is not None and breakout_price is not None
+        and zone_hi < confirmation_price < breakout_price
+        and (invalid_price is None or invalid_price < confirmation_price)
+    )
+    if actionable and not price_order_valid:
+        actionable = False
+        trigger_mode = "NONE"
+        confirmation_text = "價格階層未通過，本日無買點"
+        breakout_text = "價格階層未通過，本日無買點"
+        display_line = f"現在 {current_text}｜本日無買點｜失效 {invalid_text}"
+
     return {
         "state": state,
-        "label": "進場地圖",
+        "label": "進場觸發",
         "headline": f"現在 {current_text}",
-        "condition": f"低接 {low_entry_text}",
-        "secondary": f"確認 {confirmation_text}｜加碼 {add_text}",
+        "condition": f"回測區 {low_entry_text}",
+        "secondary": f"買進觸發 {confirmation_text}｜突破觸發 {breakout_text}",
         "invalidation": invalid_text,
         "display_line": display_line,
         "actionable": actionable,
+        "trigger_mode": trigger_mode,
+        "trigger_status": "TRIGGERED" if state == "BUY_TODAY_CONFIRM" and actionable else "PENDING" if actionable else "NO_ENTRY",
         "current_price": last,
         "current_location": location,
         "current_action": current_action,
-        "low_entry_zone": {"lower": low_zone[0], "upper": low_zone[1], "text": low_entry_text},
+        "low_entry_zone": {"lower": zone_lo, "upper": zone_hi, "text": low_entry_text},
         "low_entry_condition": low_entry_condition,
         "confirmation_price": confirmation_price,
         "confirmation_text": confirmation_text,
-        "add_price": add_price,
-        "add_text": add_text,
+        "add_price": breakout_price,
+        "add_text": breakout_text,
+        "breakout_price": breakout_price,
+        "breakout_text": breakout_text,
         "invalidation_price": invalid_price,
         "invalidation_text": invalid_text,
         "stop_price": stop,
         "no_chase_price": no_chase,
-        "source": "V1081 Entry Opportunity + verified session OHLC/VWAP geometry",
+        "price_order_valid": price_order_valid,
+        "source": "V1086 Entry Trigger Engine + verified session OHLC/VWAP geometry",
         "formal_price_model_unchanged": True,
     }
-
-
 def _decisive_action(
     entry: Mapping[str, Any],
     plan: Mapping[str, Any],
     acceptance: Mapping[str, Any],
     top: list[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Return one public action without turning normal uncertainty into BLOCK.
-
-    BLOCK is reserved for invalid/unverifiable data or a genuine hard-risk veto.
-    When holdings are unknown, a healthy but extended structure uses a dual-path
-    HOLD decision: existing holders keep the position, cash investors do not chase.
-    """
+    """Return one public action plus an executable next-entry trigger."""
     state = _text(entry.get("state")) or "DATA_WAIT"
     score = int(_num(acceptance.get("score")) or 0)
     bullish = sum(int(_num(x.get("strength")) or 0) for x in top if int(x.get("stance_value") or 0) > 0)
@@ -404,63 +439,42 @@ def _decisive_action(
     current_n = _num(plan.get("current_price"))
     invalid = _price(invalid_n)
     confirm = _price(plan.get("confirmation_price"))
+    breakout = _price(plan.get("breakout_price"))
     current = _price(current_n)
+    trigger_status = _text(plan.get("trigger_status")) or "NO_ENTRY"
+    price_order_valid = bool(plan.get("price_order_valid"))
 
-    # BLOCK must never be the generic fallback.  It is a hard-risk/data veto only.
     code = "HOLD"
-    reason = "方向尚未失效；空手不追，持股依失效價管理"
+    reason = "方向尚未失效；依明確買進觸發與失效價執行"
     hard_bearish = score < 42 and dominance <= -120
 
     if current_n is not None and invalid_n is not None and current_n < invalid_n:
-        code = "SELL"
-        reason = "現價已跌破失效價，原交易結構失效"
+        code, reason = "SELL", "現價已跌破失效價，原交易結構失效"
     elif state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
-        code = "SELL"
-        reason = "賣壓擴張或原突破結構已失效"
+        code, reason = "SELL", "賣壓擴張或原突破結構已失效"
     elif state in {"DATA_WAIT", "WAIT_NEXT_SESSION"}:
-        code = "BLOCK"
-        reason = "Session或同源價格無法驗證，禁止以失真資料下單"
-    elif state == "OVERHEATED_NO_CHASE":
-        code = "HOLD"
-        reason = "趨勢未失效但價格過熱；空手不追，持股續抱"
-    elif state == "LIMIT_LIQUIDITY_WAIT":
-        code = "HOLD"
-        reason = "趨勢仍在但成交與流動性不足；空手不追，持股續抱"
-    elif state == "BUY_TODAY_CONFIRM":
+        code, reason = "BLOCK", "Session或同源價格無法驗證，禁止以失真資料下單"
+    elif state == "BUY_TODAY_CONFIRM" and trigger_status == "TRIGGERED" and price_order_valid:
         if score >= 55 and dominance >= -20:
-            code = "BUY"
-            reason = "價格結構與有效證據已達買進門檻"
+            code, reason = "BUY", "價格結構、有效證據與買進觸發均已成立"
         elif hard_bearish:
-            code = "BLOCK"
-            reason = "價格接受度不足且多項強空證據共振"
+            code, reason = "BLOCK", "價格接受度不足且多項強空證據共振"
         else:
-            code = "HOLD"
-            reason = "買點未通過，但多方結構尚未失效；空手不追，持股續抱"
-    elif state == "WAIT_VWAP_PULLBACK":
-        if hard_bearish:
-            code = "BLOCK"
-            reason = "價格接受度不足且多項強空證據共振"
-        else:
-            code = "HOLD"
-            reason = "價格仍在VWAP上方；空手不追，持股續抱"
-    elif state == "WAIT_RECLAIM_HOLD":
-        if score < 45 and dominance <= -60:
-            code = "REDUCE"
-            reason = "多空交界且偏空證據明顯占優"
-        else:
-            code = "HOLD"
-            reason = "既有多方結構尚未失效；空手不追，持股續抱"
-    elif state == "WAIT_VWAP_RECLAIM":
-        if score < 50 or dominance <= -60:
-            code = "REDUCE"
-            reason = "價格未收復VWAP且偏空證據明顯占優"
-        else:
-            code = "HOLD"
-            reason = "尚未收復VWAP；空手不買，持股守失效價"
+            code, reason = "HOLD", "價格觸發已到，但有效證據尚未通過買進門檻"
+    elif state == "WAIT_VWAP_RECLAIM" and (score < 50 or dominance <= -60):
+        code, reason = "REDUCE", "價格未收復VWAP且偏空證據明顯占優"
+    elif hard_bearish:
+        code, reason = "BLOCK", "價格接受度不足且多項強空證據共振"
+    elif not bool(plan.get("actionable")):
+        code, reason = "HOLD", "目前無法建立合格風險價格階層，本日無買點"
+    elif state in {"OVERHEATED_NO_CHASE", "LIMIT_LIQUIDITY_WAIT"}:
+        code, reason = "HOLD", "趨勢未失效但現在不追；依回測或突破觸發重新進場"
+    else:
+        code, reason = "HOLD", "買進觸發尚未成立；空手等待觸發，持股續抱"
 
     meta = {
         "BUY": ("買進", "🟢", "green"),
-        "HOLD": ("空手不追｜持股續抱", "🟢", "green"),
+        "HOLD": ("空手等觸發｜持股續抱", "🟡", "yellow"),
         "REDUCE": ("減碼", "🟠", "yellow"),
         "SELL": ("賣出", "🔴", "red"),
         "BLOCK": ("禁止進場", "🔴", "red"),
@@ -468,8 +482,10 @@ def _decisive_action(
     label, icon, color = meta[code]
     if code == "BUY":
         instruction = f"買進｜{current}附近小量｜跌破 {invalid} 停損"
+    elif code == "HOLD" and bool(plan.get("actionable")):
+        instruction = f"尚未買進｜回測站回 {confirm} 買；或放量突破 {breakout} 買｜跌破 {invalid} 取消"
     elif code == "HOLD":
-        instruction = f"空手不追｜持股續抱｜跌破 {invalid} 減碼"
+        instruction = f"本日無買點｜持股守 {invalid}"
     elif code == "REDUCE":
         instruction = f"減碼｜空手不買｜跌破 {invalid} 全出"
     elif code == "SELL":
@@ -478,21 +494,14 @@ def _decisive_action(
         instruction = "禁止進場｜不建立新部位"
 
     return {
-        "code": code,
-        "label": label,
-        "icon": icon,
-        "color": color,
-        "instruction": instruction,
-        "reason": reason,
-        "acceptance_score": score,
-        "bullish_evidence": bullish,
-        "bearish_evidence": bearish,
-        "evidence_dominance": dominance,
-        "source_state": state,
-        "hard_risk_veto": code == "BLOCK",
-        "single_action": True,
+        "code": code, "label": label, "icon": icon, "color": color,
+        "instruction": instruction, "reason": reason,
+        "acceptance_score": score, "bullish_evidence": bullish,
+        "bearish_evidence": bearish, "evidence_dominance": dominance,
+        "source_state": state, "hard_risk_veto": code == "BLOCK",
+        "single_action": True, "entry_trigger_attached": bool(plan.get("actionable")),
+        "trigger_status": trigger_status,
     }
-
 def _conclusion(base: Mapping[str, Any], entry: Mapping[str, Any], plan: Mapping[str, Any], acceptance: Mapping[str, Any], top: list[Dict[str, Any]], action: Mapping[str, Any]) -> str:
     label = _text(action.get("label")) or "禁止進場"
     instruction = _text(action.get("instruction")) or label
