@@ -74,12 +74,25 @@ def compose_action_language(
                 "reason": f"價格位於過熱／流動性區；{abc_text}，追價風險高於即時報酬"}
 
     if situation == "HOLD_TRIGGER_PENDING":
-        instruction = _pick(symbol, (
-            f"{entry_state_label}｜回測站回 {confirmation} 才買；或放量突破 {breakout}｜{invalid}取消",
-            f"尚未買進｜先完成「{entry_state_label}」；確認 {confirmation}／突破 {breakout}｜失效 {invalid}",
-        ))
+        allow_pullback = bool(metrics.get("allow_pullback")) and confirmation != "--"
+        allow_breakout = bool(metrics.get("allow_breakout")) and breakout != "--"
+        if allow_pullback and not allow_breakout:
+            instruction = _pick(symbol, (
+                f"{entry_state_label}｜回測量縮後站回 {confirmation} 才買｜{invalid}取消",
+                f"尚未買進｜只保留回測型條件：守穩後收復 {confirmation}｜失效 {invalid}",
+            ))
+            pending_reason = f"僅保留回測型買進；{t1_text}、{abc_text}，主導證據為{driver}"
+        elif allow_breakout and not allow_pullback:
+            instruction = f"{entry_state_label}｜放量站穩 {breakout} 才買｜{invalid}取消"
+            pending_reason = f"僅保留突破型買進；{t1_text}、{abc_text}，主導證據為{driver}"
+        else:
+            instruction = _pick(symbol, (
+                f"{entry_state_label}｜回測站回 {confirmation} 才買；或放量突破 {breakout}｜{invalid}取消",
+                f"尚未買進｜先完成「{entry_state_label}」；確認 {confirmation}／突破 {breakout}｜失效 {invalid}",
+            ))
+            pending_reason = f"買進閘門通過但觸發流程未完成；{t1_text}、主導證據為{driver}"
         return {"label": "空手等條件｜持股續抱", "instruction": instruction,
-                "reason": f"買進閘門通過但觸發流程未完成；{t1_text}、主導證據為{driver}"}
+                "reason": pending_reason}
 
     if situation == "REDUCE_WEAKNESS":
         return {"label": "減碼｜空手不買",
