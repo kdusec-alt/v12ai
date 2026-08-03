@@ -299,9 +299,9 @@ def render_battle_panel(st, forecast):
     )
 
     current_action_raw = (
-        f"最終決策｜{action_decision.get('label')}｜{action_decision.get('instruction')}｜"
+        f"目前動作｜最終決策｜{action_decision.get('label')}｜{action_decision.get('instruction')}｜"
         f"主因：{action_decision.get('reason')}"
-    ) if action_decision else "最終決策｜禁止進場｜決策資料未完成，不建立新部位"
+    ) if action_decision else "目前動作｜最終決策｜禁止進場｜決策資料未完成，不建立新部位"
     current_action_text = safe(current_action_raw)
 
     decision_title_raw = str(reasoning.get("headline") or "").strip()
