@@ -2949,8 +2949,8 @@
   "2327.TW": {
     "active_family_count": 11,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-08-03T14:49:19+08:00",
-    "approved_bias": 0.0025,
+    "approved_at_tw": "2026-08-03T15:07:14+08:00",
+    "approved_bias": 0.0075,
     "audit_count": 24,
     "avg_abs_error_pct": 6.2552,
     "avg_direction_brier": 0.249688,
