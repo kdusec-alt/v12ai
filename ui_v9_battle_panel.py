@@ -190,12 +190,12 @@ def _entry_map_tiles(plan, fallback_tiles):
         {
             "label": "確認",
             "value": confirmation,
-            "title": str(plan.get("confirmation_text") or "等待右側確認"),
+            "title": str(plan.get("confirmation_text") or "本日無回測買點"),
         },
         {
             "label": "加碼",
             "value": add_price,
-            "title": str(plan.get("add_text") or "突破確認後再評估"),
+            "title": str(plan.get("breakout_text") or plan.get("add_text") or "本日無突破買點"),
         },
         {
             "label": "失效",
