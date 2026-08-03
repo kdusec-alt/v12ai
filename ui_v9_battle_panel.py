@@ -242,15 +242,16 @@ def render_battle_panel(st, forecast):
     entry = assess_entry_opportunity(p)
     reasoning = build_evidence_reasoning(p, entry)
     entry_plan = reasoning.get("recommended_entry") if isinstance(reasoning.get("recommended_entry"), dict) else {}
+    action_decision = reasoning.get("action_decision") if isinstance(reasoning.get("action_decision"), dict) else {}
     try:
         d["_evidence_arbitration_v1083"] = reasoning
     except Exception:
         pass
 
-    entry_color = str(entry.get("color") or "yellow")
-    entry_icon = safe(entry.get("icon") or "⚪")
-    entry_label = safe(entry.get("label") or "資料待確認")
-    entry_summary = safe(entry.get("summary") or "等待價格與時段確認")
+    entry_color = str(action_decision.get("color") or entry.get("color") or "red")
+    entry_icon = safe(action_decision.get("icon") or entry.get("icon") or "🔴")
+    entry_label = safe(action_decision.get("label") or "禁止進場")
+    entry_summary = safe(action_decision.get("instruction") or action_decision.get("reason") or "禁止進場｜不建立新部位")
     main_message = safe(reasoning.get("one_line_conclusion") or reasoning.get("decision_message") or entry.get("canonical_main_message") or d.get("主訊息"))
     entry_score_html = ""
     if bool(entry.get("show_score")):
@@ -298,10 +299,9 @@ def render_battle_panel(st, forecast):
     )
 
     current_action_raw = (
-        f"目前動作｜{_title_price(entry_plan.get('current_price'))}｜"
-        f"{entry_plan.get('current_location') or '位置待確認'}："
-        f"{entry_plan.get('current_action') or '等待價格與Session確認'}"
-    ) if entry_plan else f"目前動作｜{entry.get('label') or '等待確認'}：{entry.get('summary') or '等待價格與Session確認'}"
+        f"最終決策｜{action_decision.get('label')}｜{action_decision.get('instruction')}｜"
+        f"主因：{action_decision.get('reason')}"
+    ) if action_decision else "最終決策｜禁止進場｜決策資料未完成，不建立新部位"
     current_action_text = safe(current_action_raw)
 
     decision_title_raw = str(reasoning.get("headline") or "").strip()
@@ -387,14 +387,14 @@ def render_battle_panel(st, forecast):
     </style></head><body><div class='panel'>
       <div class='head'><div><h1>{safe(t.resolved_symbol)}｜{safe(t.name)}</h1><div class='streak'>{safe(header_trend)}</div>{persona_html}</div><div class='fvleft'><b>技術情境價格帶 / TECHNICAL RANGE</b>{fair}<span class='fvnote'>現價 ± ATR 技術情境｜不是基本面估值</span></div></div>
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜{safe(d.get('漲跌標籤','漲跌'))}：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>{safe(d.get('價格範圍標籤','今日'))}高：{fmt(d.get('最高'))}｜{safe(d.get('價格範圍標籤','今日'))}低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
-      <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI進場時機</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div><div class='entryfacts'>{entry_detail}</div></div>
+      <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI交易決策</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div><div class='entryfacts'>{entry_detail}</div></div>
       <div class='decision'>
         <div class='dt'>AI決策｜{decision_title}</div>
         <div class='action-now'>{current_action_text}</div>
         <div class='main'>{main_message}</div>
-        <div class='reasoning-line'><b>AI推理</b>{reasoning_horizon}<span class='reasoning-conflict'>{reasoning_conflict}</span><span class='reasoning-price' title='{safe(entry_plan_raw)}'><b>AI建議進場</b>{entry_plan_text}</span></div>
+        <div class='reasoning-line'><b>AI推理</b>{reasoning_horizon}<span class='reasoning-conflict'>{reasoning_conflict}</span><span class='reasoning-price' title='{safe(entry_plan_raw)}'><b>AI執行價格</b>{entry_plan_text}</span></div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>前三大主因</b>{evidence_summary}</div>
-        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>AI建議進場：</b>{entry_plan_text}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
+        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
         <div class='pricebar'>{price_tiles_html}</div>
       </div>
       <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>
