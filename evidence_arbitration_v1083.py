@@ -13,7 +13,12 @@ from typing import Any, Dict, Mapping
 
 from evidence_reasoning_v1082 import build_evidence_reasoning as build_v1082
 
-SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1083_1"
+try:
+    from decision_language_v1087 import compose_action_language
+except Exception:  # deployment fallback keeps the panel alive during rolling update
+    compose_action_language = None
+
+SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1087"
 
 
 def _text(v: Any) -> str:
@@ -262,7 +267,110 @@ def _current_location(*, state: str, last: float | None, low_zone: tuple[float |
     return ("等待區", "等低接或右側確認")
 
 
-def _entry_plan(forecast: Any, entry: Mapping[str, Any]) -> Dict[str, Any]:
+def _cross_module_gate(
+    forecast: Any,
+    entry: Mapping[str, Any],
+    abc: Mapping[str, Any] | None,
+    top: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Arbitrate entry qualification across T1, ABC, chips, price and events."""
+    d = _map(getattr(forecast, "decision_card", {}))
+    state = _text(entry.get("state")) or "DATA_WAIT"
+    last = _num(entry.get("operative_price")) or _num(d.get("現價"))
+    t1 = _num(getattr(forecast, "final_t1", None))
+    if t1 is None:
+        t1 = _num(d.get("下一交易日收盤預估") or d.get("T1_CLOSE"))
+    t1_return = ((t1 / last) - 1.0) * 100.0 if t1 is not None and last not in (None, 0) else None
+    a = _num((abc or {}).get("a"))
+    b = _num((abc or {}).get("b"))
+    c = _num((abc or {}).get("c"))
+    chip_bear = sum(
+        int(_num(row.get("strength")) or 0)
+        for row in top if _text(row.get("category")) == "chip" and int(row.get("stance_value") or 0) < 0
+    )
+    chip_bull = sum(
+        int(_num(row.get("strength")) or 0)
+        for row in top if _text(row.get("category")) == "chip" and int(row.get("stance_value") or 0) > 0
+    )
+    event_bear = any(
+        _text(row.get("category")) == "event" and int(row.get("stance_value") or 0) < 0
+        and int(_num(row.get("strength")) or 0) >= 78 for row in top
+    )
+
+    reasons: list[str] = []
+    allow_immediate = True
+    allow_pullback = True
+    allow_breakout = True
+    code = "ENTRY_QUALIFIED"
+
+    if state in {"DATA_WAIT", "WAIT_NEXT_SESSION"}:
+        code = "DATA_BLOCK"
+        allow_immediate = allow_pullback = allow_breakout = False
+        reasons.append("Session或同源價格未完成驗證")
+    else:
+        if t1_return is not None and t1_return <= 0:
+            allow_immediate = False
+            reasons.append(f"T1預期報酬 {t1_return:+.2f}% 未轉正")
+        if a is not None and b is not None and a < 20 and b >= 50:
+            allow_immediate = False
+            allow_breakout = False
+            reasons.append(f"ABC突破僅 {a:.0f}%、回測 {b:.0f}%")
+        if c is not None and c >= 35:
+            allow_immediate = False
+            allow_pullback = False
+            allow_breakout = False
+            reasons.append(f"ABC防守情境 {c:.0f}% 過高")
+        if event_bear:
+            allow_immediate = False
+            reasons.append("重大負面事件尚未被價格吸收")
+        if chip_bear >= 78 and chip_bull == 0:
+            allow_immediate = False
+            reasons.append("法人／籌碼偏空尚未改善")
+        if t1_return is not None and t1_return <= -0.8 and (
+            (c is not None and c >= 25) or chip_bear >= 70
+        ):
+            allow_pullback = allow_breakout = False
+            reasons.append("T1負報酬與防守／籌碼風險形成共振")
+        if state in {"OVERHEATED_NO_CHASE", "LIMIT_LIQUIDITY_WAIT"}:
+            allow_immediate = False
+            allow_pullback = allow_breakout = False
+            reasons.append("過熱或流動性限制，當日不追價")
+
+        if not (allow_immediate or allow_pullback or allow_breakout):
+            if state in {"OVERHEATED_NO_CHASE", "LIMIT_LIQUIDITY_WAIT"}:
+                code = "RECHECK_NEXT_SESSION"
+            elif t1_return is not None and t1_return <= 0:
+                code = "NO_ENTRY_T1"
+            elif c is not None and c >= 35:
+                code = "NO_ENTRY_ABC"
+            else:
+                code = "NO_ENTRY_CONFLICT"
+        elif not allow_immediate:
+            code = "CONDITIONAL_ONLY"
+
+    entry_qualified = bool(allow_immediate or allow_pullback or allow_breakout)
+    label_map = {
+        "ENTRY_QUALIFIED": "買進資格通過",
+        "CONDITIONAL_ONLY": "僅條件式買進",
+        "NO_ENTRY_T1": "T1未轉正，本日無買點",
+        "NO_ENTRY_ABC": "ABC防守過高，本日無買點",
+        "NO_ENTRY_CONFLICT": "跨模組衝突，本日無買點",
+        "RECHECK_NEXT_SESSION": "不追價，下一Session重算",
+        "DATA_BLOCK": "資料未驗證，禁止進場",
+    }
+    return {
+        "code": code, "label": label_map[code], "entry_qualified": entry_qualified,
+        "allow_immediate_buy": allow_immediate, "allow_pullback": allow_pullback,
+        "allow_breakout": allow_breakout, "reasons": reasons,
+        "t1_price": t1, "t1_return_pct": t1_return,
+        "abc_a": a, "abc_b": b, "abc_c": c,
+        "chip_bear_strength": chip_bear, "chip_bull_strength": chip_bull,
+        "event_bearish_veto": event_bear,
+        "source": "V1087 Cross-Module Decision Gate",
+    }
+
+
+def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any] | None = None) -> Dict[str, Any]:
     """Build an executable entry plan from verified session geometry.
 
     V1086 guarantees that a pullback confirmation is above the low-entry zone
@@ -337,38 +445,58 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any]) -> Dict[str, Any]:
     else:
         low_entry_condition = "資料不足，本日無買點"
 
+    gate = _map(gate)
+    if gate and not bool(gate.get("entry_qualified")):
+        actionable = False
+        trigger_mode = "NONE"
+        low_entry_condition = "；".join(list(gate.get("reasons") or [])[:2]) or "跨模組未通過，本日無買點"
+
     zone_lo, zone_hi = low_zone
     step = tick(last or vwap or zone_hi)
     confirmation_price = None
     breakout_price = None
     if actionable and zone_hi is not None:
         # Pullback confirmation must sit strictly above the whole low-entry zone.
-        confirmation_price = max(zone_hi + step, vwap + step if vwap is not None else zone_hi + step)
+        confirmation_price = max(zone_hi + step, vwap + step if vwap is not None else zone_hi + step) if not gate or bool(gate.get("allow_pullback", True)) else None
         # If price is already above the zone, require a reclaim of the current
         # reference after the pullback instead of reusing VWAP as a fake trigger.
-        if last is not None and last > confirmation_price:
+        if confirmation_price is not None and last is not None and last > confirmation_price:
             confirmation_price = last
-        confirmation_condition = "回測量縮守穩後重新站回，觸發小量買進"
+        if confirmation_price is not None:
+            confirmation_condition = "回測量縮守穩後重新站回，觸發小量買進"
 
         candidates = [x for x in (high, legacy_confirm, no_chase) if x is not None]
         breakout_base = max(candidates) if candidates else confirmation_price
         if last is not None:
             breakout_base = max(breakout_base, last)
-        breakout_price = max(breakout_base + tick(breakout_base), confirmation_price + step)
-        breakout_condition = "放量站穩後觸發突破買進"
+        if not gate or bool(gate.get("allow_breakout", True)):
+            confirm_floor = confirmation_price if confirmation_price is not None else zone_hi
+            breakout_price = max(breakout_base + tick(breakout_base), confirm_floor + step)
+            breakout_condition = "放量站穩後觸發突破買進"
     elif actionable:
         actionable = False
         trigger_mode = "NONE"
         low_entry_condition = "缺少可驗證區間，本日無買點"
 
+    if not actionable:
+        entry_state_code, entry_state_label, missing = "NO_ENTRY", "本日無買進資格", list(gate.get("reasons") or [])[:3]
+    elif state == "BUY_TODAY_CONFIRM" and (not gate or bool(gate.get("allow_immediate_buy", True))):
+        entry_state_code, entry_state_label, missing = "TRIGGERED", "正式觸發", []
+    elif zone_lo is not None and zone_hi is not None and last is not None and zone_lo <= last <= zone_hi:
+        entry_state_code, entry_state_label, missing = "IN_PULLBACK", "已進入回測區", ["量縮守穩", "重新站回確認價"]
+    elif zone_hi is not None and last is not None and last > zone_hi:
+        entry_state_code, entry_state_label, missing = "WAIT_PULLBACK", "尚未完成回測", ["回測進入價格區", "量縮守穩", "重新站回"]
+    else:
+        entry_state_code, entry_state_label, missing = "WAIT_STABILIZE", "等待止跌結構", ["低點不再下移", "賣壓量縮", "重新站回"]
+
     location, current_action = _current_location(
         state=state, last=last, low_zone=low_zone, confirmation=confirmation_price,
         add_price=breakout_price, invalid_price=invalid_price,
     )
-    if state == "BUY_TODAY_CONFIRM" and actionable:
+    if entry_state_code == "TRIGGERED" and actionable:
         current_action = "買進條件已成立，小量執行"
     elif actionable:
-        current_action = "尚未買進；等待回測或突破觸發"
+        current_action = f"尚未買進；{entry_state_label}"
     elif state not in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
         current_action = "本日無買點"
 
@@ -381,11 +509,9 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any]) -> Dict[str, Any]:
         f"現在 {current_text}｜回測區 {low_entry_text}｜"
         f"買進觸發 {confirmation_text}｜突破觸發 {breakout_text}｜失效 {invalid_text}"
     )
-    price_order_valid = bool(
-        actionable and zone_hi is not None and confirmation_price is not None and breakout_price is not None
-        and zone_hi < confirmation_price < breakout_price
-        and (invalid_price is None or invalid_price < confirmation_price)
-    )
+    pullback_valid = confirmation_price is not None and zone_hi is not None and zone_hi < confirmation_price
+    breakout_valid = breakout_price is not None and zone_hi is not None and zone_hi < breakout_price and (confirmation_price is None or confirmation_price < breakout_price)
+    price_order_valid = bool(actionable and (pullback_valid or breakout_valid) and (invalid_price is None or invalid_price < (confirmation_price or breakout_price)))
     if actionable and not price_order_valid:
         actionable = False
         trigger_mode = "NONE"
@@ -403,7 +529,11 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any]) -> Dict[str, Any]:
         "display_line": display_line,
         "actionable": actionable,
         "trigger_mode": trigger_mode,
-        "trigger_status": "TRIGGERED" if state == "BUY_TODAY_CONFIRM" and actionable else "PENDING" if actionable else "NO_ENTRY",
+        "trigger_status": "TRIGGERED" if entry_state_code == "TRIGGERED" and actionable else "PENDING" if actionable else "NO_ENTRY",
+        "entry_state_code": entry_state_code,
+        "entry_state_label": entry_state_label,
+        "missing_conditions": missing,
+        "qualification_gate": dict(gate),
         "current_price": last,
         "current_location": location,
         "current_action": current_action,
@@ -428,6 +558,8 @@ def _decisive_action(
     plan: Mapping[str, Any],
     acceptance: Mapping[str, Any],
     top: list[Dict[str, Any]],
+    gate: Mapping[str, Any] | None = None,
+    forecast: Any = None,
 ) -> Dict[str, Any]:
     """Return one public action plus an executable next-entry trigger."""
     state = _text(entry.get("state")) or "DATA_WAIT"
@@ -444,33 +576,58 @@ def _decisive_action(
     trigger_status = _text(plan.get("trigger_status")) or "NO_ENTRY"
     price_order_valid = bool(plan.get("price_order_valid"))
 
+    gate = _map(gate)
     code = "HOLD"
     reason = "方向尚未失效；依明確買進觸發與失效價執行"
     hard_bearish = score < 42 and dominance <= -120
 
+    situation = "HOLD_TRIGGER_PENDING"
     if current_n is not None and invalid_n is not None and current_n < invalid_n:
         code, reason = "SELL", "現價已跌破失效價，原交易結構失效"
+        situation = "SELL_INVALID"
     elif state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}:
         code, reason = "SELL", "賣壓擴張或原突破結構已失效"
+        situation = "SELL_INVALID"
     elif state in {"DATA_WAIT", "WAIT_NEXT_SESSION"}:
         code, reason = "BLOCK", "Session或同源價格無法驗證，禁止以失真資料下單"
+        situation = "BLOCK_DATA"
     elif state == "BUY_TODAY_CONFIRM" and trigger_status == "TRIGGERED" and price_order_valid:
         if score >= 55 and dominance >= -20:
             code, reason = "BUY", "價格結構、有效證據與買進觸發均已成立"
+            situation = "BUY_READY"
         elif hard_bearish:
             code, reason = "BLOCK", "價格接受度不足且多項強空證據共振"
+            situation = "BLOCK_RISK"
         else:
             code, reason = "HOLD", "價格觸發已到，但有效證據尚未通過買進門檻"
+            situation = "HOLD_NO_ENTRY"
     elif state == "WAIT_VWAP_RECLAIM" and (score < 50 or dominance <= -60):
         code, reason = "REDUCE", "價格未收復VWAP且偏空證據明顯占優"
+        situation = "REDUCE_WEAKNESS"
     elif hard_bearish:
         code, reason = "BLOCK", "價格接受度不足且多項強空證據共振"
+        situation = "BLOCK_RISK"
+    elif gate and not bool(gate.get("entry_qualified")):
+        code = "HOLD"
+        if state == "WAIT_VWAP_RECLAIM" and ((_num(gate.get("t1_return_pct")) or 0) < 0 or dominance <= -60):
+            code, situation, reason = "REDUCE", "REDUCE_WEAKNESS", "價格弱勢與跨模組負向預期共振"
+        elif gate.get("code") == "RECHECK_NEXT_SESSION":
+            situation, reason = "HOLD_OVERHEATED", "過熱或流動性限制，本日不追價"
+        elif gate.get("code") == "NO_ENTRY_T1":
+            situation, reason = "HOLD_T1_NEGATIVE", "T1未轉正，本日撤銷買進價格"
+        elif gate.get("code") == "NO_ENTRY_ABC":
+            situation, reason = "HOLD_ABC_DEFENSIVE", "ABC防守情境過高，本日撤銷買進價格"
+        else:
+            situation, reason = "HOLD_NO_ENTRY", "跨模組未形成合格買進組合"
     elif not bool(plan.get("actionable")):
         code, reason = "HOLD", "目前無法建立合格風險價格階層，本日無買點"
+        situation = "HOLD_NO_ENTRY"
     elif state in {"OVERHEATED_NO_CHASE", "LIMIT_LIQUIDITY_WAIT"}:
         code, reason = "HOLD", "趨勢未失效但現在不追；依回測或突破觸發重新進場"
+        situation = "HOLD_OVERHEATED"
     else:
         code, reason = "HOLD", "買進觸發尚未成立；空手等待觸發，持股續抱"
+        situation = "HOLD_TRIGGER_PENDING"
 
     meta = {
         "BUY": ("買進", "🟢", "green"),
@@ -493,6 +650,20 @@ def _decisive_action(
     else:
         instruction = "禁止進場｜不建立新部位"
 
+    if callable(compose_action_language):
+        ticker = getattr(forecast, "ticker", None)
+        symbol = _text(getattr(ticker, "resolved_symbol", None) or getattr(ticker, "symbol", None))
+        leading = _text(top[0].get("label")) if top else "價格結構"
+        language = compose_action_language(
+            situation=situation, code=code, symbol=symbol, current=current,
+            confirmation=confirm, breakout=breakout, invalid=invalid,
+            metrics=gate, entry_state_label=_text(plan.get("entry_state_label")),
+            leading_driver=leading,
+        )
+        label = language.get("label") or label
+        instruction = language.get("instruction") or instruction
+        reason = language.get("reason") or reason
+
     return {
         "code": code, "label": label, "icon": icon, "color": color,
         "instruction": instruction, "reason": reason,
@@ -501,6 +672,8 @@ def _decisive_action(
         "source_state": state, "hard_risk_veto": code == "BLOCK",
         "single_action": True, "entry_trigger_attached": bool(plan.get("actionable")),
         "trigger_status": trigger_status,
+        "situation_code": situation,
+        "language_schema": "V1087_EVIDENCE_LANGUAGE",
     }
 def _conclusion(base: Mapping[str, Any], entry: Mapping[str, Any], plan: Mapping[str, Any], acceptance: Mapping[str, Any], top: list[Dict[str, Any]], action: Mapping[str, Any]) -> str:
     label = _text(action.get("label")) or "禁止進場"
@@ -520,8 +693,9 @@ def build_evidence_arbitration(forecast: Any, entry: Mapping[str, Any] | None = 
     ranked = _rank(rows)
     top = ranked[:3]
     acceptance = _acceptance(entry, _map(base.get("price_acceptance")), abc, quantum)
-    plan = _entry_plan(forecast, entry)
-    action = _decisive_action(entry, plan, acceptance, top)
+    gate = _cross_module_gate(forecast, entry, abc, top)
+    plan = _entry_plan(forecast, entry, gate)
+    action = _decisive_action(entry, plan, acceptance, top, gate, forecast)
     conclusion = _conclusion(base, entry, plan, acceptance, top, action)
     top_rows = []
     for i, row in enumerate(top, 1):
@@ -539,6 +713,7 @@ def build_evidence_arbitration(forecast: Any, entry: Mapping[str, Any] | None = 
         "evidence_winner": {k: winner.get(k) for k in ("category", "label", "stance", "reason")},
         "price_acceptance": acceptance,
         "recommended_entry": plan,
+        "cross_module_gate": gate,
         "action_decision": action,
         "top_drivers": top_rows,
         "top_driver_summary": summary,
