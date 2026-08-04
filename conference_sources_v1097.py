@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
+import html as html_lib
 import json
 import os
 from pathlib import Path
@@ -34,11 +35,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
     "FMS": {
         "urls": (
+            "https://www.terrapinn.com/conference/future-memory-storage/agenda.stm",
+            "https://www.terrapinn.com/conference/future-memory-storage/index.stm",
             "https://www.fmsnow.com/program/",
             "https://www.fmsnow.com/agenda/",
             "https://www.fmsnow.com/",
         ),
-        "timezone": "America/Los_Angeles", "parser": "fms",
+        "timezone": "America/Los_Angeles", "parser": "fms", "timeout": 12.0,
     },
     "GTC": {"urls": ("https://www.nvidia.com/gtc/session-catalog/",), "timezone": "America/Los_Angeles", "parser": "json_ld"},
     "COMPUTEX": {"urls": ("https://www.computextaipei.com.tw/en/calendar/event-calendar.html",), "timezone": "Asia/Taipei", "parser": "json_ld"},
@@ -49,7 +52,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
 }
 
 _CACHE = Path(os.environ.get("TINO_CIE_CACHE_PATH", "/tmp/tino_cie_official_agenda.json"))
-_CACHE_SCHEMA = "TINO_CIE_AGENDA_V1097_2"
+_CACHE_SCHEMA = "TINO_CIE_AGENDA_V1097_3"
 _TIME_RE = re.compile(r"(?P<h>\d{1,2}):(?P<m>\d{2})\s*(?P<ampm>AM|PM)", re.I)
 _DATE_RE = re.compile(r"(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday),?\s+([A-Z][a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})", re.I)
 _ISO_DATE_RE = re.compile(r"\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b")
@@ -77,6 +80,11 @@ COMPANY_CHAIN_TICKERS = {
     "MICRON": ("MRVL", "SIMO", "8299.TW"),
 }
 
+
+def _contains_term(text: str, term: str) -> bool:
+    """Match company/technology names without ARM-in-market style collisions."""
+    return bool(re.search(rf"(?<![A-Z0-9]){re.escape(term)}(?![A-Z0-9])", text.upper()))
+
 TECHNOLOGY_CHAIN_TICKERS = {
     "HBM": ("MU", "SKHY", "MRVL"),
     "HBF": ("MU", "SKHY", "MRVL"),
@@ -93,14 +101,14 @@ def _tickers(text: str) -> List[str]:
     upper = text.upper()
     out: List[str] = []
     for company, symbols in COMPANY_TICKERS.items():
-        if company in upper:
+        if _contains_term(upper, company):
             out.extend(symbol for symbol in symbols if symbol not in out)
     return out
 
 
 def _technologies(text: str) -> List[str]:
     terms = ("HBM", "HBF", "CXL", "PCIe Gen6", "SSD", "NAND", "DRAM", "Optical", "GPU", "AI", "Ethernet", "Chiplet", "RISC-V")
-    return [term for term in terms if term.lower() in text.lower()]
+    return [term for term in terms if _contains_term(text, term)]
 
 
 def _supply_chain_tickers(company: str, title: str, direct: Sequence[str]) -> List[str]:
@@ -108,7 +116,7 @@ def _supply_chain_tickers(company: str, title: str, direct: Sequence[str]) -> Li
     upper_title = title.upper()
     out: List[str] = []
     for name, symbols in COMPANY_CHAIN_TICKERS.items():
-        if name in upper_company:
+        if _contains_term(upper_company, name):
             out.extend(symbols)
     for term, symbols in TECHNOLOGY_CHAIN_TICKERS.items():
         if term in upper_title:
@@ -175,7 +183,7 @@ def parse_hot_chips(html: str, source_url: str) -> List[Dict[str, Any]]:
         if not title or re.match(r"^(break|lunch|breakfast|reception|welcome|session:|tutorial \d+:)", title, re.I):
             continue
         start = datetime.combine(current_date, datetime.min.time()).replace(hour=current_time[0], minute=current_time[1])
-        company = next((name.title() for name in COMPANY_TICKERS if name in presenter.upper() or name in title.upper()), presenter or "Hot Chips")
+        company = next((name.title() for name in COMPANY_TICKERS if _contains_term(presenter, name) or _contains_term(title, name)), presenter or "Hot Chips")
         rows.append(_row("HOT CHIPS", company, title, start.isoformat(), "America/Los_Angeles", source_url, 5 if _tickers(company) else 4))
     return rows
 
@@ -271,6 +279,68 @@ def parse_fms(html: str, source_url: str) -> List[Dict[str, Any]]:
     event dates, a 09:00 conference-day row keeps the advance warning visible.
     """
     rows = parse_json_ld(html, "FMS", "America/Los_Angeles", source_url)
+
+    # FMS 2026 moved from fmsnow.com to Terrapinn.  Its official agenda uses
+    # one .ASession card per talk and publishes an exact UTC timestamp in the
+    # .Time[data] attribute.  Parse that contract before the generic fallback.
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html, "html.parser")
+        for card in soup.select("div.ASession"):
+            time_node = card.select_one(".Time[data]")
+            title_node = card.select_one(".session h4")
+            if time_node is None or title_node is None:
+                continue
+            start_raw = str(time_node.get("data") or "").strip()
+            title = " ".join(title_node.stripped_strings).strip()
+            if not start_raw or not title or re.match(
+                r"^(registration|welcome|break|lunch|reception|exhibition|chair'?s remarks)\b",
+                title, re.I,
+            ):
+                continue
+            stream_node = card.select_one(".StreamTitle")
+            stream = " ".join(stream_node.stripped_strings) if stream_node else ""
+            organisations = [" ".join(node.stripped_strings) for node in card.select(".Org")]
+            searchable = " | ".join([title, stream, *organisations])
+            company = next(
+                (name.title() for name in COMPANY_TICKERS if _contains_term(searchable, name)),
+                organisations[0] if organisations else "FMS",
+            )
+            # The complete agenda contains hundreds of housekeeping and niche
+            # papers.  Keep market-relevant public-company or key-tech sessions
+            # so the 24-row UI limit cannot hide today's investable events.
+            if not _tickers(company) and not _technologies(f"{title} {stream}"):
+                continue
+            rows.append(_row(
+                "FMS", company, title[:500], start_raw,
+                "America/Los_Angeles", source_url, 5,
+            ))
+
+    # Dependency-free fallback for deployments where BeautifulSoup is absent.
+    if "terrapinn.com" in source_url and not rows:
+        marker = r'(?=<div[^>]*class=["\'][^"\']*\bASession\b[^"\']*["\'])'
+        for card in re.split(marker, html, flags=re.I)[1:]:
+            stamp = re.search(r'class=["\'][^"\']*\bTime\b[^"\']*["\'][^>]*\bdata=["\']([^"\']+)', card, re.I)
+            heading = re.search(r'<h4\b[^>]*>(.*?)</h4>', card, re.I | re.S)
+            if not stamp or not heading:
+                continue
+            title = html_lib.unescape(_plain_text(heading.group(1)))
+            if re.match(r"^(registration|welcome|break|lunch|reception|exhibition|chair'?s remarks)\b", title, re.I):
+                continue
+            searchable = html_lib.unescape(_plain_text(card))
+            organisations = [
+                html_lib.unescape(_plain_text(value))
+                for value in re.findall(
+                    r'<span[^>]*class=["\'][^"\']*\bOrg\b[^"\']*["\'][^>]*>(.*?)</span>',
+                    card, re.I | re.S,
+                )
+            ]
+            company = next(
+                (name.title() for name in COMPANY_TICKERS if _contains_term(" | ".join(organisations), name)),
+                organisations[0] if organisations else "FMS",
+            )
+            if not _tickers(company) and not _technologies(searchable):
+                continue
+            rows.append(_row("FMS", company, title[:500], stamp.group(1), "America/Los_Angeles", source_url, 5))
     page_text = _plain_text(html)
     page_dates = _date_candidates(page_text)
     default_date = page_dates[0].date() if page_dates else None
@@ -291,7 +361,7 @@ def parse_fms(html: str, source_url: str) -> List[Dict[str, Any]]:
         title = re.sub(_TIME_RE, "", clean, count=1).strip(" |–—-:")
         if len(title) < 4 or re.match(r"^(break|lunch|reception|registration)\b", title, re.I):
             continue
-        company = next((name.title() for name in COMPANY_TICKERS if name in title.upper()), "FMS")
+        company = next((name.title() for name in COMPANY_TICKERS if _contains_term(title, name)), "FMS")
         rows.append(_row("FMS", company, title[:500], start.isoformat(), "America/Los_Angeles", source_url, 5))
 
     # An official conference-day alert is materially better than an empty CIE,
@@ -353,9 +423,8 @@ def fetch_official_sessions(*, timeout: float = 3.0, force: bool = False) -> Lis
     """Refresh official agendas; retain verified cache on transient failure."""
     if not force:
         cached = _read_cache(max_age_days=1, require_current_schema=True)
-        # V1097.2: old non-empty caches may contain Hot Chips but no FMS because
-        # they were written before the FMS adapter existed.  Only a cache made
-        # by the current parser contract may suppress an official refresh.
+        # V1097.3: invalidate caches written before the official Terrapinn FMS
+        # source/parser existed.  Only this parser contract may suppress refresh.
         if cached:
             return cached
     sessions: List[Dict[str, Any]] = []
@@ -363,7 +432,7 @@ def fetch_official_sessions(*, timeout: float = 3.0, force: bool = False) -> Lis
     headers = {"User-Agent": "TINO-CIE-V1097/1.0 (official-agenda-monitor)"}
     def fetch_one(conference: str, config: Mapping[str, Any], url: str) -> List[Dict[str, Any]]:
         request = Request(url, headers=headers)
-        with urlopen(request, timeout=timeout) as response:
+        with urlopen(request, timeout=float(config.get("timeout", timeout))) as response:
             html = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
         parser = config["parser"]
         if parser == "hot_chips":
