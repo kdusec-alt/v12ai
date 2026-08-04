@@ -136,6 +136,9 @@ class DecisionSnapshot:
     evidence: Tuple[EvidenceFact, ...]
     lifecycle: Mapping[str, Any]
     funnel: Tuple[FunnelStage, ...]
+    position_status: str = "UNKNOWN"
+    average_cost: Optional[float] = None
+    position_size: Optional[float] = None
     source_version: str = "V1096"
 
     def to_dict(self) -> Dict[str, Any]:
@@ -157,8 +160,28 @@ class DecisionSnapshot:
             "evidence": [item.to_dict() for item in self.evidence],
             "lifecycle": _thaw(self.lifecycle),
             "funnel": [item.to_dict() for item in self.funnel],
+            "position_status": self.position_status,
+            "average_cost": self.average_cost,
+            "position_size": self.position_size,
             "source_version": self.source_version,
         }
+
+
+def _position_context(forecast: Any) -> Dict[str, Any]:
+    """Resolve explicit portfolio identity; never infer holdings from market data."""
+    raw = getattr(forecast, "position_status", None)
+    portfolio = getattr(forecast, "position", None)
+    if isinstance(portfolio, Mapping):
+        raw = portfolio.get("status", raw)
+        average_cost = _num(portfolio.get("average_cost"))
+        position_size = _num(portfolio.get("position_size"))
+    else:
+        average_cost = _num(getattr(forecast, "average_cost", None))
+        position_size = _num(getattr(forecast, "position_size", None))
+    status = str(raw or "UNKNOWN").upper()
+    if status not in {"FLAT", "HOLDING", "UNKNOWN"}:
+        status = "UNKNOWN"
+    return {"status": status, "average_cost": average_cost, "position_size": position_size}
 
 
 def _fact(
@@ -601,6 +624,18 @@ def build_decision_snapshot(
     acceptance = _acceptance(entry, facts)
     drivers = _drivers(facts)
     action = _decisive_action(entry, plan, acceptance, drivers, gate, forecast)
+    position = _position_context(forecast)
+    if position["status"] == "UNKNOWN" and action.get("code") == "REDUCE":
+        action = dict(action)
+        action.update({
+            "code": "HOLD",
+            "situation_code": "HOLD_POSITION_UNKNOWN",
+            "exit_basis": "POSITION_UNKNOWN_CONDITIONAL_ONLY",
+            "label": "條件式風險觀察",
+            "instruction": f"部位資料未知｜若有持股才依 {plan.get('invalidation_price') or '--'} 管理；空手不進場",
+            "reason": f"{action.get('reason')}；因未取得持股身分，不輸出立即減碼",
+            "position_guard_applied": True,
+        })
     funnel = _funnel(entry, facts, gate, lifecycle, plan, acceptance)
     blockers = [item for item in funnel if item.status in {"FAIL", "UNKNOWN"}]
     narrative = dict(build_narrative_evidence(forecast, entry) or {})
@@ -622,6 +657,7 @@ def build_decision_snapshot(
         "quantum_context": narrative.get("quantum_context") or {},
         "entry_funnel": [item.to_dict() for item in funnel],
         "blocking_stage": blockers[0].stage if blockers else None,
+        "position_context": dict(position),
         "decision_influence": True,
         "formal_price_model_unchanged": True,
     }
@@ -634,6 +670,8 @@ def build_decision_snapshot(
         color=str(action.get("color") or "red"), instruction=str(action.get("instruction") or "禁止進場"),
         reason=str(action.get("reason") or "資料未完成"), entry=_freeze(plan), reasoning=_freeze(reasoning),
         evidence=tuple(facts), lifecycle=_freeze(lifecycle), funnel=funnel,
+        position_status=position["status"], average_cost=position["average_cost"],
+        position_size=position["position_size"],
     )
 
 

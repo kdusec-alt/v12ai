@@ -138,10 +138,10 @@ def compose_action_language(
         return {"label": "賣出", "instruction": f"賣出｜取消低接｜未重建結構前不進場",
                 "reason": f"現價已跌破 {invalid}，原交易結構正式失效"}
 
-    if situation == "REDUCE_INTRADAY_BREACH_RECLAIMED":
-        return {"label": "減碼觀察｜空手不買",
-                "instruction": f"盤中跌破後已收回 {risk_line}｜先降低部位，確認站穩前不低接",
-                "reason": f"盤中最低價曾跌破 {risk_line}，但現價 {current} 已收回；依收復狀態管理風險"}
+    if situation in {"HOLD_RECLAIM_WATCH", "REDUCE_INTRADAY_BREACH_RECLAIMED"}:
+        return {"label": "假跌破收復觀察",
+                "instruction": f"現價已收回 {risk_line}｜持股觀察站穩；空手等待再次確認，不立即減碼或追價",
+                "reason": f"盤中最低價曾跌破 {risk_line}，但現價 {current} 已收回；只有再次失守或量價轉弱才升級減碼"}
 
     if situation == "REDUCE_FAILED_BREAKOUT":
         return {"label": "突破失敗減碼｜空手不買",
