@@ -35,14 +35,14 @@
         "US"
       ],
       "source_tickers": [
-        "6586.TWO",
         "SKHY",
         "6770.TW",
         "3037.TW",
         "2330.TW",
         "GLOBAL",
         "ONDS",
-        "2408.TW"
+        "2408.TW",
+        "ONDL"
       ],
       "status": "active_yellow",
       "title": "Global Event Core｜油價快速上漲｜WTI +0.65%／Brent +1.56%｜此列只確認油價幅度，不自行推定戰爭原因；若戰爭/供給中斷新聞同步成立則升級衝擊｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
@@ -180,5 +180,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-08-04T08:18:24+00:00"
+  "updated_at": "2026-08-04T08:18:30+00:00"
 }
