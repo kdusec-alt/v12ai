@@ -329,6 +329,11 @@ try:
     assess_market_command = _load_optional(
         "market_command_v1081", ("assess_market_command",), _market_command_degraded
     )
+    conference_watch_display = _load_optional(
+        "conference_intelligence_v1097",
+        ("conference_watch_display",),
+        lambda *args, **kwargs: {"level": "caption", "text": ""},
+    )
     fetch_market_proxy_context = _load_optional(
         "quantum_market_context", ("fetch_market_proxy_context",), _market_proxy_degraded
     )
@@ -527,6 +532,21 @@ def _render_event_watch_status(forecast) -> None:
         st.caption("⚪ Admin 事件監測已停用")
         return
     symbol = str(getattr(getattr(forecast, "ticker", None), "resolved_symbol", "") or "").strip().upper()
+    # V1097: industry conferences are purple forward context.  They are not
+    # red/yellow risk alerts and must not cast a directional vote pre-event.
+    industry_payload = dict(conference_watch_display() or {})
+    industry_text = str(industry_payload.get("text") or "").strip()
+    if industry_text:
+        st.info(industry_text)
+        industry_sessions = list(industry_payload.get("sessions") or [])[:8]
+        if industry_sessions:
+            with st.expander("AI Industry Calendar｜產業會議議程", expanded=False):
+                for row in industry_sessions:
+                    tickers = [*(row.get("direct_tickers") or ()), *(row.get("supply_chain_tickers") or ())]
+                    st.caption(
+                        f"{row.get('start_taipei')}｜{row.get('company')}｜{row.get('title')}｜"
+                        f"{row.get('stars')}｜曝險：{', '.join(tickers) or '待映射'}｜{row.get('lifecycle')}"
+                    )
     try:
         global_view = get_global_event_view()
         st.session_state["global_event_view"] = global_view
