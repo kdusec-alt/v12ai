@@ -3048,8 +3048,8 @@
   "2327.TW": {
     "active_family_count": 11,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-08-03T15:07:14+08:00",
-    "approved_bias": 0.0075,
+    "approved_at_tw": "2026-08-04T14:14:13+08:00",
+    "approved_bias": 0.01,
     "audit_count": 26,
     "avg_abs_error_pct": 5.981,
     "avg_direction_brier": 0.259531,
