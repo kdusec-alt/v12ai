@@ -4375,8 +4375,8 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-08-03T15:26:14+08:00",
     "approved_bias": 0.0025,
-    "audit_count": 21,
-    "avg_abs_error_pct": 6.8101,
+    "audit_count": 22,
+    "avg_abs_error_pct": 6.5387,
     "avg_direction_brier": 0.303697,
     "avg_downside_tail_breach_pct": 2.482,
     "close_range_hit_rate": 0.1765,
@@ -4385,7 +4385,7 @@
     "error_type_counts": {
       "over_prediction": 13,
       "under_prediction": 6,
-      "within_tolerance": 2
+      "within_tolerance": 3
     },
     "factor_learning": {
       "MU": {
@@ -4794,16 +4794,16 @@
         "weighted_reliability": 0.6699
       }
     },
-    "last_actual_direction": "UP",
-    "last_close_in_predicted_range": false,
+    "last_actual_direction": "NEUTRAL",
+    "last_close_in_predicted_range": null,
     "last_defense_stop_touched": false,
     "last_direction_hit": false,
-    "last_dominant_force": "趨勢",
-    "last_dominant_force_hit": false,
+    "last_dominant_force": "收盤位置",
+    "last_dominant_force_hit": null,
     "last_downside_tail_breach_pct": 0.0,
-    "last_error_pct": 10.5991,
-    "last_error_type": "under_prediction",
-    "last_predicted_direction": "NEUTRAL",
+    "last_error_pct": 0.8403,
+    "last_error_type": "within_tolerance",
+    "last_predicted_direction": "DOWN",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5; V1077_shadow_no_weight_effect",
     "learning_maturity": 0.425,
     "learning_schema": "RC4.5_DNA_V1",
@@ -4833,7 +4833,7 @@
     },
     "suggested_bias": 0.005,
     "ticker": "2337.TW",
-    "updated_at_tw": "2026-08-04T14:15:43+08:00"
+    "updated_at_tw": "2026-08-04T14:15:51+08:00"
   },
   "2344.TW": {
     "active_family_count": 0,
