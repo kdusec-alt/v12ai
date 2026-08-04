@@ -1,36 +1,35 @@
 {
   "events": [
     {
-      "acknowledged": true,
-      "acknowledged_at": "2026-08-04T11:58:33+00:00",
-      "category": "geo_energy_escalation",
+      "acknowledged": false,
+      "category": "geo_trade_controls",
       "cooling_count": 0,
       "event_id": "EV-FE4B47983D28AA",
       "event_key": "global:geopolitical:general_geo",
       "family": "geopolitical",
-      "fingerprint": "5ff4a41a4e75cb62",
+      "fingerprint": "9abb5c83e4507f26",
       "first_seen_at": "2026-07-24T14:16:34+00:00",
       "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785831504.745751,
-      "last_seen_at": "2026-08-04T08:18:24+00:00",
-      "last_seen_epoch": 1785831504.745751,
-      "last_transition_at": "2026-08-04T11:58:33+00:00",
+      "last_evidence_epoch": 1785846114.971335,
+      "last_seen_at": "2026-08-04T12:21:54+00:00",
+      "last_seen_epoch": 1785846114.971335,
+      "last_transition_at": "2026-08-04T12:21:54+00:00",
       "peak_severity": 4,
-      "reinforcement_count": 205,
+      "reinforcement_count": 206,
       "related_fingerprints": [
-        "39693c53ce9e7638",
         "edcd6d16eb47b499",
         "6e7bd0442c6eacbc",
         "bf0368271a0e405a",
         "de9116fbdc5d23f7",
         "37503a52d701e5c9",
         "30fa28d6d01797fd",
-        "a1d11d90907385a6"
+        "a1d11d90907385a6",
+        "5ff4a41a4e75cb62"
       ],
       "risk_sign": -1,
       "scope": "global",
-      "severity": 2,
-      "source": "TINO_GlobalEventCore_YahooFinance",
+      "severity": 3,
+      "source": "US Government USTR Official GlobalEventCore",
       "source_markets": [
         "GLOBAL",
         "US"
@@ -45,9 +44,9 @@
         "ONDL",
         "MRVL"
       ],
-      "status": "active_yellow",
-      "title": "Global Event Core｜油價快速上漲｜WTI +0.65%／Brent +1.56%｜此列只確認油價幅度，不自行推定戰爭原因；若戰爭/供給中斷新聞同步成立則升級衝擊｜傳導：能源成本與通膨預期↑→降息空間↓→殖利率/美元壓力↑→科技、半導體與記憶體估值承壓；價格可否決",
-      "transition_reason": "Admin 已讀並關閉畫面警示"
+      "status": "active_red",
+      "title": "Global Event Core｜美國Section 301對台產品10%稅負架構｜依品項為MFN與新增稅率合計至10%，並非所有商品一律額外加10%，豁免品項另計｜傳導：出口成本/轉嫁能力→毛利率→訂單移轉→電子與半導體供應鏈差異化；價格與實際公司曝險負責驗證",
+      "transition_reason": "市場衝擊 L3 跨市場衝擊 22/100｜關稅/貿易政策｜關稅／貿易政策會經由成本、毛利與訂單移轉影響台灣供應鏈"
     },
     {
       "acknowledged": true,
@@ -181,5 +180,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-08-04T11:58:33+00:00"
+  "updated_at": "2026-08-04T12:21:54+00:00"
 }
