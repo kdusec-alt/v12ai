@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-VERSION = "TINO V1085｜Decisive AI Trade Action｜V9 Frontend Contract"
+VERSION = "TINO V1096｜Single Decision Lifecycle Audit｜V9 Frontend Contract"
 
 CONSTITUTION = """
 V12 是唯一正式版本，取代 V9，但不得低於 V9。

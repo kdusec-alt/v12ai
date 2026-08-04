@@ -157,10 +157,11 @@ class EntryOpportunityV1080Tests(unittest.TestCase):
         self.assertTrue(row["narrative_only"])
         self.assertFalse(row["show_score"])
 
-    def test_battle_panel_uses_entry_timing_not_low_entry_maturity(self):
+    def test_battle_panel_reads_single_snapshot_not_low_entry_maturity(self):
         source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
-        self.assertIn("from decision_architecture_v1081 import assess_entry_opportunity", source)
-        self.assertIn("AI進場時機", source)
+        self.assertIn("_decision_snapshot_payload", source)
+        self.assertNotIn("entry = assess_entry_opportunity(p)", source)
+        self.assertIn("AI交易決策", source)
         self.assertIn("price_tiles_html", source)
         self.assertIn('entry.get("price_tiles")', source)
         self.assertNotIn("AI低接成熟度", source)

@@ -32,6 +32,7 @@ from prediction_trust_v1072 import assess_prediction_trust
 from earnings_intelligence_v1072 import assess_earnings_evidence
 from market_regime_v1077 import build_market_regime_shadow
 from final_arbiter_v1077 import run_final_arbiter
+from decision_core_v1096 import build_decision_snapshot, blocked_decision_snapshot
 from news_causal_intelligence_v1073 import (
     analyze_news_causality,
     news_causal_line,
@@ -82,7 +83,9 @@ def collect_signals(price: PriceFrame, manual_macro: str = "neutral") -> List[Si
     return signals
 def _stop_forecast(price: PriceFrame, reason: str) -> FinalForecast:
     trace = PredictionTrace(price.ticker.resolved_symbol, None, [], None)
-    return FinalForecast(price.ticker, True, reason, None, None, None, None, None, 0.0, None, None, {}, ["STOP"], "價格無效，停止產生預測。", "資料不可用", {}, trace, [price.truth], "", [], [])
+    forecast = FinalForecast(price.ticker, True, reason, None, None, None, None, None, 0.0, None, None, {}, ["STOP"], "價格無效，停止產生預測。", "資料不可用", {}, trace, [price.truth], "", [], [], price_frame=price)
+    forecast.decision_snapshot = blocked_decision_snapshot(forecast, reason)
+    return forecast
 def _money(v) -> str:
     try:
         return f"{float(v):+,.0f}"
@@ -1546,4 +1549,20 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
     final_values = {"t0": final_t0, "t1": final_t1, "high": final_high, "low": final_low}
     deep = _deep_report(price, raw, final_values, decision, radar, signals, confidence, effective_news_items)
     tags = [_streak_label(price), _ssot_vwap_state(price), "高檔別追" if price.last >= raw.raw_no_chase else "低接優先"]
-    return FinalForecast(price.ticker, False, "", raw, final_t0, final_t1, final_high, final_low, confidence, raw.raw_no_chase, raw.raw_low_entry, decision, tags, str(decision["一句話"]), _session_words(price)["anchor"] if price.ticker.market == "TW" else _us_session_words(price)["anchor"], radar, trace, [price.truth], deep, news_items, signals)
+    forecast = FinalForecast(
+        price.ticker, False, "", raw, final_t0, final_t1, final_high, final_low,
+        confidence, raw.raw_no_chase, raw.raw_low_entry, decision, tags,
+        str(decision["一句話"]),
+        _session_words(price)["anchor"] if price.ticker.market == "TW" else _us_session_words(price)["anchor"],
+        radar, trace, [price.truth], deep, news_items, signals, price_frame=price,
+    )
+    # V1093: this is the only production arbitration call.  Every consumer,
+    # including V9 UI and Audit, reads the immutable snapshot below.
+    try:
+        forecast.decision_snapshot = build_decision_snapshot(forecast)
+    except Exception as exc:
+        forecast.decision_snapshot = blocked_decision_snapshot(
+            forecast, f"決策核心未完成：{type(exc).__name__}"
+        )
+    decision["_decision_snapshot_v1096"] = forecast.decision_snapshot.to_dict()
+    return forecast

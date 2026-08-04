@@ -67,6 +67,7 @@ class V1085DecisiveEntryActionTests(unittest.TestCase):
         ui = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
         self.assertIn("AI交易決策", ui)
         self.assertIn("action_decision", ui)
+        self.assertIn("_decision_snapshot_payload", ui)
         self.assertIn("最終決策｜", ui)
         self.assertIn("AI執行價格", ui)
         self.assertIn("html_block(html, height=642, scrolling=False)", ui)

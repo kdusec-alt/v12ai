@@ -293,6 +293,13 @@ def forecast_snapshot(
         if isinstance(card.get("_final_arbiter_v1077"), dict) else {}
     )
     base_prediction_id = prediction_signature(forecast)
+    decision_snapshot = getattr(forecast, "decision_snapshot", None)
+    if decision_snapshot is not None and callable(getattr(decision_snapshot, "to_dict", None)):
+        public_decision = dict(decision_snapshot.to_dict())
+    else:
+        public_decision = dict(card.get("_decision_snapshot_v1096") or {})
+    public_entry = dict(public_decision.get("entry") or {})
+    public_lifecycle = dict(public_decision.get("lifecycle") or {})
     event_bundle_id = str(revision.get("event_bundle_id") or revision.get("event_fingerprint") or "").strip()
     prediction_id = base_prediction_id
     if event_bundle_id:
@@ -361,6 +368,23 @@ def forecast_snapshot(
         "predicted_market_transition": market_regime_shadow.get("transition"),
         "shadow_action": final_arbiter_shadow.get("shadow_action"),
         "shadow_direction_call": final_arbiter_shadow.get("direction_call"),
+        # V1096 formal public action: this is exactly what the V9 UI rendered.
+        "public_decision_snapshot": public_decision,
+        "public_action": public_decision.get("action_code"),
+        "public_situation": public_decision.get("situation_code"),
+        "public_action_label": public_decision.get("label"),
+        "public_action_reason": public_decision.get("reason"),
+        "public_entry_price": public_entry.get("current_price"),
+        "public_confirmation_price": public_entry.get("confirmation_price"),
+        "public_invalidation_price": public_entry.get("invalidation_price"),
+        "public_lifecycle": public_lifecycle,
+        "public_lifecycle_state": public_lifecycle.get("state"),
+        "public_entry_funnel": list(public_decision.get("funnel") or []),
+        "public_blocking_stage": next((
+            item.get("stage") for item in list(public_decision.get("funnel") or [])
+            if isinstance(item, Mapping) and item.get("status") in {"FAIL", "UNKNOWN"}
+        ), None),
+        "public_decision_schema": public_decision.get("schema"),
         "price_truth": dict((card.get("_price_truth") or {})),
         "truths": [getattr(x, "__dict__", {}) for x in forecast.data_truths],
         "trace": forecast.trace.to_rows() if forecast.trace else [],
@@ -385,6 +409,51 @@ def forecast_snapshot(
             "event_revision": True,
         })
     return row
+
+
+def _public_trade_outcome(
+    row: Mapping[str, Any], actual_snapshot: Mapping[str, Any], actual_close: float,
+) -> Dict[str, Any]:
+    """V1096 trade-quality audit for the action actually shown on the Web."""
+    action = str(row.get("public_action") or "")
+    entry = _safe_float(row.get("public_entry_price"), 0.0)
+    invalid = _safe_float(row.get("public_invalidation_price"), 0.0)
+    high = _safe_float(actual_snapshot.get("actual_high"), 0.0)
+    low = _safe_float(actual_snapshot.get("actual_low"), 0.0)
+    close = _safe_float(actual_close, 0.0)
+    atr = _safe_float((row.get("public_decision_snapshot") or {}).get("entry", {}).get("atr14"), 0.0) if isinstance(row.get("public_decision_snapshot"), Mapping) else 0.0
+    buy_action = action == "BUY" and entry > 0
+    mfe_pct = ((high - entry) / entry * 100.0) if buy_action and high > 0 else None
+    mae_pct = ((entry - low) / entry * 100.0) if buy_action and low > 0 else None
+    close_return_pct = ((close - entry) / entry * 100.0) if buy_action and close > 0 else None
+    stopped = bool(buy_action and invalid > 0 and low > 0 and low < invalid)
+    missed_rebound = bool(
+        action in {"HOLD", "BLOCK", "REDUCE"} and entry > 0 and high > 0
+        and ((high - entry) / entry * 100.0) >= 3.0
+    )
+    low_distance_atr = None
+    if entry > 0 and low > 0 and atr > 0:
+        low_distance_atr = (entry - low) / atr
+    return {
+        "schema": "TINO_PUBLIC_TRADE_AUDIT_V1096",
+        "eligible": bool(action),
+        "public_action": action or None,
+        "public_situation": row.get("public_situation"),
+        "lifecycle_state": row.get("public_lifecycle_state"),
+        "blocking_stage": row.get("public_blocking_stage"),
+        "entry_price": round(entry, 4) if entry else None,
+        "invalidation_price": round(invalid, 4) if invalid else None,
+        "t_plus_1_return_pct": round(close_return_pct, 4) if close_return_pct is not None else None,
+        "mfe_pct": round(mfe_pct, 4) if mfe_pct is not None else None,
+        "mae_pct": round(mae_pct, 4) if mae_pct is not None else None,
+        "mfe_atr": round((high - entry) / atr, 4) if buy_action and high > 0 and atr > 0 else None,
+        "mae_atr": round((entry - low) / atr, 4) if buy_action and low > 0 and atr > 0 else None,
+        "distance_from_session_low_atr": round(low_distance_atr, 4) if low_distance_atr is not None else None,
+        "stop_touched": stopped if buy_action else None,
+        "missed_rebound": missed_rebound,
+        "risk_adjusted_quality": round((mfe_pct or 0.0) - max(mae_pct or 0.0, 0.0), 4) if buy_action else None,
+        "formal_weights_changed": False,
+    }
 
 
 def log_prediction(
@@ -785,6 +854,7 @@ def audit_prediction_row(
         predicted_direction=predicted_direction,
         neutral_band=neutral_band,
     )
+    public_trade_audit = _public_trade_outcome(row, snap, actual)
     audit = {
         "audit_id": audit_id,
         "official_sample_key": (
@@ -866,6 +936,17 @@ def audit_prediction_row(
         "shadow_mae_pct": multi_target_shadow.get("mae_pct"),
         "shadow_ohlc_path_proxy": multi_target_shadow.get("ohlc_path_proxy"),
         "shadow_decision_influence": False,
+        "public_action": row.get("public_action"),
+        "public_situation": row.get("public_situation"),
+        "public_lifecycle_state": row.get("public_lifecycle_state"),
+        "public_blocking_stage": row.get("public_blocking_stage"),
+        "public_trade_audit": public_trade_audit,
+        "public_t_plus_1_return_pct": public_trade_audit.get("t_plus_1_return_pct"),
+        "public_mfe_pct": public_trade_audit.get("mfe_pct"),
+        "public_mae_pct": public_trade_audit.get("mae_pct"),
+        "public_stop_touched": public_trade_audit.get("stop_touched"),
+        "public_missed_rebound": public_trade_audit.get("missed_rebound"),
+        "public_risk_adjusted_quality": public_trade_audit.get("risk_adjusted_quality"),
         "source": source,
         "safe_to_apply": bool(abs(err_pct) >= 1.0 and row.get("price_sample_quality") == "verified" and actual_valid),
         "applied": False,

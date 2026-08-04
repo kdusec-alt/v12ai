@@ -155,6 +155,12 @@ class FinalForecast:
     deep_report: str = ""
     news_items: List[NewsItem] = field(default_factory=list)
     signals: List[SignalPacket] = field(default_factory=list)
+    # V1093 single-owner public decision.  ``Any`` avoids a model/core import
+    # cycle while the runtime value is the frozen DecisionSnapshot dataclass.
+    decision_snapshot: Any = None
+    # Numeric SSOT is retained for the decision core only; UI must not use it
+    # to perform a second arbitration pass.
+    price_frame: Optional[PriceFrame] = None
 
 
 @dataclass(frozen=True)

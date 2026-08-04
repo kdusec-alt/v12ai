@@ -33,7 +33,8 @@ class CompactDecisionPanelV1066Tests(unittest.TestCase):
         self.assertIn("entry_summary", self.source)
         self.assertIn("list(entry.get(\"conditions\") or [])[:4]", self.source)
         self.assertIn("entry_price_strategy", self.source)
-        self.assertIn("AI進場時機", self.source)
+        self.assertIn("AI交易決策", self.source)
+        self.assertIn("_decision_snapshot_payload", self.source)
         self.assertNotIn("AI低接成熟度", self.source)
 
     def test_price_strip_is_owned_by_entry_state_with_legacy_fallback(self):

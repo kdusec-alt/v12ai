@@ -3,44 +3,31 @@ from __future__ import annotations
 
 from ui_html import fmt, html_block, safe
 
-try:
-    from decision_architecture_v1081 import assess_entry_opportunity
-except Exception:
-    def assess_entry_opportunity(_forecast):
-        return {
-            "state": "DATA_WAIT",
-            "label": "資料待確認",
-            "color": "yellow",
-            "icon": "⚪",
-            "summary": "AI進場時機模組暫時無法載入",
-            "conditions": [],
-            "price_strategy_text": "等待資料同步",
-            "price_tiles": [],
-            "show_score": False,
-        }
 
-try:
-    from evidence_arbitration_v1083 import build_evidence_reasoning
-except Exception:
-    try:
-        from evidence_reasoning_v1082 import build_evidence_reasoning
-    except Exception:
-        def build_evidence_reasoning(_forecast, entry=None):
-            return {
-                "headline": "證據待確認",
-                "decision_message": str((entry or {}).get("canonical_main_message") or "等待價格與證據同步"),
-                "short_term_bias": "待確認",
-                "medium_term_bias": "待確認",
-                "price_acceptance": {"label": "價格接受度待確認"},
-                "recommended_entry": {
-                    "label": "建議進場",
-                    "headline": "等待同源價格與Session",
-                    "condition": "未完成驗證前不建立部位",
-                },
-                "conflict": "推理層暫時無法載入",
-                "top_drivers": [],
-                "top_driver_summary": "等待價格、事件、基本面與籌碼確認",
-            }
+def _decision_snapshot_payload(forecast):
+    """Read the Orchestrator-owned snapshot; never arbitrate in the UI."""
+    snapshot = getattr(forecast, "decision_snapshot", None)
+    if snapshot is not None and callable(getattr(snapshot, "to_dict", None)):
+        return dict(snapshot.to_dict())
+    card = getattr(forecast, "decision_card", {}) or {}
+    stored = card.get("_decision_snapshot_v1096") if isinstance(card, dict) else None
+    if isinstance(stored, dict):
+        return dict(stored)
+    reason = "正式決策快照未完成；UI禁止重新仲裁"
+    return {
+        "schema": "TINO_DECISION_SNAPSHOT_V1096_BLOCKED",
+        "action_code": "BLOCK", "label": "禁止進場", "icon": "🔴", "color": "red",
+        "instruction": "禁止進場｜不建立新部位", "reason": reason,
+        "entry": {"entry_state_label": "決策快照待確認", "missing_conditions": [reason]},
+        "reasoning": {
+            "headline": "資料待確認", "decision_message": reason,
+            "one_line_conclusion": reason, "top_drivers": [],
+            "top_driver_summary": "有效證據不足", "price_acceptance": {},
+            "cross_module_gate": {"label": "資料未驗證", "reasons": [reason]},
+            "abc_context": {}, "quantum_context": {},
+        },
+        "funnel": [{"stage": "truth", "status": "FAIL", "reason": reason}],
+    }
 
 
 def _title_price(v):
@@ -239,14 +226,20 @@ def render_battle_panel(st, forecast):
     header_trend = _header_trend_line(p)
     header_streak_positive = "+" in header_trend.split("│", 1)[0]
 
-    entry = assess_entry_opportunity(p)
-    reasoning = build_evidence_reasoning(p, entry)
-    entry_plan = reasoning.get("recommended_entry") if isinstance(reasoning.get("recommended_entry"), dict) else {}
-    action_decision = reasoning.get("action_decision") if isinstance(reasoning.get("action_decision"), dict) else {}
-    try:
-        d["_evidence_arbitration_v1083"] = reasoning
-    except Exception:
-        pass
+    public_snapshot = _decision_snapshot_payload(p)
+    reasoning = public_snapshot.get("reasoning") if isinstance(public_snapshot.get("reasoning"), dict) else {}
+    entry_plan = public_snapshot.get("entry") if isinstance(public_snapshot.get("entry"), dict) else {}
+    action_decision = reasoning.get("action_decision") if isinstance(reasoning.get("action_decision"), dict) else {
+        "code": public_snapshot.get("action_code"), "label": public_snapshot.get("label"),
+        "icon": public_snapshot.get("icon"), "color": public_snapshot.get("color"),
+        "instruction": public_snapshot.get("instruction"), "reason": public_snapshot.get("reason"),
+    }
+    entry = {
+        "state": action_decision.get("source_state") or entry_plan.get("state") or "DATA_WAIT",
+        "color": public_snapshot.get("color") or "red",
+        "icon": public_snapshot.get("icon") or "🔴",
+        "conditions": [], "price_tiles": [], "show_score": False,
+    }
 
     entry_color = str(action_decision.get("color") or entry.get("color") or "red")
     entry_icon = safe(action_decision.get("icon") or entry.get("icon") or "🔴")
@@ -329,6 +322,14 @@ def render_battle_panel(st, forecast):
     missing_conditions = "、".join(str(x) for x in list(entry_plan.get("missing_conditions") or [])[:3])
     if missing_conditions:
         entry_state_detail_raw += f"｜尚缺：{missing_conditions}"
+    funnel_missing = [
+        str(row.get("reason") or row.get("stage") or "")
+        for row in list(public_snapshot.get("funnel") or [])
+        if isinstance(row, dict) and row.get("status") in {"FAIL", "UNKNOWN"}
+    ]
+    funnel_missing = [item for item in funnel_missing if item][:3]
+    if funnel_missing:
+        entry_state_detail_raw += f"｜買進漏斗：{'、'.join(funnel_missing)}"
     gate_detail = safe(gate_detail_raw)
     entry_state_detail = safe(entry_state_detail_raw)
     reasoning_horizon = safe(
