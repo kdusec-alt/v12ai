@@ -36,14 +36,14 @@
         "US"
       ],
       "source_tickers": [
-        "6770.TW",
         "3037.TW",
         "2330.TW",
         "GLOBAL",
         "ONDS",
         "2408.TW",
         "ONDL",
-        "MRVL"
+        "MRVL",
+        "SKHY"
       ],
       "status": "active_red",
       "title": "Global Event Core｜美國Section 301對台產品10%稅負架構｜依品項為MFN與新增稅率合計至10%，並非所有商品一律額外加10%，豁免品項另計｜傳導：出口成本/轉嫁能力→毛利率→訂單移轉→電子與半導體供應鏈差異化；價格與實際公司曝險負責驗證",
@@ -181,5 +181,5 @@
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-08-04T12:28:20+00:00"
+  "updated_at": "2026-08-04T12:29:31+00:00"
 }
