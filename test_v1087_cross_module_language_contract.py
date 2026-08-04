@@ -324,3 +324,59 @@ def test_positive_day_below_vwap_does_not_fake_rebound_confirmation():
     assert gate["trade_level"] == "LOW_MONITOR"
     assert plan["trade_level_label"] == "低檔監控｜尚未止跌"
 
+
+def test_deleveraging_recovery_can_reach_first_layer_buy_before_full_trend_confirmation():
+    forecast = _forecast("RECOVERY", 100, 96, 102, 98.5)
+    entry = {
+        "state": "BUY_TODAY_CONFIRM", "operative_price": 100,
+        "operative_return_pct": 2.2, "vwap": 99, "vwap_position": "above",
+    }
+    top = [
+        {"category": "chip", "label": "籌碼／法人", "text": "融資減少、健康去槓桿｜法人轉買",
+         "source": "Institution/Short Evidence", "stance_value": 1, "strength": 68, "verified": True},
+        {"category": "event", "label": "事件／新聞", "text": "財報優於預期",
+         "source": "News/Event Truth Guard", "stance_value": 1, "strength": 72, "verified": True},
+    ]
+    gate = _cross_module_gate(forecast, entry, _abc(22, 58, 20), top)
+    plan = _entry_plan(forecast, entry, gate)
+    action = _decisive_action(entry, plan, {"score": 72}, top, gate, forecast)
+
+    assert gate["recovery_setup"] is True
+    assert gate["trade_level"] == "RECOVERY_SETUP"
+    assert plan["entry_state_code"] == "TRIGGERED"
+    assert plan["trade_level"] == "RECOVERY_ENTRY_READY"
+    assert action["code"] == "BUY"
+    assert action["situation_code"] == "BUY_RECOVERY_ENTRY"
+    assert "第一層" in action["label"]
+    assert "15%～20%" in action["instruction"]
+
+
+def test_deleveraging_alone_never_becomes_a_buy_signal():
+    forecast = _forecast("NO_KNIFE", 100, 94, 102, 96)
+    entry = {"state": "BUY_TODAY_CONFIRM", "operative_price": 100,
+             "operative_return_pct": 1.2, "vwap": 99, "vwap_position": "above"}
+    top = [{"category": "chip", "label": "籌碼／法人", "text": "融資大減、融資清洗",
+            "source": "Institution/Short Evidence", "stance_value": -1, "strength": 82, "verified": True}]
+    gate = _cross_module_gate(forecast, entry, _abc(10, 50, 40), top)
+
+    assert gate["deleveraging_evidence"] is True
+    assert gate["recovery_setup"] is False
+    assert gate["entry_qualified"] is False
+
+
+def test_strong_reclaim_resets_old_intraday_breach_reduce_lock():
+    forecast = _forecast("RECLAIM", 106, 97, 106, 104)
+    entry = {"state": "WAIT_VWAP_PULLBACK", "operative_price": 106,
+             "operative_return_pct": 5.0, "vwap": 102, "vwap_position": "above"}
+    gate = _cross_module_gate(forecast, entry, _abc(20, 60, 20), _chip(1, 70))
+    plan = {
+        "current_price": 106, "session_low": 97, "invalidation_price": 98,
+        "confirmation_price": 103, "breakout_price": 107, "trigger_status": "PENDING",
+        "price_order_valid": True, "actionable": True, "entry_state_label": "等待回測",
+    }
+    action = _decisive_action(entry, plan, {"score": 68}, _chip(1, 70), gate, forecast)
+
+    assert gate["rebound_monitor"] is True
+    assert action["code"] == "HOLD"
+    assert action["situation_code"] != "REDUCE_INTRADAY_BREACH_RECLAIMED"
+
