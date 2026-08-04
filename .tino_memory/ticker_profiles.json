@@ -2,7 +2,7 @@
   "0050.TW": {
     "active_family_count": 0,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-08-03T15:07:19+08:00",
+    "approved_at_tw": "2026-08-04T15:17:03+08:00",
     "approved_bias": 0.0,
     "audit_count": 10,
     "avg_abs_error_pct": 2.5028,
@@ -6780,7 +6780,7 @@
   "2408.TW": {
     "active_family_count": 12,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-08-03T15:10:09+08:00",
+    "approved_at_tw": "2026-08-04T15:17:02+08:00",
     "approved_bias": 0.0,
     "audit_count": 17,
     "avg_abs_error_pct": 7.239,
