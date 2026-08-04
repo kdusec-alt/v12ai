@@ -33,7 +33,7 @@ class ConferenceIntelligenceV1097Tests(unittest.TestCase):
         self.assertEqual(canonical_conference("Flash Memory Summit"), "FMS")
 
     def test_official_schedule_converts_to_taipei_and_never_votes_direction(self):
-        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(self._rows())}):
+        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(self._rows()), "TINO_CIE_AUTO_FETCH": "0"}):
             result = conference_calendar(datetime(2026, 8, 4, 8, 0, tzinfo=ZoneInfo("Asia/Taipei")))
         row = result["sessions"][0]
         self.assertEqual(row["conference"], "FMS")
@@ -45,12 +45,12 @@ class ConferenceIntelligenceV1097Tests(unittest.TestCase):
     def test_fake_official_domain_is_rejected(self):
         rows = self._rows()
         rows[0]["source_url"] = "https://example.com/fms"
-        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows)}):
+        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows), "TINO_CIE_AUTO_FETCH": "0"}):
             self.assertEqual(all_conference_sessions(), [])
 
     def test_duplicate_session_keeps_one_row(self):
         rows = self._rows() * 2
-        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows)}):
+        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows), "TINO_CIE_AUTO_FETCH": "0"}):
             self.assertEqual(len(all_conference_sessions()), 1)
 
 
