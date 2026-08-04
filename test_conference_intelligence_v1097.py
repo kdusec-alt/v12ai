@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from conference_intelligence_v1097 import (
     all_conference_sessions, canonical_conference, conference_calendar,
+    conference_watch_display,
 )
 
 
@@ -60,6 +61,16 @@ class ConferenceIntelligenceV1097Tests(unittest.TestCase):
             result = conference_calendar(datetime(2026, 8, 4, 8, 0, tzinfo=ZoneInfo("Asia/Taipei")))
         self.assertEqual(len(result["sessions"]), 1)
         self.assertEqual(result["sessions"][0]["lifecycle"], "AGENDA_PUBLISHED")
+
+    def test_company_acronym_and_countdown_are_user_readable(self):
+        rows = self._rows()
+        rows[0]["conference"] = "Hot Chips"
+        rows[0]["company"] = "Amd"
+        rows[0]["source_url"] = "https://hotchips.org/program/conference/"
+        rows[0]["datetime"] = "2026-08-23T08:30:00"
+        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows), "TINO_CIE_AUTO_FETCH": "0"}):
+            result = conference_watch_display(datetime(2026, 8, 4, 8, 30, tzinfo=ZoneInfo("Asia/Taipei")))
+        self.assertIn("下一場 AMD｜19天後", result["text"])
 
 
 if __name__ == "__main__":

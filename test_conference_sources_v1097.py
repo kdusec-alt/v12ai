@@ -79,6 +79,21 @@ class ConferenceSourcesV1097Tests(unittest.TestCase):
             self.assertEqual(sources.fetch_official_sessions(), [])
         self.assertTrue(opened.called)
 
+    def test_legacy_nonempty_cache_is_refreshed_after_fms_parser_upgrade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "cie.json"
+            cache.write_text(json.dumps({
+                "saved_at": "2026-08-04T00:00:00+00:00",
+                "sessions": [{"session_id": "HOT_CHIPS_ONLY"}],
+                "sources": {"HOT CHIPS": {"status": "OK", "sessions": 1}},
+            }), encoding="utf-8")
+            with patch.object(sources, "_CACHE", cache), patch.object(
+                sources, "urlopen", side_effect=OSError("blocked")
+            ) as opened:
+                rows = sources.fetch_official_sessions()
+        self.assertTrue(opened.called)
+        self.assertEqual(rows, [{"session_id": "HOT_CHIPS_ONLY"}])
+
 
 if __name__ == "__main__":
     unittest.main()

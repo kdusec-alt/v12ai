@@ -49,6 +49,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
 }
 
 _CACHE = Path(os.environ.get("TINO_CIE_CACHE_PATH", "/tmp/tino_cie_official_agenda.json"))
+_CACHE_SCHEMA = "TINO_CIE_AGENDA_V1097_2"
 _TIME_RE = re.compile(r"(?P<h>\d{1,2}):(?P<m>\d{2})\s*(?P<ampm>AM|PM)", re.I)
 _DATE_RE = re.compile(r"(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday),?\s+([A-Z][a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})", re.I)
 _ISO_DATE_RE = re.compile(r"\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b")
@@ -318,9 +319,11 @@ def parse_conference_dates(html: str, conference: str, timezone_name: str, sourc
     ]
 
 
-def _read_cache(max_age_days: int = 45) -> List[Dict[str, Any]] | None:
+def _read_cache(max_age_days: int = 45, *, require_current_schema: bool = False) -> List[Dict[str, Any]] | None:
     try:
         payload = json.loads(_CACHE.read_text(encoding="utf-8"))
+        if require_current_schema and payload.get("schema") != _CACHE_SCHEMA:
+            return None
         saved = datetime.fromisoformat(payload["saved_at"])
         if datetime.now(timezone.utc) - saved <= timedelta(days=max_age_days):
             return list(payload.get("sessions") or [])
@@ -349,9 +352,10 @@ def conference_source_health(*, max_age_days: int = 45) -> Dict[str, Any]:
 def fetch_official_sessions(*, timeout: float = 3.0, force: bool = False) -> List[Dict[str, Any]]:
     """Refresh official agendas; retain verified cache on transient failure."""
     if not force:
-        cached = _read_cache(max_age_days=1)
-        # V1097.1: an empty cache from an older parser is not a valid success;
-        # retry immediately so deployment cannot remain blank for 24 hours.
+        cached = _read_cache(max_age_days=1, require_current_schema=True)
+        # V1097.2: old non-empty caches may contain Hot Chips but no FMS because
+        # they were written before the FMS adapter existed.  Only a cache made
+        # by the current parser contract may suppress an official refresh.
         if cached:
             return cached
     sessions: List[Dict[str, Any]] = []
@@ -387,7 +391,12 @@ def fetch_official_sessions(*, timeout: float = 3.0, force: bool = False) -> Lis
                 continue
     deduped = {row["session_id"]: row for row in sessions}
     if deduped:
-        payload = {"saved_at": datetime.now(timezone.utc).isoformat(), "sessions": list(deduped.values()), "sources": health}
+        payload = {
+            "schema": _CACHE_SCHEMA,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+            "sessions": list(deduped.values()),
+            "sources": health,
+        }
         try:
             _CACHE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         except Exception:
