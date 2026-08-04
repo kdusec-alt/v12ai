@@ -4,7 +4,8 @@
 Industry conferences are forward-looking context, not news and not macro
 releases.  This module keeps their schedule, lifecycle and ticker exposure
 separate so a pre-event appearance can never become a bullish vote by itself.
-Deployment supplies verified sessions through ``TINO_CIE_EVENTS_JSON``.
+Verified sessions are refreshed from official sites; deployment JSON remains
+an emergency override and additive source.
 """
 from __future__ import annotations
 
@@ -143,14 +144,21 @@ def _row_to_session(row: Mapping[str, Any]) -> ConferenceSession | None:
 
 
 def all_conference_sessions() -> List[ConferenceSession]:
-    """Load, validate and de-duplicate deployment-supplied conference sessions."""
+    """Load, validate and de-duplicate official and deployment sessions."""
     raw = _clean(os.environ.get("TINO_CIE_EVENTS_JSON"))
-    if not raw:
-        return []
-    try:
-        rows = json.loads(raw)
-    except Exception:
-        return []
+    rows: List[Any] = []
+    if raw:
+        try:
+            supplied = json.loads(raw)
+            rows.extend(supplied if isinstance(supplied, list) else [])
+        except Exception:
+            pass
+    if _clean(os.environ.get("TINO_CIE_AUTO_FETCH", "1")).lower() not in {"0", "false", "off"}:
+        try:
+            from conference_sources_v1097 import fetch_official_sessions
+            rows.extend(fetch_official_sessions())
+        except Exception:
+            pass
     if not isinstance(rows, list):
         return []
     merged: Dict[str, ConferenceSession] = {}
