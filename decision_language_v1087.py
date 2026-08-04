@@ -53,6 +53,21 @@ def compose_action_language(
             "reason": f"已完成回測確認；{t1_text}已收斂、{abc_text}且無強空共振",
         }
 
+    if situation == "BUY_RECOVERY_ENTRY":
+        evidence = []
+        if metrics.get("deleveraging_evidence"):
+            evidence.append("融資／槓桿清洗")
+        if metrics.get("positive_event"):
+            evidence.append("正面新聞／基本面")
+        if metrics.get("positive_market"):
+            evidence.append("跨市場轉穩")
+        evidence_text = "、".join(evidence) or "修復證據"
+        return {
+            "label": "修復布局｜第一層買進",
+            "instruction": f"{current}附近建立15%～20%首倉｜跌破 {invalid} 停損｜正式轉強後才加碼",
+            "reason": f"{evidence_text}與價格站回VWAP、回測確認共同成立；{t1_text}、{abc_text}",
+        }
+
     if situation == "HOLD_T1_NEGATIVE":
         if bool(metrics.get("rebound_monitor")):
             instruction = _pick(symbol, (

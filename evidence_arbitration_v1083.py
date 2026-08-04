@@ -18,7 +18,7 @@ try:
 except Exception:  # deployment fallback keeps the panel alive during rolling update
     compose_action_language = None
 
-SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1091"
+SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1092"
 
 
 def _text(v: Any) -> str:
@@ -310,6 +310,25 @@ def _cross_module_gate(
         _text(row.get("category")) == "event" and int(row.get("stance_value") or 0) < 0
         and int(_num(row.get("strength")) or 0) >= 78 for row in top
     )
+    evidence_blob = "｜".join(
+        _text(row.get("label")) + "｜" + _text(row.get("text")) + "｜" + _text(row.get("source"))
+        for row in top
+    ).lower()
+    deleveraging_evidence = any(term in evidence_blob for term in (
+        "融資下降", "融資減少", "融資減", "融資清洗", "健康去槓桿", "去槓桿",
+        "margin decline", "margin reduced", "deleveraging",
+    ))
+    positive_event = any(
+        _text(row.get("category")) in {"event", "fundamental"}
+        and int(row.get("stance_value") or 0) > 0
+        and bool(row.get("verified"))
+        and int(_num(row.get("strength")) or 0) >= 55 for row in top
+    )
+    positive_market = any(
+        _text(row.get("category")) == "market"
+        and int(row.get("stance_value") or 0) > 0
+        and bool(row.get("verified")) for row in top
+    )
     controlled_low_trade = bool(
         t1_return is not None and -0.8 < t1_return <= 0
         and b is not None and b >= 45
@@ -323,6 +342,18 @@ def _cross_module_gate(
     price_above_vwap = bool(
         vwap_position == "above"
         or (last is not None and vwap is not None and last >= vwap)
+    )
+    recovery_confirmation_count = sum(bool(x) for x in (
+        deleveraging_evidence, positive_event, positive_market, chip_bull >= 60,
+    ))
+    recovery_setup = bool(
+        t1_return is not None and -2.5 <= t1_return <= 0.8
+        and day_return >= 1.0 and price_above_vwap
+        and b is not None and b >= 45 and (c is None or c <= 30)
+        and chip_bear < 78 and not event_bear
+        and recovery_confirmation_count >= 2
+        and (deleveraging_evidence or positive_event or positive_market)
+        and state in {"BUY_TODAY_CONFIRM", "WAIT_VWAP_PULLBACK", "WAIT_VWAP_RECLAIM", "WAIT_RECLAIM_HOLD"}
     )
     rebound_monitor = bool(
         t1_return is not None and t1_return <= 0
@@ -360,7 +391,7 @@ def _cross_module_gate(
         if chip_bear >= 78 and chip_bull == 0:
             allow_immediate = False
             reasons.append("法人／籌碼偏空尚未改善")
-        if t1_return is not None and t1_return <= -0.8 and (
+        if not recovery_setup and t1_return is not None and t1_return <= -0.8 and (
             (c is not None and c >= 25) or chip_bear >= 70
         ):
             allow_pullback = allow_breakout = False
@@ -369,6 +400,10 @@ def _cross_module_gate(
             allow_pullback = True
             allow_breakout = False
             reasons.append("T1已收斂、回測情境主導且無強空共振，可保留受控試單")
+        elif recovery_setup:
+            allow_pullback = True
+            allow_breakout = False
+            reasons.append("去槓桿／事件／市場證據與價格修復共振，開放修復型首倉")
         if state in {"OVERHEATED_NO_CHASE", "LIMIT_LIQUIDITY_WAIT"}:
             allow_immediate = False
             allow_pullback = allow_breakout = False
@@ -385,6 +420,8 @@ def _cross_module_gate(
                 code = "NO_ENTRY_CONFLICT"
         elif controlled_low_trade:
             code = "CONTROLLED_LOW_TRADE"
+        elif recovery_setup:
+            code = "RECOVERY_SETUP"
         elif not allow_immediate:
             code = "CONDITIONAL_ONLY"
 
@@ -393,6 +430,7 @@ def _cross_module_gate(
         "ENTRY_QUALIFIED": "買進資格通過",
         "CONDITIONAL_ONLY": "僅條件式買進",
         "CONTROLLED_LOW_TRADE": "可以交易｜小倉試單",
+        "RECOVERY_SETUP": "修復布局｜回測確認首倉",
         "NO_ENTRY_T1": "T1未轉正，本日無買點",
         "NO_ENTRY_ABC": "ABC防守過高，本日無買點",
         "NO_ENTRY_CONFLICT": "跨模組衝突，本日無買點",
@@ -408,16 +446,22 @@ def _cross_module_gate(
         "chip_bear_strength": chip_bear, "chip_bull_strength": chip_bull,
         "event_bearish_veto": event_bear,
         "controlled_low_trade": controlled_low_trade,
+        "recovery_setup": recovery_setup,
+        "recovery_confirmation_count": recovery_confirmation_count,
+        "deleveraging_evidence": deleveraging_evidence,
+        "positive_event": positive_event,
+        "positive_market": positive_market,
         "rebound_monitor": rebound_monitor,
         "day_return_pct": day_return,
         "price_above_vwap": price_above_vwap,
         "trade_level": (
             "TRADEABLE" if controlled_low_trade else
+            "RECOVERY_SETUP" if recovery_setup else
             "REBOUND_MONITOR" if rebound_monitor else
             "LOW_MONITOR" if t1_return is not None and t1_return <= 0 else
             "TREND_CONFIRMED"
         ),
-        "source": "V1091 Rebound-Aware Cross-Module Decision Gate",
+        "source": "V1092 Deleveraging Recovery Entry Gate",
     }
 
 
@@ -548,6 +592,7 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         entry_state_code, entry_state_label, missing = "NO_ENTRY", "本日無買進資格", list(gate.get("reasons") or [])[:3]
     elif state == "BUY_TODAY_CONFIRM" and (
         not gate or bool(gate.get("allow_immediate_buy", True)) or bool(gate.get("controlled_low_trade"))
+        or bool(gate.get("recovery_setup"))
     ):
         entry_state_code, entry_state_label, missing = "TRIGGERED", "正式觸發", []
     elif zone_lo is not None and zone_hi is not None and last is not None and zone_lo <= last <= zone_hi:
@@ -641,23 +686,29 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         "no_chase_price": no_chase,
         "price_order_valid": price_order_valid,
         "trade_level": (
-            "LOW_ENTRY_READY"
+            "RECOVERY_ENTRY_READY"
+            if gate.get("recovery_setup") and entry_state_code == "TRIGGERED" and actionable
+            else "LOW_ENTRY_READY"
             if gate.get("controlled_low_trade") and entry_state_code == "TRIGGERED" and actionable
             else gate.get("trade_level") or "LOW_MONITOR"
         ),
         "trade_level_label": {
             "LOW_ENTRY_READY": "可以低接｜回測確認買進",
+            "RECOVERY_ENTRY_READY": "修復布局｜回測確認首倉",
+            "RECOVERY_SETUP": "修復布局｜等待回測確認",
             "TRADEABLE": "可以交易｜小倉試單",
             "REBOUND_MONITOR": "反彈監控｜已止跌反彈，尚未確認轉強",
             "LOW_MONITOR": "低檔監控｜尚未止跌",
             "TREND_CONFIRMED": "正式轉強",
         }.get(
-            "LOW_ENTRY_READY"
+            "RECOVERY_ENTRY_READY"
+            if gate.get("recovery_setup") and entry_state_code == "TRIGGERED" and actionable
+            else "LOW_ENTRY_READY"
             if gate.get("controlled_low_trade") and entry_state_code == "TRIGGERED" and actionable
             else gate.get("trade_level") or "LOW_MONITOR",
             "低檔監控｜尚未止跌",
         ),
-        "source": "V1091 Rebound-Aware Low-Entry Trigger + verified session OHLC/VWAP geometry",
+        "source": "V1092 Deleveraging Recovery Entry + verified session OHLC/VWAP geometry",
         "formal_price_model_unchanged": True,
     }
 def _decisive_action(
@@ -698,10 +749,17 @@ def _decisive_action(
         current_n is not None and session_low_n is not None and invalid_n is not None
         and session_low_n < invalid_n <= current_n
     )
+    strong_reclaim_reset = bool(
+        intraday_breach_recovered
+        and gate.get("price_above_vwap")
+        and (_num(gate.get("day_return_pct")) or 0) >= 3.0
+        and (_num(gate.get("abc_c")) is None or (_num(gate.get("abc_c")) or 0) <= 30)
+        and (gate.get("rebound_monitor") or gate.get("recovery_setup"))
+    )
     if current_below_invalid:
         code, reason = "SELL", "現價已跌破失效價，原交易結構失效"
         situation, exit_basis = "SELL_PRICE_INVALID", "CURRENT_PRICE_INVALIDATION"
-    elif intraday_breach_recovered:
+    elif intraday_breach_recovered and not strong_reclaim_reset:
         code, reason = "REDUCE", "盤中曾跌破失效價，但現價已收回；先降低風險並觀察收復是否有效"
         situation, exit_basis = "REDUCE_INTRADAY_BREACH_RECLAIMED", "INTRADAY_BREACH_RECLAIMED"
     elif state == "FAILED_BREAKOUT_EXIT":
@@ -714,7 +772,10 @@ def _decisive_action(
         code, reason = "BLOCK", "Session或同源價格無法驗證，禁止以失真資料下單"
         situation = "BLOCK_DATA"
     elif state == "BUY_TODAY_CONFIRM" and trigger_status == "TRIGGERED" and price_order_valid:
-        if gate.get("controlled_low_trade") and score >= 55 and dominance >= -20:
+        if gate.get("recovery_setup") and score >= 55 and dominance >= -20:
+            code, reason = "BUY", "融資／事件／市場與價格修復形成共振，回測確認後開放第一層布局"
+            situation = "BUY_RECOVERY_ENTRY"
+        elif gate.get("controlled_low_trade") and score >= 55 and dominance >= -20:
             code, reason = "BUY", "低檔回測已確認，T1風險收斂且無強空共振，只開放小倉試單"
             situation = "BUY_LOW_ENTRY"
         elif score >= 55 and dominance >= -20:
@@ -764,7 +825,9 @@ def _decisive_action(
     label, icon, color = meta[code]
     if code == "BUY":
         instruction = (
-            f"可以低接｜{current}附近20%～30%試單｜跌破 {invalid} 停損"
+            f"修復布局｜{current}附近15%～20%首倉｜跌破 {invalid} 停損｜確認轉強後才加碼"
+            if gate.get("recovery_setup")
+            else f"可以低接｜{current}附近20%～30%試單｜跌破 {invalid} 停損"
             if gate.get("controlled_low_trade")
             else f"買進｜{current}附近小量｜跌破 {invalid} 停損"
         )
