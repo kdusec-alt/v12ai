@@ -18,7 +18,7 @@ try:
 except Exception:  # deployment fallback keeps the panel alive during rolling update
     compose_action_language = None
 
-SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1089"
+SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1090"
 
 
 def _text(v: Any) -> str:
@@ -310,6 +310,13 @@ def _cross_module_gate(
         _text(row.get("category")) == "event" and int(row.get("stance_value") or 0) < 0
         and int(_num(row.get("strength")) or 0) >= 78 for row in top
     )
+    controlled_low_trade = bool(
+        t1_return is not None and -0.8 < t1_return <= 0
+        and b is not None and b >= 45
+        and (c is None or c <= 30)
+        and chip_bear < 78 and not event_bear
+        and state in {"BUY_TODAY_CONFIRM", "WAIT_VWAP_PULLBACK", "WAIT_VWAP_RECLAIM", "WAIT_RECLAIM_HOLD"}
+    )
 
     reasons: list[str] = []
     allow_immediate = True
@@ -345,6 +352,10 @@ def _cross_module_gate(
         ):
             allow_pullback = allow_breakout = False
             reasons.append("T1負報酬與防守／籌碼風險形成共振")
+        elif controlled_low_trade:
+            allow_pullback = True
+            allow_breakout = False
+            reasons.append("T1已收斂、回測情境主導且無強空共振，可保留受控試單")
         if state in {"OVERHEATED_NO_CHASE", "LIMIT_LIQUIDITY_WAIT"}:
             allow_immediate = False
             allow_pullback = allow_breakout = False
@@ -359,6 +370,8 @@ def _cross_module_gate(
                 code = "NO_ENTRY_ABC"
             else:
                 code = "NO_ENTRY_CONFLICT"
+        elif controlled_low_trade:
+            code = "CONTROLLED_LOW_TRADE"
         elif not allow_immediate:
             code = "CONDITIONAL_ONLY"
 
@@ -366,6 +379,7 @@ def _cross_module_gate(
     label_map = {
         "ENTRY_QUALIFIED": "買進資格通過",
         "CONDITIONAL_ONLY": "僅條件式買進",
+        "CONTROLLED_LOW_TRADE": "可以交易｜小倉試單",
         "NO_ENTRY_T1": "T1未轉正，本日無買點",
         "NO_ENTRY_ABC": "ABC防守過高，本日無買點",
         "NO_ENTRY_CONFLICT": "跨模組衝突，本日無買點",
@@ -380,7 +394,13 @@ def _cross_module_gate(
         "abc_a": a, "abc_b": b, "abc_c": c,
         "chip_bear_strength": chip_bear, "chip_bull_strength": chip_bull,
         "event_bearish_veto": event_bear,
-        "source": "V1087 Cross-Module Decision Gate",
+        "controlled_low_trade": controlled_low_trade,
+        "trade_level": (
+            "TRADEABLE" if controlled_low_trade else
+            "LOW_MONITOR" if t1_return is not None and t1_return <= 0 else
+            "TREND_CONFIRMED"
+        ),
+        "source": "V1090 Four-Level Cross-Module Decision Gate",
     }
 
 
@@ -509,7 +529,9 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
     entry_sequence_verified = not session_touched_zone
     if not actionable:
         entry_state_code, entry_state_label, missing = "NO_ENTRY", "本日無買進資格", list(gate.get("reasons") or [])[:3]
-    elif state == "BUY_TODAY_CONFIRM" and (not gate or bool(gate.get("allow_immediate_buy", True))):
+    elif state == "BUY_TODAY_CONFIRM" and (
+        not gate or bool(gate.get("allow_immediate_buy", True)) or bool(gate.get("controlled_low_trade"))
+    ):
         entry_state_code, entry_state_label, missing = "TRIGGERED", "正式觸發", []
     elif zone_lo is not None and zone_hi is not None and last is not None and zone_lo <= last <= zone_hi:
         entry_state_code, entry_state_label, missing = "IN_PULLBACK", "已進入回測區", ["量縮守穩", "重新站回確認價"]
@@ -601,7 +623,23 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         "stop_price": stop,
         "no_chase_price": no_chase,
         "price_order_valid": price_order_valid,
-        "source": "V1089 ETF-aware Entry Trigger + verified session OHLC/VWAP geometry",
+        "trade_level": (
+            "LOW_ENTRY_READY"
+            if gate.get("controlled_low_trade") and entry_state_code == "TRIGGERED" and actionable
+            else gate.get("trade_level") or "LOW_MONITOR"
+        ),
+        "trade_level_label": {
+            "LOW_ENTRY_READY": "可以低接｜回測確認買進",
+            "TRADEABLE": "可以交易｜小倉試單",
+            "LOW_MONITOR": "低檔監控｜尚未止跌",
+            "TREND_CONFIRMED": "正式轉強",
+        }.get(
+            "LOW_ENTRY_READY"
+            if gate.get("controlled_low_trade") and entry_state_code == "TRIGGERED" and actionable
+            else gate.get("trade_level") or "LOW_MONITOR",
+            "低檔監控｜尚未止跌",
+        ),
+        "source": "V1090 Four-Level Low-Entry Trigger + verified session OHLC/VWAP geometry",
         "formal_price_model_unchanged": True,
     }
 def _decisive_action(
@@ -658,7 +696,10 @@ def _decisive_action(
         code, reason = "BLOCK", "Session或同源價格無法驗證，禁止以失真資料下單"
         situation = "BLOCK_DATA"
     elif state == "BUY_TODAY_CONFIRM" and trigger_status == "TRIGGERED" and price_order_valid:
-        if score >= 55 and dominance >= -20:
+        if gate.get("controlled_low_trade") and score >= 55 and dominance >= -20:
+            code, reason = "BUY", "低檔回測已確認，T1風險收斂且無強空共振，只開放小倉試單"
+            situation = "BUY_LOW_ENTRY"
+        elif score >= 55 and dominance >= -20:
             code, reason = "BUY", "價格結構、有效證據與買進觸發均已成立"
             situation = "BUY_READY"
         elif hard_bearish:
@@ -704,7 +745,11 @@ def _decisive_action(
     }
     label, icon, color = meta[code]
     if code == "BUY":
-        instruction = f"買進｜{current}附近小量｜跌破 {invalid} 停損"
+        instruction = (
+            f"可以低接｜{current}附近20%～30%試單｜跌破 {invalid} 停損"
+            if gate.get("controlled_low_trade")
+            else f"買進｜{current}附近小量｜跌破 {invalid} 停損"
+        )
     elif code == "HOLD" and bool(plan.get("actionable")):
         instruction = f"尚未買進｜回測站回 {confirm} 買；或放量突破 {breakout} 買｜跌破 {invalid} 取消"
     elif code == "HOLD":
