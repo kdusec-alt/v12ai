@@ -54,12 +54,25 @@ def compose_action_language(
         }
 
     if situation == "HOLD_T1_NEGATIVE":
+        if bool(metrics.get("rebound_monitor")):
+            instruction = _pick(symbol, (
+                f"已止跌反彈但不追價｜等待回測承接或T1改善後再啟動｜持股守 {invalid}",
+                f"短線反彈成立｜空手等待回測，不在連漲後追買｜持股守 {invalid}",
+            ))
+            return {
+                "label": "反彈監控｜已止跌反彈，尚未確認轉強",
+                "instruction": instruction,
+                "reason": (
+                    f"今日 {float(metrics.get('day_return_pct') or 0):+.2f}% 且已站回VWAP，"
+                    f"價格確認止跌反彈；但{t1_text}、{abc_text}，尚不具追價資格"
+                ),
+            }
         instruction = _pick(symbol, (
-            "本日不建立新部位｜待T1轉正且ABC風險下降後重算",
-            "空手暫停買進｜下一交易日預期報酬轉正前不啟動價格觸發",
+            "本日不建立新部位｜待價格止跌、T1改善且ABC風險下降後重算",
+            "空手暫停買進｜尚未形成價格止跌證據，不啟動價格觸發",
         ))
         return {"label": "低檔監控｜尚未止跌", "instruction": instruction,
-                "reason": f"{t1_text}，模型自己未預估正報酬；{abc_text}"}
+                "reason": f"{t1_text}，且價格尚未形成明確反彈確認；{abc_text}"}
 
     if situation == "HOLD_ABC_DEFENSIVE":
         return {"label": "空手暫不買｜持股守防線",
