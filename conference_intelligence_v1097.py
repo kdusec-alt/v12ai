@@ -48,9 +48,20 @@ OFFICIAL_HOSTS = {
     "INTEL INNOVATION": ("intel.com",),
 }
 
+COMPANY_DISPLAY_NAMES = {
+    "AMD": "AMD", "FADU": "FADU", "FMS": "FMS", "IBM": "IBM",
+    "INTEL": "Intel", "MARVELL": "Marvell", "MICRON": "Micron",
+    "NVIDIA": "NVIDIA", "OCP": "OCP", "SK HYNIX": "SK hynix",
+}
+
 
 def _clean(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def canonical_company(value: Any) -> str:
+    company = _clean(value) or "Conference"
+    return COMPANY_DISPLAY_NAMES.get(company.upper(), company)
 
 
 def canonical_conference(value: Any) -> str:
@@ -118,7 +129,7 @@ def _row_to_session(row: Mapping[str, Any]) -> ConferenceSession | None:
         if not official and _clean(row.get("source_tier")).upper() == "OFFICIAL":
             return None
         event_id = _clean(row.get("event_id")) or f"{conference}_{start.year}"
-        company = _clean(row.get("company")) or "Conference"
+        company = canonical_company(row.get("company"))
         title = _clean(row.get("title")) or "議程待確認"
         session_id = _clean(row.get("session_id")) or re.sub(
             r"[^A-Z0-9]+", "_", f"{event_id}_{company}_{start.isoformat()}".upper()
@@ -235,9 +246,16 @@ def conference_watch_display(now: datetime | None = None) -> Dict[str, Any]:
         return {"level": "caption", "text": "🟣 AI產業日曆｜近期無已載入的官方議程", **calendar}
     nearest = sessions[0]
     label = {"LIVE": "進行中", "STARTING_SOON": "即將開始", "PRE_EVENT": "會前預警", "AGENDA_PUBLISHED": "議程已公布", "AWAITING_RESULT": "等待會後確認"}.get(nearest["lifecycle"], nearest["lifecycle"])
+    hours = float(nearest.get("countdown_hours") or 0.0)
+    if nearest["lifecycle"] == "LIVE":
+        timing = "今日進行中"
+    elif hours < 24:
+        timing = f"{max(0, round(hours))}小時後"
+    else:
+        timing = f"{max(1, int(hours // 24))}天後"
     text = (
         f"🟣 INDUSTRY TIER-{nearest['tier']}｜{nearest['conference']}｜{label}｜"
-        f"下一場 {nearest['company']} {nearest['start_taipei'][5:]} 台北｜"
+        f"下一場 {nearest['company']}｜{timing}｜{nearest['start_taipei'][5:]} 台北｜"
         f"{nearest['stars']}｜會前不投方向票"
     )
     return {"level": "industry", "text": text, **calendar}
