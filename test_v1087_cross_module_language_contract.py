@@ -281,3 +281,46 @@ def test_confirmed_controlled_low_entry_uses_small_position_language():
     assert action["code"] == "BUY"
     assert "可以低接" in action["label"]
     assert "20%～30%" in action["instruction"]
+
+def test_6770_strong_rebound_is_not_labeled_as_not_bottomed():
+    forecast = _forecast("6770", 57.20, 53.90, 57.20, 56.37)
+    entry = {
+        "state": "WAIT_VWAP_PULLBACK",
+        "operative_price": 57.20,
+        "operative_return_pct": 7.04,
+        "vwap": 56.10,
+        "vwap_position": "above",
+    }
+    top = _chip(-1, 82)
+    gate = _cross_module_gate(forecast, entry, _abc(6, 54, 40), top)
+    plan = _entry_plan(forecast, entry, gate)
+    action = _decisive_action(entry, plan, {"score": 55}, top, gate, forecast)
+
+    assert gate["entry_qualified"] is False
+    assert gate["rebound_monitor"] is True
+    assert gate["trade_level"] == "REBOUND_MONITOR"
+    assert plan["trade_level_label"] == "反彈監控｜已止跌反彈，尚未確認轉強"
+    assert action["code"] == "HOLD"
+    assert "反彈監控" in action["label"]
+    assert "尚未止跌" not in action["label"]
+    assert "不追" in action["instruction"] or "等待回測" in action["instruction"]
+    assert "T1" in action["reason"]
+
+
+def test_positive_day_below_vwap_does_not_fake_rebound_confirmation():
+    forecast = _forecast("TEST", 100, 95, 102, 98)
+    entry = {
+        "state": "WAIT_VWAP_RECLAIM",
+        "operative_price": 100,
+        "operative_return_pct": 3.50,
+        "vwap": 101,
+        "vwap_position": "below",
+    }
+    top = _chip(-1, 82)
+    gate = _cross_module_gate(forecast, entry, _abc(8, 52, 40), top)
+    plan = _entry_plan(forecast, entry, gate)
+
+    assert gate["rebound_monitor"] is False
+    assert gate["trade_level"] == "LOW_MONITOR"
+    assert plan["trade_level_label"] == "低檔監控｜尚未止跌"
+

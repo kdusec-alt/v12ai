@@ -18,7 +18,7 @@ try:
 except Exception:  # deployment fallback keeps the panel alive during rolling update
     compose_action_language = None
 
-SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1090"
+SCHEMA = "TINO_EVIDENCE_ARBITRATION_V1091"
 
 
 def _text(v: Any) -> str:
@@ -317,6 +317,19 @@ def _cross_module_gate(
         and chip_bear < 78 and not event_bear
         and state in {"BUY_TODAY_CONFIRM", "WAIT_VWAP_PULLBACK", "WAIT_VWAP_RECLAIM", "WAIT_RECLAIM_HOLD"}
     )
+    day_return = _num(entry.get("operative_return_pct")) or 0.0
+    vwap = _num(entry.get("vwap"))
+    vwap_position = _text(entry.get("vwap_position")).lower()
+    price_above_vwap = bool(
+        vwap_position == "above"
+        or (last is not None and vwap is not None and last >= vwap)
+    )
+    rebound_monitor = bool(
+        t1_return is not None and t1_return <= 0
+        and day_return >= 3.0
+        and price_above_vwap
+        and state not in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT", "DATA_WAIT", "WAIT_NEXT_SESSION"}
+    )
 
     reasons: list[str] = []
     allow_immediate = True
@@ -395,12 +408,16 @@ def _cross_module_gate(
         "chip_bear_strength": chip_bear, "chip_bull_strength": chip_bull,
         "event_bearish_veto": event_bear,
         "controlled_low_trade": controlled_low_trade,
+        "rebound_monitor": rebound_monitor,
+        "day_return_pct": day_return,
+        "price_above_vwap": price_above_vwap,
         "trade_level": (
             "TRADEABLE" if controlled_low_trade else
+            "REBOUND_MONITOR" if rebound_monitor else
             "LOW_MONITOR" if t1_return is not None and t1_return <= 0 else
             "TREND_CONFIRMED"
         ),
-        "source": "V1090 Four-Level Cross-Module Decision Gate",
+        "source": "V1091 Rebound-Aware Cross-Module Decision Gate",
     }
 
 
@@ -631,6 +648,7 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         "trade_level_label": {
             "LOW_ENTRY_READY": "可以低接｜回測確認買進",
             "TRADEABLE": "可以交易｜小倉試單",
+            "REBOUND_MONITOR": "反彈監控｜已止跌反彈，尚未確認轉強",
             "LOW_MONITOR": "低檔監控｜尚未止跌",
             "TREND_CONFIRMED": "正式轉強",
         }.get(
@@ -639,7 +657,7 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
             else gate.get("trade_level") or "LOW_MONITOR",
             "低檔監控｜尚未止跌",
         ),
-        "source": "V1090 Four-Level Low-Entry Trigger + verified session OHLC/VWAP geometry",
+        "source": "V1091 Rebound-Aware Low-Entry Trigger + verified session OHLC/VWAP geometry",
         "formal_price_model_unchanged": True,
     }
 def _decisive_action(
