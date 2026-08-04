@@ -6188,8 +6188,8 @@
   "2454.TW": {
     "active_family_count": 12,
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
-    "approved_at_tw": "2026-08-03T15:21:52+08:00",
-    "approved_bias": -0.015,
+    "approved_at_tw": "2026-08-04T14:14:17+08:00",
+    "approved_bias": -0.0175,
     "audit_count": 36,
     "avg_abs_error_pct": 4.2156,
     "avg_direction_brier": 0.257549,
