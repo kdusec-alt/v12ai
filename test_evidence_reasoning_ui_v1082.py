@@ -11,8 +11,9 @@ class EvidenceReasoningUiV1082Tests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
 
-    def test_v1082_reasoning_is_rendered_inside_existing_decision_card(self):
-        self.assertIn("from evidence_reasoning_v1082 import build_evidence_reasoning", self.source)
+    def test_v1096_snapshot_reasoning_is_rendered_inside_existing_decision_card(self):
+        self.assertIn("_decision_snapshot_payload", self.source)
+        self.assertNotIn("build_evidence_reasoning(p, entry)", self.source)
         self.assertIn("class='reasoning-line'", self.source)
         self.assertIn("AI推理", self.source)
         self.assertIn("前三大主因", self.source)

@@ -1,0 +1,13 @@
+{
+  "schema": "TINO_V9_GOLDEN_MASTER_CONTRACT_V1093",
+  "baseline_commit": "4644d354dafa2903c136ae4ea441862542f05ecb",
+  "baseline_ui_sha256": "08fbd2579a5be55b2a740ea0e712721caf93b265bbe1ecd83970fde4d9cb20f0",
+  "frontend_file": "ui_v9_battle_panel.py",
+  "required_layers": ["entrylamp", "decision", "t1"],
+  "required_price_tiles": ["現在", "低接", "確認", "加碼", "失效"],
+  "required_height": 642,
+  "forbidden_public_terms": ["accepted TRUE", "由 Orchestrator 採納", "RuntimeError", "WAIT_OFFICIAL"],
+  "decision_rule": "UI_READS_DECISION_SNAPSHOT_ONLY",
+  "public_memory_write": false,
+  "admin_approval_required_for_learning": true
+}

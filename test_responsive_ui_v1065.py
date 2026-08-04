@@ -30,10 +30,11 @@ class ResponsiveUiV1065Tests(unittest.TestCase):
         self.assertIn("html_block(html, height=642, scrolling=False)", self.radar_source)
         self.assertIn("min-height:624px", self.radar_source)
 
-    def test_battle_panel_uses_session_aware_entry_opportunity_engine(self):
-        self.assertIn("from decision_architecture_v1081 import assess_entry_opportunity", self.battle_source)
+    def test_battle_panel_uses_orchestrator_owned_session_snapshot(self):
+        self.assertIn("_decision_snapshot_payload", self.battle_source)
+        self.assertNotIn("entry = assess_entry_opportunity(p)", self.battle_source)
         self.assertIn("canonical_main_message", self.battle_source)
-        self.assertIn("AI進場時機", self.battle_source)
+        self.assertIn("AI交易決策", self.battle_source)
         self.assertIn("entry_price_strategy", self.battle_source)
         self.assertNotIn("from low_entry_readiness_v1065 import assess_low_entry_readiness", self.battle_source)
 

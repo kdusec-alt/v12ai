@@ -33,7 +33,7 @@ class V1084LearningIntegrityEntryUiTests(unittest.TestCase):
         self.assertIn("def _entry_map_tiles", source)
         for label in ("現在", "低接", "確認", "加碼", "失效"):
             self.assertIn(f'"label": "{label}"', source)
-        self.assertIn("recommended_entry", source)
+        self.assertIn("public_snapshot", source)
         self.assertIn("display_line", source)
 
     def test_entry_ui_keeps_legacy_fallback_and_v9_height(self):

@@ -11,14 +11,14 @@ class EvidenceArbitrationUiV1083Tests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
 
-    def test_v1083_arbitration_is_primary_with_v1082_fallback(self):
-        self.assertIn("from evidence_arbitration_v1083 import build_evidence_reasoning", self.source)
-        self.assertIn("from evidence_reasoning_v1082 import build_evidence_reasoning", self.source)
-        self.assertIn("_evidence_arbitration_v1083", self.source)
+    def test_v1096_snapshot_is_primary_and_ui_does_not_arbitrate(self):
+        self.assertIn("_decision_snapshot_payload", self.source)
+        self.assertNotIn("build_evidence_reasoning(p, entry)", self.source)
+        self.assertIn("正式決策快照未完成；UI禁止重新仲裁", self.source)
 
     def test_recommended_entry_is_visible_and_keeps_v1081_price_tiles(self):
-        self.assertIn("recommended_entry", self.source)
-        self.assertIn("AI建議進場", self.source)
+        self.assertIn("public_snapshot", self.source)
+        self.assertIn("AI執行價格", self.source)
         self.assertIn("class='reasoning-price'", self.source)
         self.assertIn('entry.get("price_tiles")', self.source)
         self.assertIn("price_tiles_html", self.source)
