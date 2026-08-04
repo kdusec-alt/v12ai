@@ -46,12 +46,19 @@ def compose_action_language(
         return {"label": "買進", "instruction": instruction,
                 "reason": f"{t1_text}、{abc_text}與{driver}共同通過買進閘門"}
 
+    if situation == "BUY_LOW_ENTRY":
+        return {
+            "label": "可以低接｜小倉試單",
+            "instruction": f"{current}附近建立20%～30%試單｜跌破 {invalid} 停損｜不一次買滿",
+            "reason": f"已完成回測確認；{t1_text}已收斂、{abc_text}且無強空共振",
+        }
+
     if situation == "HOLD_T1_NEGATIVE":
         instruction = _pick(symbol, (
             "本日不建立新部位｜待T1轉正且ABC風險下降後重算",
             "空手暫停買進｜下一交易日預期報酬轉正前不啟動價格觸發",
         ))
-        return {"label": "空手暫不買｜持股續抱觀察", "instruction": instruction,
+        return {"label": "低檔監控｜尚未止跌", "instruction": instruction,
                 "reason": f"{t1_text}，模型自己未預估正報酬；{abc_text}"}
 
     if situation == "HOLD_ABC_DEFENSIVE":

@@ -40,7 +40,7 @@ def test_6770_negative_t1_and_defensive_abc_removes_fake_buy_prices():
     assert plan["actionable"] is False
     assert plan["entry_state_code"] == "NO_ENTRY"
     assert action["code"] == "HOLD"
-    assert "暫不買" in action["label"]
+    assert "低檔監控" in action["label"]
     assert "T1" in action["reason"]
 
 
@@ -204,7 +204,9 @@ def test_0052_etf_keeps_only_pullback_trigger_with_truthful_entry_state():
     plan = _entry_plan(forecast, entry, gate)
     action = _decisive_action(entry, plan, {"score": 72}, top, gate, forecast)
 
-    assert gate["code"] == "CONDITIONAL_ONLY"
+    assert gate["code"] == "CONTROLLED_LOW_TRADE"
+    assert gate["controlled_low_trade"] is True
+    assert gate["trade_level"] == "TRADEABLE"
     assert gate["entry_qualified"] is True
     assert gate["allow_pullback"] is True
     assert gate["allow_breakout"] is False
@@ -222,3 +224,60 @@ def test_0052_etf_keeps_only_pullback_trigger_with_truthful_entry_state():
     assert "--" not in action["instruction"]
     assert "回測" in action["instruction"]
     assert "僅保留回測型" in action["reason"]
+
+
+def test_deep_falling_zone_remains_monitor_only_not_fake_low_entry():
+    forecast = _forecast("TEST", 55.45, 54.80, 57.20, 54.20)
+    entry = {"state": "WAIT_VWAP_RECLAIM", "operative_price": 55.45, "vwap": 55.50}
+    gate = _cross_module_gate(forecast, entry, _abc(6, 54, 40), _chip(-1, 82))
+    plan = _entry_plan(forecast, entry, gate)
+
+    assert gate["controlled_low_trade"] is False
+    assert gate["entry_qualified"] is False
+    assert gate["trade_level"] == "LOW_MONITOR"
+    assert plan["trade_level_label"] == "低檔監控｜尚未止跌"
+    assert plan["actionable"] is False
+    action = _decisive_action(entry, plan, {"score": 55}, _chip(-1, 82), gate, forecast)
+    assert action["code"] in {"HOLD", "REDUCE"}
+    assert action["code"] != "BUY"
+
+
+def test_near_zero_t1_safe_pullback_keeps_controlled_small_trade_path():
+    forecast = _forecast("TEST", 100, 97, 101, 99.60)
+    entry = {"state": "WAIT_VWAP_RECLAIM", "operative_price": 100, "vwap": 99.50}
+    gate = _cross_module_gate(forecast, entry, _abc(18, 58, 24), _chip(-1, 60))
+    plan = _entry_plan(forecast, entry, gate)
+
+    assert gate["code"] == "CONTROLLED_LOW_TRADE"
+    assert gate["controlled_low_trade"] is True
+    assert gate["allow_pullback"] is True
+    assert gate["allow_breakout"] is False
+    assert gate["trade_level"] == "TRADEABLE"
+    assert plan["trade_level_label"] == "可以交易｜小倉試單"
+    assert plan["actionable"] is True
+
+
+def test_controlled_low_trade_never_bypasses_event_or_strong_chip_veto():
+    forecast = _forecast("TEST", 100, 97, 101, 99.60)
+    entry = {"state": "WAIT_VWAP_RECLAIM", "operative_price": 100, "vwap": 99.50}
+    for top in (
+        _chip(-1, 82),
+        [{"category": "event", "stance_value": -1, "strength": 85}],
+    ):
+        gate = _cross_module_gate(forecast, entry, _abc(18, 58, 24), top)
+        assert gate["controlled_low_trade"] is False
+        assert gate["allow_immediate_buy"] is False
+
+
+def test_confirmed_controlled_low_entry_uses_small_position_language():
+    forecast = _forecast("TEST", 100, 97, 101, 99.60)
+    entry = {"state": "BUY_TODAY_CONFIRM", "operative_price": 100, "vwap": 99.50}
+    gate = _cross_module_gate(forecast, entry, _abc(18, 58, 24), _chip(1, 60))
+    plan = _entry_plan(forecast, entry, gate)
+    action = _decisive_action(entry, plan, {"score": 65}, _chip(1, 60), gate, forecast)
+
+    assert gate["controlled_low_trade"] is True
+    assert plan["trade_level"] == "LOW_ENTRY_READY"
+    assert action["code"] == "BUY"
+    assert "可以低接" in action["label"]
+    assert "20%～30%" in action["instruction"]
