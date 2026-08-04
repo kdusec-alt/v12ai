@@ -111,6 +111,11 @@ class V1096SingleDecisionLifecycleAuditTests(unittest.TestCase):
         decision_core_v1096.assess_entry_opportunity = lambda item: dict(item._test_entry)
         try:
             snap = build_decision_snapshot(forecast(), prior_snapshot={"lifecycle": {"state": "PULLBACK"}})
+            payload = snap.to_dict()
+            self.assertEqual(payload["position_status"], "UNKNOWN")
+            self.assertIsNone(payload["average_cost"])
+            self.assertIsNone(payload["position_size"])
+
         finally:
             decision_core_v1096.assess_entry_opportunity = old
         self.assertEqual(snap.schema, "TINO_DECISION_SNAPSHOT_V1096")
@@ -119,6 +124,21 @@ class V1096SingleDecisionLifecycleAuditTests(unittest.TestCase):
             snap.action_code = "BUY"
         with self.assertRaises(TypeError):
             snap.lifecycle["state"] = "ENTRY_TRIGGERED"
+
+    def test_unknown_position_never_publishes_immediate_reduce(self):
+        import decision_core_v1096
+        row = forecast(state="SELLING_EXPANSION_BLOCK")
+        old = decision_core_v1096.assess_entry_opportunity
+        decision_core_v1096.assess_entry_opportunity = lambda item: dict(item._test_entry)
+        try:
+            snap = build_decision_snapshot(row, prior_snapshot={"lifecycle": {"state": "PULLBACK"}})
+        finally:
+            decision_core_v1096.assess_entry_opportunity = old
+        payload = snap.to_dict()
+        self.assertEqual(payload["position_status"], "UNKNOWN")
+        self.assertNotEqual(payload["action_code"], "REDUCE")
+        self.assertEqual(payload["situation_code"], "HOLD_POSITION_UNKNOWN")
+        self.assertIn("部位資料未知", payload["instruction"])
 
     def test_gate_uses_all_evidence_while_ui_only_displays_top_three(self):
         import decision_core_v1096

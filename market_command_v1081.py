@@ -104,7 +104,7 @@ def _market_thesis(
 ) -> str:
     if observed_count < 2:
         return "可用同時段跨市場證據不足，現階段不能對大盤方向形成高品質判讀"
-    breadth = f"{falling}/{observed_count} 項同組風險代理走弱"
+    breadth = f"{falling}/{observed_count} 項風險代理惡化"
     volatility = f"VIX {vix:.2f}" if vix is not None else "波動率資料尚未同步"
     exclusion = f"；另排除 {excluded_count} 項不同Session資料" if excluded_count else ""
     if same_session_confirmed and event_reason and event_verified:
@@ -128,7 +128,12 @@ def _market_thesis(
             "同Session價格尚未完成確認，不以標題直接宣告趨勢"
         )
     if improving:
-        return f"{breadth}，另有 {improving} 項代理改善{exclusion}；市場訊號分歧，等待方向收斂"
+        balance = (
+            "市場環境改善" if improving > falling else
+            "風險升溫" if falling > improving else
+            "市場訊號分歧"
+        )
+        return f"{breadth}｜{improving} 項風險代理改善{exclusion}；{balance}"
     return f"{breadth}，{volatility}{exclusion}；目前屬局部風險升溫，尚未形成廣泛同步"
 
 

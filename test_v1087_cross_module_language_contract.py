@@ -144,7 +144,7 @@ def test_current_price_below_invalidation_is_the_only_direct_price_sell():
     assert "現價已跌破" in action["reason"]
 
 
-def test_intraday_breach_recovered_is_not_reported_as_current_price_breach():
+def test_intraday_breach_recovered_is_hold_watch_not_reduce():
     forecast = _forecast("TEST", 101, 97, 104, 102)
     entry = {"state": "SELLING_EXPANSION_BLOCK", "operative_price": 101, "vwap": 100}
     plan = {
@@ -154,8 +154,8 @@ def test_intraday_breach_recovered_is_not_reported_as_current_price_breach():
     }
     action = _decisive_action(entry, plan, {"score": 48}, _chip(-1, 75), {}, forecast)
 
-    assert action["code"] == "REDUCE"
-    assert action["situation_code"] == "REDUCE_INTRADAY_BREACH_RECLAIMED"
+    assert action["code"] == "HOLD"
+    assert action["situation_code"] == "HOLD_RECLAIM_WATCH"
     assert action["exit_basis"] == "INTRADAY_BREACH_RECLAIMED"
     assert action["intraday_breach_recovered"] is True
     assert "現價已跌破" not in action["reason"]
@@ -379,4 +379,3 @@ def test_strong_reclaim_resets_old_intraday_breach_reduce_lock():
     assert gate["rebound_monitor"] is True
     assert action["code"] == "HOLD"
     assert action["situation_code"] != "REDUCE_INTRADAY_BREACH_RECLAIMED"
-

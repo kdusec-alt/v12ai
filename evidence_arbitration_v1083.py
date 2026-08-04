@@ -760,8 +760,8 @@ def _decisive_action(
         code, reason = "SELL", "現價已跌破失效價，原交易結構失效"
         situation, exit_basis = "SELL_PRICE_INVALID", "CURRENT_PRICE_INVALIDATION"
     elif intraday_breach_recovered and not strong_reclaim_reset:
-        code, reason = "REDUCE", "盤中曾跌破失效價，但現價已收回；先降低風險並觀察收復是否有效"
-        situation, exit_basis = "REDUCE_INTRADAY_BREACH_RECLAIMED", "INTRADAY_BREACH_RECLAIMED"
+        code, reason = "HOLD", "盤中曾跌破失效價但現價已收回；視為假跌破收復觀察，不提前判定減碼"
+        situation, exit_basis = "HOLD_RECLAIM_WATCH", "INTRADAY_BREACH_RECLAIMED"
     elif state == "FAILED_BREAKOUT_EXIT":
         code, reason = "REDUCE", "原突破條件失敗，但現價並未跌破本卡失效價"
         situation, exit_basis = "REDUCE_FAILED_BREAKOUT", "FAILED_BREAKOUT"
