@@ -14,7 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 from urllib.request import Request, urlopen
 
 try:
@@ -32,15 +32,31 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "urls": ("https://www.opencompute.org/summit/2026-ocp-apac-summit/schedule-overview",),
         "timezone": "Asia/Taipei", "parser": "ocp_overview",
     },
-    "FMS": {"urls": ("https://www.fmsnow.com/",), "timezone": "America/Los_Angeles", "parser": "json_ld"},
+    "FMS": {
+        "urls": (
+            "https://www.fmsnow.com/program/",
+            "https://www.fmsnow.com/agenda/",
+            "https://www.fmsnow.com/",
+        ),
+        "timezone": "America/Los_Angeles", "parser": "fms",
+    },
     "GTC": {"urls": ("https://www.nvidia.com/gtc/session-catalog/",), "timezone": "America/Los_Angeles", "parser": "json_ld"},
     "COMPUTEX": {"urls": ("https://www.computextaipei.com.tw/en/calendar/event-calendar.html",), "timezone": "Asia/Taipei", "parser": "json_ld"},
     "OFC": {"urls": ("https://www.ofcconference.org/schedule/",), "timezone": "America/Los_Angeles", "parser": "json_ld"},
+    "SC": {"urls": ("https://sc26.supercomputing.org/program/",), "timezone": "America/Chicago", "parser": "json_ld"},
+    "AMD ADVANCING AI": {"urls": ("https://www.amd.com/en/corporate/events/advancing-ai.html",), "timezone": "America/Los_Angeles", "parser": "json_ld"},
+    "INTEL INNOVATION": {"urls": ("https://www.intel.com/content/www/us/en/events/on-event-series.html",), "timezone": "America/Los_Angeles", "parser": "json_ld"},
 }
 
 _CACHE = Path(os.environ.get("TINO_CIE_CACHE_PATH", "/tmp/tino_cie_official_agenda.json"))
 _TIME_RE = re.compile(r"(?P<h>\d{1,2}):(?P<m>\d{2})\s*(?P<ampm>AM|PM)", re.I)
 _DATE_RE = re.compile(r"(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday),?\s+([A-Z][a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})", re.I)
+_ISO_DATE_RE = re.compile(r"\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b")
+_MONTH_DATE_RE = re.compile(
+    r"\b(January|February|March|April|May|June|July|August|September|October|November|December)"
+    r"\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*[–—-]\s*(\d{1,2})(?:st|nd|rd|th)?)?,?\s+(20\d{2})\b",
+    re.I,
+)
 
 COMPANY_TICKERS = {
     "NVIDIA": ("NVDA",), "AMD": ("AMD",), "INTEL": ("INTC",),
@@ -48,6 +64,27 @@ COMPANY_TICKERS = {
     "SK HYNIX": ("SKHY",), "SAMSUNG": (), "KIOXIA": (),
     "SILICON MOTION": ("SIMO",), "META": ("META",), "MICROSOFT": ("MSFT",),
     "GOOGLE": ("GOOGL",), "ARM": ("ARM",), "IBM": ("IBM",),
+    "FADU": ("440110.KQ",), "PHISON": ("8299.TW",),
+    "MACRONIX": ("2337.TW",), "WINBOND": ("2344.TW",), "NANYA": ("2408.TW",),
+    "CREDO": ("CRDO",),
+}
+
+COMPANY_CHAIN_TICKERS = {
+    "MARVELL": ("CRDO", "AVGO"),
+    "SK HYNIX": ("MU", "MRVL"),
+    "FADU": ("SIMO", "8299.TW", "MRVL"),
+    "MICRON": ("MRVL", "SIMO", "8299.TW"),
+}
+
+TECHNOLOGY_CHAIN_TICKERS = {
+    "HBM": ("MU", "SKHY", "MRVL"),
+    "HBF": ("MU", "SKHY", "MRVL"),
+    "CXL": ("MRVL", "CRDO", "AVGO"),
+    "OPTICAL": ("MRVL", "CRDO", "AVGO"),
+    "PCIE GEN6": ("SIMO", "8299.TW", "MRVL"),
+    "SSD": ("MU", "SIMO", "8299.TW"),
+    "NAND": ("MU", "2337.TW", "2344.TW"),
+    "DRAM": ("MU", "2408.TW", "2344.TW"),
 }
 
 
@@ -63,6 +100,19 @@ def _tickers(text: str) -> List[str]:
 def _technologies(text: str) -> List[str]:
     terms = ("HBM", "HBF", "CXL", "PCIe Gen6", "SSD", "NAND", "DRAM", "Optical", "GPU", "AI", "Ethernet", "Chiplet", "RISC-V")
     return [term for term in terms if term.lower() in text.lower()]
+
+
+def _supply_chain_tickers(company: str, title: str, direct: Sequence[str]) -> List[str]:
+    upper_company = company.upper()
+    upper_title = title.upper()
+    out: List[str] = []
+    for name, symbols in COMPANY_CHAIN_TICKERS.items():
+        if name in upper_company:
+            out.extend(symbols)
+    for term, symbols in TECHNOLOGY_CHAIN_TICKERS.items():
+        if term in upper_title:
+            out.extend(symbols)
+    return list(dict.fromkeys(symbol for symbol in out if symbol not in direct))
 
 
 def _plain_text(html: str) -> str:
@@ -85,6 +135,7 @@ def _table_rows(html: str) -> List[List[str]]:
 def _row(conference: str, company: str, title: str, start: str, timezone_name: str,
          source_url: str, importance: int = 4) -> Dict[str, Any]:
     key = f"{conference}|{company}|{title}|{start}"
+    direct = _tickers(company)
     return {
         "conference": conference,
         "event_id": f"{conference.replace(' ', '_')}_{start[:4]}",
@@ -94,8 +145,8 @@ def _row(conference: str, company: str, title: str, start: str, timezone_name: s
         "datetime": start,
         "timezone": timezone_name,
         "technologies": _technologies(title),
-        "direct_tickers": _tickers(company),
-        "supply_chain_tickers": [],
+        "direct_tickers": direct,
+        "supply_chain_tickers": _supply_chain_tickers(company, title, direct),
         "importance": importance,
         "source_tier": "OFFICIAL",
         "source_url": source_url,
@@ -159,6 +210,114 @@ def parse_json_ld(html: str, conference: str, timezone_name: str, source_url: st
     return rows
 
 
+def _date_candidates(text: str) -> List[datetime]:
+    """Extract explicit official dates without guessing a year or timezone."""
+    found: List[datetime] = []
+    for year, month, day in _ISO_DATE_RE.findall(text):
+        try:
+            found.append(datetime(int(year), int(month), int(day), 9, 0))
+        except ValueError:
+            continue
+    for month, first, last, year in _MONTH_DATE_RE.findall(text):
+        days: Sequence[str]
+        if last:
+            days = tuple(str(day) for day in range(int(first), int(last) + 1))
+        else:
+            days = (first,)
+        for day in days:
+            if not day:
+                continue
+            try:
+                found.append(datetime.strptime(f"{month} {day} {year} 09:00", "%B %d %Y %H:%M"))
+            except ValueError:
+                continue
+    return sorted(set(found))
+
+
+def _session_blocks(html: str) -> List[str]:
+    """Return bounded agenda-like blocks from tables, cards and embedded JSON."""
+    blocks: List[str] = []
+    if BeautifulSoup is not None:
+        soup = BeautifulSoup(html, "html.parser")
+        selectors = (
+            "tr", "article", "[class*='session']", "[class*='agenda']",
+            "[class*='schedule']", "[data-start]", "[data-date]",
+        )
+        for node in soup.select(",".join(selectors)):
+            text = " ".join(node.stripped_strings)
+            if 12 <= len(text) <= 1600:
+                blocks.append(text)
+    if not blocks:
+        blocks.extend(" ".join(row) for row in _table_rows(html) if row)
+        for tag, attrs, body in re.findall(r"<(article|div|li)\b([^>]*)>(.*?)</\1>", html, re.I | re.S):
+            if re.search(r"session|agenda|schedule|program", attrs, re.I):
+                text = _plain_text(body)
+                if 12 <= len(text) <= 1600:
+                    blocks.append(text)
+    # Modern event sites often hydrate cards from __NEXT_DATA__ / JSON payloads.
+    for script in re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.I | re.S):
+        if re.search(r"start(?:Date|Time)|session|agenda", script, re.I):
+            blocks.extend(re.findall(r'\{[^{}]{0,2000}"(?:startDate|startTime|title|name)"[^{}]{0,2000}\}', script, re.I))
+    return list(dict.fromkeys(blocks))
+
+
+def parse_fms(html: str, source_url: str) -> List[Dict[str, Any]]:
+    """Parse FMS agenda cards/tables/JSON and retain a conference-level warning.
+
+    FMS has changed site vendors and markup repeatedly.  This parser therefore
+    keys off explicit date/time content rather than one brittle CSS selector.
+    It never invents session times: when the official page only publishes the
+    event dates, a 09:00 conference-day row keeps the advance warning visible.
+    """
+    rows = parse_json_ld(html, "FMS", "America/Los_Angeles", source_url)
+    page_text = _plain_text(html)
+    page_dates = _date_candidates(page_text)
+    default_date = page_dates[0].date() if page_dates else None
+
+    for block in _session_blocks(html):
+        time_match = _TIME_RE.search(block)
+        if not time_match:
+            continue
+        dates = _date_candidates(block)
+        session_date = dates[0].date() if dates else default_date
+        if session_date is None:
+            continue
+        hour = int(time_match.group("h")) % 12 + (12 if time_match.group("ampm").upper() == "PM" else 0)
+        start = datetime.combine(session_date, datetime.min.time()).replace(
+            hour=hour, minute=int(time_match.group("m"))
+        )
+        clean = re.sub(r"\s+", " ", block).strip()
+        title = re.sub(_TIME_RE, "", clean, count=1).strip(" |–—-:")
+        if len(title) < 4 or re.match(r"^(break|lunch|reception|registration)\b", title, re.I):
+            continue
+        company = next((name.title() for name in COMPANY_TICKERS if name in title.upper()), "FMS")
+        rows.append(_row("FMS", company, title[:500], start.isoformat(), "America/Los_Angeles", source_url, 5))
+
+    # An official conference-day alert is materially better than an empty CIE,
+    # while remaining honest that detailed session times are not yet published.
+    if not rows:
+        for index, start in enumerate(page_dates[:7], start=1):
+            rows.append(_row(
+                "FMS", "FMS", f"FMS Conference Day {index}｜詳細議程待官方公布",
+                start.isoformat(), "America/Los_Angeles", source_url, 5,
+            ))
+    return list({row["session_id"]: row for row in rows}.values())
+
+
+def parse_conference_dates(html: str, conference: str, timezone_name: str, source_url: str) -> List[Dict[str, Any]]:
+    """Fallback to honest event-day warnings when session details are absent."""
+    dates = _date_candidates(_plain_text(html))
+    return [
+        _row(
+            conference, conference,
+            f"{conference} Conference Day {index}｜詳細議程待官方公布",
+            start.isoformat(), timezone_name, source_url,
+            5 if conference in {"FMS", "GTC", "COMPUTEX", "OFC", "OCP", "HOT CHIPS"} else 4,
+        )
+        for index, start in enumerate(dates[:7], start=1)
+    ]
+
+
 def _read_cache(max_age_days: int = 45) -> List[Dict[str, Any]] | None:
     try:
         payload = json.loads(_CACHE.read_text(encoding="utf-8"))
@@ -170,13 +329,33 @@ def _read_cache(max_age_days: int = 45) -> List[Dict[str, Any]] | None:
     return None
 
 
+def conference_source_health(*, max_age_days: int = 45) -> Dict[str, Any]:
+    """Admin-safe fetch provenance; contains no exception trace or secrets."""
+    try:
+        payload = json.loads(_CACHE.read_text(encoding="utf-8"))
+        saved = datetime.fromisoformat(payload["saved_at"])
+        if datetime.now(timezone.utc) - saved > timedelta(days=max_age_days):
+            return {"status": "STALE", "saved_at": payload.get("saved_at", ""), "sources": payload.get("sources", {})}
+        return {
+            "status": "OK" if payload.get("sessions") else "DEGRADED",
+            "saved_at": payload.get("saved_at", ""),
+            "session_count": len(payload.get("sessions") or []),
+            "sources": payload.get("sources", {}),
+        }
+    except Exception:
+        return {"status": "NO_CACHE", "saved_at": "", "session_count": 0, "sources": {}}
+
+
 def fetch_official_sessions(*, timeout: float = 3.0, force: bool = False) -> List[Dict[str, Any]]:
     """Refresh official agendas; retain verified cache on transient failure."""
     if not force:
         cached = _read_cache(max_age_days=1)
-        if cached is not None:
+        # V1097.1: an empty cache from an older parser is not a valid success;
+        # retry immediately so deployment cannot remain blank for 24 hours.
+        if cached:
             return cached
     sessions: List[Dict[str, Any]] = []
+    health: Dict[str, Dict[str, Any]] = {name: {"status": "FAILED", "sessions": 0} for name in SOURCE_REGISTRY}
     headers = {"User-Agent": "TINO-CIE-V1097/1.0 (official-agenda-monitor)"}
     def fetch_one(conference: str, config: Mapping[str, Any], url: str) -> List[Dict[str, Any]]:
         request = Request(url, headers=headers)
@@ -187,22 +366,33 @@ def fetch_official_sessions(*, timeout: float = 3.0, force: bool = False) -> Lis
             return parse_hot_chips(html, url)
         if parser == "ocp_overview":
             return parse_ocp_overview(html, url)
-        return parse_json_ld(html, conference, config["timezone"], url)
+        if parser == "fms":
+            return parse_fms(html, url)
+        parsed = parse_json_ld(html, conference, config["timezone"], url)
+        return parsed or parse_conference_dates(html, conference, config["timezone"], url)
 
     jobs = [(conference, config, url) for conference, config in SOURCE_REGISTRY.items() for url in config["urls"]]
     with ThreadPoolExecutor(max_workers=min(6, len(jobs))) as executor:
-        futures = [executor.submit(fetch_one, *job) for job in jobs]
+        futures = {executor.submit(fetch_one, *job): job for job in jobs}
         for future in as_completed(futures):
+            conference, _config, _url = futures[future]
             try:
-                sessions.extend(future.result())
+                result = future.result()
+                sessions.extend(result)
+                if result:
+                    health[conference] = {"status": "OK", "sessions": health[conference].get("sessions", 0) + len(result)}
+                elif health[conference]["status"] != "OK":
+                    health[conference] = {"status": "NO_AGENDA", "sessions": 0}
             except Exception:
                 continue
     deduped = {row["session_id"]: row for row in sessions}
-    payload = {"saved_at": datetime.now(timezone.utc).isoformat(), "sessions": list(deduped.values())}
-    try:
-        _CACHE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
     if deduped:
+        payload = {"saved_at": datetime.now(timezone.utc).isoformat(), "sessions": list(deduped.values()), "sources": health}
+        try:
+            _CACHE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
         return list(deduped.values())
-    return []
+    # Never replace a last-known-good agenda with an empty refresh.
+    stale = _read_cache(max_age_days=45)
+    return stale or []
