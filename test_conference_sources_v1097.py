@@ -10,6 +10,36 @@ from conference_sources_v1097 import parse_conference_dates, parse_fms, parse_ho
 
 
 class ConferenceSourcesV1097Tests(unittest.TestCase):
+    def test_terrapinn_official_fms_card_becomes_today_session(self):
+        html = """
+        <div class="row ASession" data-session="official-fms-1">
+          <div class="Time" data="2026-08-04T15:30:00Z"><span>Aug 4</span>8:30</div>
+          <div class="session">
+            <h4><span class="Favourite"></span>Chair's Remarks</h4>
+            <div class="StreamTitle">SSD Technology</div>
+            <span class="Org">Marvell Semiconductor</span>
+          </div>
+        </div>
+        <div class="row ASession" data-session="official-fms-2">
+          <div class="Time" data="2026-08-04T15:50:00Z"><span>Aug 4</span>8:50</div>
+          <div class="session">
+            <h4>Optimizing KV Cache Offload for Scalable AI Inference</h4>
+            <div class="StreamTitle">AI &amp; ML Applications</div>
+            <span class="Org">Micron Technology</span>
+          </div>
+        </div>
+        """
+        rows = parse_fms(html, "https://www.terrapinn.com/conference/future-memory-storage/agenda.stm")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["company"], "Micron")
+        self.assertEqual(rows[0]["datetime"], "2026-08-04T15:50:00Z")
+        self.assertEqual(rows[0]["direct_tickers"], ["MU"])
+        self.assertIn("MRVL", rows[0]["supply_chain_tickers"])
+
+    def test_terrapinn_source_is_first_fms_official_url(self):
+        self.assertIn("terrapinn.com", sources.SOURCE_REGISTRY["FMS"]["urls"][0])
+        self.assertGreaterEqual(sources.SOURCE_REGISTRY["FMS"]["timeout"], 10)
+
     def test_hot_chips_official_table_becomes_session(self):
         html = """
         <h2>Conference Day 1: Monday, August 24th, 2026</h2>

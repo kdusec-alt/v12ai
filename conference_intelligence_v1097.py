@@ -37,7 +37,7 @@ CONFERENCE_TIERS = {
 }
 
 OFFICIAL_HOSTS = {
-    "FMS": ("fmsnow.com",),
+    "FMS": ("terrapinn.com", "fmsnow.com"),
     "GTC": ("nvidia.com",),
     "COMPUTEX": ("computextaipei.com.tw",),
     "OFC": ("ofcconference.org",),

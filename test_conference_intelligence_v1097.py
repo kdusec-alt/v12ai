@@ -49,6 +49,14 @@ class ConferenceIntelligenceV1097Tests(unittest.TestCase):
         with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows), "TINO_CIE_AUTO_FETCH": "0"}):
             self.assertEqual(all_conference_sessions(), [])
 
+    def test_new_terrapinn_fms_domain_is_accepted_as_official(self):
+        rows = self._rows()
+        rows[0]["source_url"] = "https://www.terrapinn.com/conference/future-memory-storage/agenda.stm"
+        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows), "TINO_CIE_AUTO_FETCH": "0"}):
+            sessions = all_conference_sessions()
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0].source_tier, "OFFICIAL")
+
     def test_duplicate_session_keeps_one_row(self):
         rows = self._rows() * 2
         with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows), "TINO_CIE_AUTO_FETCH": "0"}):
