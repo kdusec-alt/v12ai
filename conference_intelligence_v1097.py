@@ -188,7 +188,7 @@ def _lifecycle(session: ConferenceSession, now: datetime) -> str:
     return "POST_EVENT"
 
 
-def conference_calendar(now: datetime | None = None, *, horizon_days: int = 14, limit: int = 12) -> Dict[str, Any]:
+def conference_calendar(now: datetime | None = None, *, horizon_days: int = 180, limit: int = 24) -> Dict[str, Any]:
     reference = now or datetime.now(_TAIPEI)
     reference = reference.replace(tzinfo=_TAIPEI) if reference.tzinfo is None else reference.astimezone(_TAIPEI)
     rows: List[Dict[str, Any]] = []
@@ -225,6 +225,11 @@ def conference_calendar(now: datetime | None = None, *, horizon_days: int = 14, 
 
 def conference_watch_display(now: datetime | None = None) -> Dict[str, Any]:
     calendar = conference_calendar(now)
+    try:
+        from conference_sources_v1097 import conference_source_health
+        calendar["source_health"] = conference_source_health()
+    except Exception:
+        calendar["source_health"] = {"status": "UNAVAILABLE", "session_count": 0, "sources": {}}
     sessions = list(calendar.get("sessions") or [])
     if not sessions:
         return {"level": "caption", "text": "🟣 AI產業日曆｜近期無已載入的官方議程", **calendar}

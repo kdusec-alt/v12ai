@@ -53,6 +53,14 @@ class ConferenceIntelligenceV1097Tests(unittest.TestCase):
         with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows), "TINO_CIE_AUTO_FETCH": "0"}):
             self.assertEqual(len(all_conference_sessions()), 1)
 
+    def test_calendar_keeps_official_events_announced_months_early(self):
+        rows = self._rows()
+        rows[0]["datetime"] = "2026-11-05T09:30:00"
+        with patch.dict(os.environ, {"TINO_CIE_EVENTS_JSON": json.dumps(rows), "TINO_CIE_AUTO_FETCH": "0"}):
+            result = conference_calendar(datetime(2026, 8, 4, 8, 0, tzinfo=ZoneInfo("Asia/Taipei")))
+        self.assertEqual(len(result["sessions"]), 1)
+        self.assertEqual(result["sessions"][0]["lifecycle"], "AGENDA_PUBLISHED")
+
 
 if __name__ == "__main__":
     unittest.main()

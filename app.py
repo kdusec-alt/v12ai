@@ -547,6 +547,17 @@ def _render_event_watch_status(forecast) -> None:
                         f"{row.get('start_taipei')}｜{row.get('company')}｜{row.get('title')}｜"
                         f"{row.get('stars')}｜曝險：{', '.join(tickers) or '待映射'}｜{row.get('lifecycle')}"
                     )
+        source_health = dict(industry_payload.get("source_health") or {})
+        if source_health:
+            with st.expander("Admin｜產業日曆來源狀態", expanded=False):
+                st.caption(
+                    f"整體：{source_health.get('status', 'UNKNOWN')}｜"
+                    f"有效議程：{source_health.get('session_count', 0)}｜"
+                    f"最後更新：{source_health.get('saved_at') or '尚無成功快取'}"
+                )
+                for source, detail in sorted(dict(source_health.get("sources") or {}).items()):
+                    detail = dict(detail or {})
+                    st.caption(f"{source}｜{detail.get('status', 'UNKNOWN')}｜{detail.get('sessions', 0)} 場")
     try:
         global_view = get_global_event_view()
         st.session_state["global_event_view"] = global_view
