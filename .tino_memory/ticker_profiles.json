@@ -3515,8 +3515,8 @@
     "approval_note": "Tino Admin approved; applied as small SignalPacket bias only.",
     "approved_at_tw": "2026-08-03T14:49:22+08:00",
     "approved_bias": -0.0175,
-    "audit_count": 43,
-    "avg_abs_error_pct": 2.3067,
+    "audit_count": 44,
+    "avg_abs_error_pct": 2.264,
     "avg_direction_brier": 0.27915,
     "avg_downside_tail_breach_pct": 1.5944,
     "close_range_hit_rate": 0.345,
@@ -3525,7 +3525,7 @@
     "error_type_counts": {
       "over_prediction": 20,
       "under_prediction": 7,
-      "within_tolerance": 16
+      "within_tolerance": 17
     },
     "factor_learning": {
       "MU": {
@@ -3935,14 +3935,14 @@
       }
     },
     "last_actual_direction": "DOWN",
-    "last_close_in_predicted_range": false,
+    "last_close_in_predicted_range": null,
     "last_defense_stop_touched": false,
     "last_direction_hit": false,
     "last_dominant_force": "外資期貨",
-    "last_dominant_force_hit": true,
-    "last_downside_tail_breach_pct": -0.6452,
-    "last_error_pct": -2.1097,
-    "last_error_type": "over_prediction",
+    "last_dominant_force_hit": null,
+    "last_downside_tail_breach_pct": 0.0,
+    "last_error_pct": -0.4292,
+    "last_error_type": "within_tolerance",
     "last_predicted_direction": "NEUTRAL",
     "learning_gate": "verified_t1_family>=8; price_bias>=20_and_repeated>=5; V1077_shadow_no_weight_effect",
     "learning_maturity": 0.725,
@@ -3972,7 +3972,7 @@
     },
     "suggested_bias": -0.02,
     "ticker": "2330.TW",
-    "updated_at_tw": "2026-08-04T14:11:31+08:00"
+    "updated_at_tw": "2026-08-04T14:11:57+08:00"
   },
   "2332.TW": {
     "active_family_count": 0,
