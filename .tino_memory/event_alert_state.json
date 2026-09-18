@@ -14,7 +14,7 @@
       "last_evidence_epoch": 1785846114.971335,
       "last_seen_at": "2026-08-04T12:21:54+00:00",
       "last_seen_epoch": 1785846114.971335,
-      "last_transition_at": "2026-08-04T12:28:20+00:00",
+      "last_transition_at": "2026-09-18T00:40:05+00:00",
       "peak_severity": 4,
       "reinforcement_count": 206,
       "related_fingerprints": [
@@ -27,9 +27,11 @@
         "a1d11d90907385a6",
         "5ff4a41a4e75cb62"
       ],
+      "resolved_at": "2026-09-18T00:40:05+00:00",
+      "resolved_epoch": 1789692005.28939,
       "risk_sign": -1,
       "scope": "global",
-      "severity": 3,
+      "severity": 1,
       "source": "US Government USTR Official GlobalEventCore",
       "source_markets": [
         "GLOBAL",
@@ -45,141 +47,11 @@
         "MRVL",
         "SKHY"
       ],
-      "status": "active_red",
+      "status": "resolved",
       "title": "Global Event Core｜美國Section 301對台產品10%稅負架構｜依品項為MFN與新增稅率合計至10%，並非所有商品一律額外加10%，豁免品項另計｜傳導：出口成本/轉嫁能力→毛利率→訂單移轉→電子與半導體供應鏈差異化；價格與實際公司曝險負責驗證",
-      "transition_reason": "Admin 已讀並關閉畫面警示"
-    },
-    {
-      "acknowledged": true,
-      "acknowledged_at": "2026-07-30T15:46:04+00:00",
-      "category": "geo_energy_escalation",
-      "cooling_count": 0,
-      "event_id": "EV-8EF02DA37AF306",
-      "event_key": "global:geopolitical:iran_middle_east",
-      "family": "geopolitical",
-      "fingerprint": "5fc5baffc0f14d06",
-      "first_seen_at": "2026-07-24T14:16:34+00:00",
-      "first_seen_epoch": 1784902594.499664,
-      "last_evidence_epoch": 1785405029.187569,
-      "last_seen_at": "2026-07-30T09:50:29+00:00",
-      "last_seen_epoch": 1785405029.187569,
-      "last_transition_at": "2026-08-03T16:04:28+00:00",
-      "peak_severity": 4,
-      "reinforcement_count": 21,
-      "related_fingerprints": [
-        "1791420e3b58f9e5",
-        "1028fbd89e84a37d",
-        "abfdc71d83b8e15e",
-        "03b439314a25bcb3",
-        "a0f4b8d6669e4813",
-        "675ec478c1ac00db",
-        "9698428c803c9881",
-        "80e754c78f8b453f"
-      ],
-      "resolved_at": "2026-08-03T16:04:28+00:00",
-      "resolved_epoch": 1785773068.562744,
-      "risk_sign": -1,
-      "scope": "global",
-      "severity": 1,
-      "source": "GoogleNewsGlobal/Reuters",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "SKHY",
-        "SNDK",
-        "2330.TW",
-        "INTC"
-      ],
-      "status": "resolved",
-      "title": "Oil rises for second straight day as US resumes attacks on Iran - Reuters",
-      "transition_reason": "觀察期內未再出現風險證據，自動解除"
-    },
-    {
-      "acknowledged": true,
-      "acknowledged_at": "2026-07-31T09:50:03+00:00",
-      "category": "macro_release_pending",
-      "cooling_count": 0,
-      "event_id": "EV-717A2AC87DC8DC",
-      "event_key": "ticker:GLOBAL:high_impact:macro_release_pending",
-      "family": "high_impact",
-      "fingerprint": "124d02fc87587a7d",
-      "first_seen_at": "2026-07-25T05:20:02+00:00",
-      "first_seen_epoch": 1784956802.439899,
-      "last_evidence_epoch": 1785396057.001838,
-      "last_seen_at": "2026-07-30T07:20:57+00:00",
-      "last_seen_epoch": 1785396057.001838,
-      "last_transition_at": "2026-08-03T16:04:28+00:00",
-      "peak_severity": 3,
-      "reinforcement_count": 21,
-      "related_fingerprints": [
-        "7f7f7c95ddb7032f",
-        "653ef74eda0da6d9",
-        "f6f92ac12f0d6f8a",
-        "184e8932c366381c",
-        "e5198c2ef5893bd2",
-        "6e039e950eadddad",
-        "4f2977e9f799c42c",
-        "9d0184b003183f47"
-      ],
-      "resolved_at": "2026-08-03T16:04:28+00:00",
-      "resolved_epoch": 1785773068.562744,
-      "risk_sign": 0,
-      "scope": "ticker",
-      "severity": 1,
-      "source": "GoogleNewsGlobal/spglobal.com",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL",
-        "SKHY",
-        "INTC",
-        "MU",
-        "SNDK"
-      ],
-      "status": "resolved",
-      "title": "Banking Essentials Newsletter: July 29th Edition - spglobal.com",
-      "transition_reason": "觀察期內未再出現風險證據，自動解除"
-    },
-    {
-      "acknowledged": true,
-      "acknowledged_at": "2026-08-03T04:20:30+00:00",
-      "category": "geo_trade_controls",
-      "cooling_count": 0,
-      "event_id": "EV-306A2F2D2ECE7B",
-      "event_key": "global:geopolitical:taiwan_strait",
-      "family": "geopolitical",
-      "fingerprint": "f078cc1e3a465dd8",
-      "first_seen_at": "2026-07-29T20:18:17+00:00",
-      "first_seen_epoch": 1785356297.949113,
-      "last_evidence_epoch": 1785362058.055525,
-      "last_seen_at": "2026-07-29T21:54:18+00:00",
-      "last_seen_epoch": 1785362058.055525,
-      "last_transition_at": "2026-08-03T16:04:28+00:00",
-      "peak_severity": 3,
-      "reinforcement_count": 2,
-      "related_fingerprints": [
-        "f3dbd43ffbd30f0e"
-      ],
-      "resolved_at": "2026-08-03T16:04:28+00:00",
-      "resolved_epoch": 1785773068.562744,
-      "risk_sign": -1,
-      "scope": "global",
-      "severity": 1,
-      "source": "GoogleNewsGlobal/taipeitimes.com",
-      "source_markets": [
-        "GLOBAL"
-      ],
-      "source_tickers": [
-        "GLOBAL"
-      ],
-      "status": "resolved",
-      "title": "Taiwan toll tech goes live in India - taipeitimes.com",
       "transition_reason": "觀察期內未再出現風險證據，自動解除"
     }
   ],
   "schema": "TINO_EVENT_ALERT_STATE_V1",
-  "updated_at": "2026-08-04T12:29:31+00:00"
+  "updated_at": "2026-09-18T00:40:05+00:00"
 }
