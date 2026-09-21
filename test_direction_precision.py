@@ -192,6 +192,21 @@ def test_tw_radar_exposes_same_news_evidence_rows_as_us():
         assert key in forecast.radar and forecast.radar[key], (key, forecast.radar)
 
 
+def test_global_event_cannot_enter_company_news_row():
+    frame = _frame(market="US", rising=True, context={
+        "macro": {"accepted": True, "source": "US_MARKET", "sox": 2.0, "nq": 1.0},
+    })
+    news = [NewsItem(
+        "GoogleNewsGlobal/WSJ", "2026-07-10 08:00", -0.12,
+        "us_company_bearish_event global_event_core oil_price_down",
+        "Oil falls as Middle East supply concerns ease", "",
+    )]
+    forecast = orchestrate(frame, news_items=news)
+    line = forecast.radar["Company News"]
+    assert "未取得直接公司催化劑" in line, line
+    assert "Oil falls" not in line, line
+
+
 if __name__ == "__main__":
     tests = [
         test_slight_vwap_conflict_does_not_flip_confirmed_trend,
@@ -203,6 +218,7 @@ if __name__ == "__main__":
         test_learning_audits_direction_separately_from_price_error,
         test_narrative_layer_cannot_change_formal_forecast_or_trace,
         test_tw_radar_exposes_same_news_evidence_rows_as_us,
+        test_global_event_cannot_enter_company_news_row,
     ]
     for test in tests:
         test()

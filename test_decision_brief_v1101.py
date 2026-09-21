@@ -92,6 +92,24 @@ class DecisionBriefV1101Tests(unittest.TestCase):
         self.assertIn(brief["confidence_label"], {"高", "中高", "中", "低"})
         self.assertTrue(brief["primary_risk"])
 
+    def test_v1106_price_leads_and_risk_contains_invalidation(self):
+        brief = build_decision_brief(snapshot("HOLD"), radar={})
+        self.assertIn("價格結構", brief["thesis"])
+        self.assertIn("96.15", brief["primary_risk"])
+        self.assertIn("取消條件單", brief["primary_risk"])
+        self.assertIn("最後 1/3", brief["staged_entry"])
+        self.assertEqual(brief["schema"], "TINO_DECISION_BRIEF_V1106")
+
+    def test_single_price_zone_is_not_rendered_as_fake_range(self):
+        item = snapshot("HOLD")
+        item["entry"]["low_entry_zone"] = {"lower": 4889.0, "upper": 4889.0}
+        item["entry"]["confirmation_price"] = 4945.0
+        item["entry"]["add_price"] = 5040.0
+        item["entry"]["invalidation_price"] = 4780.0
+        brief = build_decision_brief(item)
+        self.assertEqual(brief["entry_zone"], "4,889 附近")
+        self.assertNotIn("4,889～4,889", brief["staged_entry"])
+
     def test_macro_event_cannot_masquerade_as_company_catalyst(self):
         brief = build_decision_brief(snapshot("HOLD"), radar={
             "Company News": "Company News｜MRVL｜主事件《Global Event Core｜油價快速回落》",
@@ -108,6 +126,7 @@ class DecisionBriefV1101Tests(unittest.TestCase):
         self.assertIn("展開完整 AI 證據", source)
         self.assertIn("AI策略判斷", source)
         self.assertIn("失效／主要風險", source)
+        self.assertIn("進場與分批", source)
         self.assertNotIn("目前動作｜最終決策｜", source)
 
 

@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 import unittest
 
-from decision_core_v1096 import build_decision_snapshot
+from decision_core_v1096 import build_decision_snapshot, _conditional_next_session_plan
 from decision_architecture_v1081 import assess_entry_opportunity
 from models import DataTruth, PriceFrame, TickerInfo
 from trend_engine import build_trend_snapshot
@@ -125,6 +125,41 @@ class V1098LowEntryMA60Tests(unittest.TestCase):
         entry = assess_entry_opportunity(_momentum_forecast())
         self.assertEqual(entry["state"], "OVERHEATED_NO_CHASE")
         self.assertIn("追價風險", entry["summary"])
+
+    def test_next_session_momentum_candidate_has_real_price_band(self):
+        forecast = _momentum_forecast()
+        forecast.price_frame = PriceFrame(
+            ticker=TickerInfo("2454", "2454.TW", "聯發科", "TW", "stock", "TWSE", "TWD", 0.10),
+            truth=DataTruth("TWSE_MIS", "2026-09-21", False, True, "verified"),
+            open=4800.0, high=5035.0, low=4780.0, last=5010.0,
+            previous_close=4710.0, volume=5_950_000, vwap=4945.0, atr14=220.0,
+            recent_closes=[4000.0 + i * 10 for i in range(61)],
+            recent_highs=[4010.0 + i * 10 for i in range(61)],
+            recent_lows=[3990.0 + i * 10 for i in range(61)],
+            recent_volumes=[1_000_000] * 61,
+            price_date="2026-09-21", market_status="closed_reference", context={},
+        )
+        forecast.data_truths = [forecast.price_frame.truth]
+        forecast.confidence = 70
+        forecast.news_items = []
+        forecast.signals = []
+        forecast.tags = []
+        forecast.raw = SimpleNamespace(raw_abc={"A": 62, "B": 36, "C": 2})
+        forecast.final_t1 = 5080.0
+        forecast.final_t0 = 5010.0
+        forecast.final_t1_high = 5275.0
+        forecast.final_t1_low = 4905.0
+        forecast.no_chase = 5255.0
+        forecast.low_entry = 4889.0
+        forecast.one_liner = ""
+        forecast.reality_anchor = ""
+        forecast.trace = None
+        candidate = _conditional_next_session_plan(
+            forecast, {"state": "DATA_WAIT"}, {"invalidation_price": 4780.0}
+        )
+        self.assertTrue(candidate.get("eligible"), candidate)
+        zone = candidate["entry_zone"]
+        self.assertGreater(zone["upper"], zone["lower"])
 
 
 if __name__ == "__main__":

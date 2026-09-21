@@ -947,6 +947,31 @@ def _us_news_filter(news_items: List[NewsItem] | None, kinds: tuple[str, ...]) -
     return out
 
 
+def _direct_company_items(price: PriceFrame, items: List[NewsItem]) -> List[NewsItem]:
+    """Require the requested entity in title or a ticker-specific route tag."""
+    ticker = getattr(price, "ticker", None)
+    symbol = str(getattr(ticker, "resolved_symbol", "") or "").split(".", 1)[0].lower()
+    name = re.sub(
+        r"\b(?:incorporated|inc|corporation|corp|company|co|ltd|limited|holdings|plc|group)\b",
+        " ", str(getattr(ticker, "name", "") or "").lower(),
+    )
+    aliases = [symbol]
+    aliases.extend(token for token in re.findall(r"[a-z0-9\u4e00-\u9fff]+", name) if len(token) >= 3)
+    output: List[NewsItem] = []
+    for item in items:
+        title = _news_title(item).lower()
+        tag = _news_tag(item).lower()
+        tagged = bool(symbol and re.search(rf"(?:^|_)(?:us|tw)_company_{re.escape(symbol)}(?:_|$)", tag))
+        named = any(
+            re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", title)
+            if re.fullmatch(r"[a-z0-9.\-]+", alias) else alias in title
+            for alias in aliases if alias
+        )
+        if tagged or named:
+            output.append(item)
+    return output
+
+
 def _us_news_top_text(items: List[NewsItem], limit: int = 2) -> str:
     if not items:
         return ''
@@ -1039,7 +1064,10 @@ def _us_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = N
 
 def _us_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
     causal = (price.context or {}).get("news_causal_v1073")
-    company = _us_news_filter(news_items, ('us_company', 'bullish_us_company', 'bearish_us_company'))
+    company = _direct_company_items(
+        price,
+        _us_news_filter(news_items, ('us_company', 'bullish_us_company', 'bearish_us_company')),
+    )
     # Company News is reserved for direct entity evidence. Sector headlines
     # remain context and cannot masquerade as a company catalyst.
     use = company
@@ -1127,13 +1155,17 @@ def _tw_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = N
 
 def _tw_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
     causal = (price.context or {}).get("news_causal_v1073")
-    if isinstance(causal, dict) and causal.get("accepted"):
+    if (
+        isinstance(causal, dict) and causal.get("accepted")
+        and int(causal.get("company_family_count") or 0) > 0
+        and bool(causal.get("dominant_entity_verified"))
+    ):
         return (
             f"Company News｜{price.ticker.resolved_symbol}｜"
             f"{causal.get('company_text') or causal.get('causal_text') or '等待價格確認'}"
             f"｜事件族去重 {int(causal.get('company_family_count') or 0)}"
         )
-    items = _us_news_filter(news_items, ('tw_company_',))
+    items = _direct_company_items(price, _us_news_filter(news_items, ('tw_company_',)))
     top = _us_news_top_text(items, 2)
     if top:
         level, _score, pos, neg = _us_news_strength(items)

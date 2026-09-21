@@ -634,7 +634,11 @@ def _conditional_next_session_plan(
     support_floor = max(low, last - atr * 0.55)
     support_ceiling = min(last, low + max(atr * 0.35, step * 2))
     if support_ceiling < support_floor:
-        support_ceiling = support_floor
+        # A large momentum candle can place the ATR support floor above the
+        # low-anchored ceiling.  A one-price "zone" is not executable and was
+        # shown publicly as e.g. 4,889～4,889.  Keep the same verified support
+        # floor, but give the conditional order a conservative ATR/tick band.
+        support_ceiling = min(last, support_floor + max(atr * 0.15, step * 2))
     stop = _num(formal_plan.get("invalidation_price") or formal_plan.get("stop_price"))
     if stop is None or stop >= support_floor:
         stop = max(0.0, support_floor - max(atr * 0.35, step))
