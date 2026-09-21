@@ -10,8 +10,8 @@ Priority order:
 2. Individual selling pressure, failed structure, relative weakness and verified
    company/fundamental risk.
 3. Limit liquidity and closed-session constraints.
-4. VWAP position and overextension.
-5. Selling exhaustion / individual confirmation.
+4. Chase protection before right-side confirmation.
+5. VWAP position and selling exhaustion / individual confirmation.
 6. Event waiting may only downgrade a green state; it can never promote risk.
 
 No ticker code, company name or one-off sector rule is allowed here.
@@ -704,10 +704,24 @@ def assess_entry_opportunity(forecast: Any) -> Dict[str, Any]:
     )
     benchmark = market_ctx["benchmark_return_pct"]
     excess_vs_benchmark = day_pct - benchmark if benchmark is not None else None
+    # A right-side confirmation is not automatically a good entry.  Once the
+    # session has already repriced sharply, the system must wait for a pullback
+    # instead of rewarding the same green candle again through VWAP, state and
+    # price-strength signals.  Verified event repricing still keeps the bullish
+    # direction, but it does not waive entry-price discipline.
+    chase_guard = bool(
+        market == "TW"
+        and vwap_position == "above"
+        and day_pct >= 3.0
+        and not limit_ctx["limit_like"]
+        and not negative_absorption_watch
+        and not event["wait_active"]
+    )
     overextended = bool(
         day_pct >= (20.0 if market == "US" else 9.8)
         or (excess_vs_benchmark is not None and excess_vs_benchmark >= 11.0)
         or (no_chase_crossed and not anchor_invalidated)
+        or chase_guard
     )
     tradable_session = session in _ACTIVE_CONFIRM_SESSIONS
 
@@ -729,6 +743,10 @@ def assess_entry_opportunity(forecast: Any) -> Dict[str, Any]:
         state, reasons = "LIMIT_LIQUIDITY_WAIT", ["價格已到漲停附近，但封單與開板承接尚未完整驗證"]
     elif session in _CLOSED_SESSIONS:
         state, reasons = "WAIT_NEXT_SESSION", ["目前已非可驗證的正式盤中新進場時段"]
+    elif chase_guard:
+        state, reasons = "OVERHEATED_NO_CHASE", [
+            "方向可能正確，但當日漲幅已進入追價風險區，改等量縮回測"
+        ]
     elif vwap_position == "below":
         state = "WAIT_VWAP_RECLAIM"
         reasons = [

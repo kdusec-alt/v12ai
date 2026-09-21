@@ -51,6 +51,8 @@ jobs:
           print(f'cross_module_contracts={len(tests)}/{len(tests)}')"
       - name: Run V1093-V1096 single decision lifecycle audit contracts
         run: python -m unittest -v test_v1096_single_decision_lifecycle_audit.py
+      - name: Run V1098 low-entry and MA60 regression contracts
+        run: python -m unittest -v test_v1098_low_entry_ma60.py
       - name: Run event and low-entry tests
         run: |
           python -m unittest -v \
