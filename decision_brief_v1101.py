@@ -128,6 +128,20 @@ def _actions(snapshot: Mapping[str, Any], plan: Mapping[str, Any]) -> tuple[str,
     return flat, holding
 
 
+def _candidate(plan: Mapping[str, Any]) -> Mapping[str, Any]:
+    candidate = _mapping(plan.get("conditional_next_session"))
+    return candidate if bool(candidate.get("eligible")) else {}
+
+
+def _zone_text(plan: Mapping[str, Any]) -> str:
+    zone = _mapping(plan.get("entry_zone") or plan.get("low_entry_zone"))
+    lower, upper = _num(zone.get("lower")), _num(zone.get("upper"))
+    if lower is None or upper is None:
+        return "等待"
+    lo, hi = sorted((lower, upper))
+    return f"{_price(lo)}～{_price(hi)}"
+
+
 def build_decision_brief(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     """Build one concise public brief from the immutable decision snapshot."""
     snap = _mapping(snapshot)
@@ -137,26 +151,34 @@ def build_decision_brief(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     label = str(action.get("label") or snap.get("label") or "禁止進場")
     reason = _compact(action.get("reason") or snap.get("reason"), 70)
     flat_action, holding_action = _actions(snap, plan)
-
-    zone = _mapping(plan.get("low_entry_zone"))
-    lower, upper = _num(zone.get("lower")), _num(zone.get("upper"))
-    if lower is not None and upper is not None:
-        lo, hi = sorted((lower, upper))
-        entry_zone = f"{_price(lo)}～{_price(hi)}"
-    else:
-        entry_zone = "等待"
+    candidate = _candidate(plan)
+    execution = candidate or plan
+    candidate_mode = bool(candidate)
+    if candidate_mode:
+        label = str(candidate.get("label") or "下一交易日條件候選")
+        reason = _compact(candidate.get("risk"), 70)
+        flat_action = f"不追價；回測 {_zone_text(candidate)} 量縮止穩才先 1/3"
+        holding_action = (
+            f"守 {_price(candidate.get('invalidation_price'))}；未站回 "
+            f"{_price(candidate.get('confirmation_price'))} 不加碼"
+        )
 
     return {
-        "schema": "TINO_DECISION_BRIEF_V1101",
+        "schema": "TINO_DECISION_BRIEF_V1102",
         "verdict": label,
         "summary": reason or "跨模組尚未形成可執行共識",
         "reasons": _ranked_reasons(snap),
         "flat_action": flat_action,
         "holding_action": holding_action,
-        "entry_zone": entry_zone,
-        "confirmation": _price(plan.get("confirmation_price")),
-        "breakout": _price(plan.get("add_price") or plan.get("breakout_price")),
-        "invalidation": _price(plan.get("invalidation_price")),
+        "entry_zone": _zone_text(execution),
+        "confirmation": _price(execution.get("confirmation_price")),
+        "breakout": _price(execution.get("add_price") or execution.get("breakout_price")),
+        "invalidation": _price(execution.get("invalidation_price")),
+        "entry_instruction": str(execution.get("entry_text") or execution.get("low_entry_condition") or "等待結構完成"),
+        "confirmation_instruction": str(execution.get("confirmation_text") or "確認後才加碼"),
+        "breakout_instruction": str(execution.get("breakout_text") or "突破後才加碼"),
+        "invalidation_instruction": str(execution.get("invalidation_text") or "條件失效即取消"),
+        "candidate_mode": candidate_mode,
         "audit_preserved": True,
         "formal_model_unchanged": True,
     }

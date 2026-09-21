@@ -236,6 +236,8 @@ def render_battle_panel(st, forecast):
         "instruction": public_snapshot.get("instruction"), "reason": public_snapshot.get("reason"),
     }
     decision_brief = build_decision_brief(public_snapshot)
+    conditional_plan = entry_plan.get("conditional_next_session") if isinstance(entry_plan.get("conditional_next_session"), dict) else {}
+    display_plan = conditional_plan if bool(decision_brief.get("candidate_mode")) else entry_plan
     entry = {
         "state": action_decision.get("source_state") or entry_plan.get("state") or "DATA_WAIT",
         "color": public_snapshot.get("color") or "red",
@@ -261,7 +263,14 @@ def render_battle_panel(st, forecast):
             {"label": "停手", "value": fmt(d.get("防守"))},
             {"label": "不追", "value": fmt(d.get("不追"))},
         ]
-    raw_price_tiles = _entry_map_tiles(entry_plan, legacy_price_tiles)
+    raw_price_tiles = _entry_map_tiles(display_plan, legacy_price_tiles)
+    if bool(decision_brief.get("candidate_mode")):
+        raw_price_tiles = [
+            {"label": "低接", "value": decision_brief.get("entry_zone"), "title": decision_brief.get("entry_instruction")},
+            {"label": "確認", "value": decision_brief.get("confirmation"), "title": decision_brief.get("confirmation_instruction")},
+            {"label": "加碼", "value": decision_brief.get("breakout"), "title": decision_brief.get("breakout_instruction")},
+            {"label": "失效", "value": f"{decision_brief.get('invalidation')}跌破", "title": decision_brief.get("invalidation_instruction")},
+        ]
     price_tiles_html = "".join(
         "<div class='priceitem' title='"
         + safe(row.get("title") or row.get("value") or "")
@@ -379,7 +388,7 @@ def render_battle_panel(st, forecast):
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜{safe(d.get('漲跌標籤','漲跌'))}：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>{safe(d.get('價格範圍標籤','今日'))}高：{fmt(d.get('最高'))}｜{safe(d.get('價格範圍標籤','今日'))}低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
       <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI交易決策</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div></div>
       <div class='decision'>
-        <div class='dt'>AI執行計畫｜{decision_title}</div>
+        <div class='dt'>{'下一交易日條件單｜正式買進仍須觸發' if decision_brief.get('candidate_mode') else 'AI執行計畫｜' + decision_title}</div>
         <div class='action-now'>{current_action_text}</div>
         <div class='price-command'>價格計畫｜{executive_price_line}</div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>決策依據</b>{evidence_summary}</div>
