@@ -245,7 +245,7 @@ def trend_tag(price: PriceFrame) -> str:
 
 def _ma_piece(label: str, value: Optional[float], gap: Optional[float], need_days: int) -> str:
     if value is None or gap is None:
-        return f"{label}資料不足(<{need_days}日)"
+        return f"{label}尚未形成(<{need_days}個正式交易日)"
     return f"{label} {_fmt_price(value)}({_fmt_pct(gap)})"
 
 

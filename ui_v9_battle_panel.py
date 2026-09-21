@@ -52,11 +52,11 @@ def _title_pct(v):
 
 def _ma_title_piece(label: str, value, gap) -> str:
     if value in (None, "", "--") or gap in (None, "", "--"):
-        return f"{label}資料不足"
+        return f"{label}尚未形成"
     try:
         float(gap)
     except Exception:
-        return f"{label}資料不足"
+        return f"{label}尚未形成"
     return f"{label} {_title_price(value)}｜距離 {_title_pct(gap)}"
 
 
@@ -340,6 +340,7 @@ def render_battle_panel(st, forecast):
         f"低接 {decision_brief.get('entry_zone')}｜確認 {decision_brief.get('confirmation')}｜"
         f"加碼 {decision_brief.get('breakout')}｜失效 {decision_brief.get('invalidation')}"
     )
+    staged_entry_line = safe(decision_brief.get("staged_entry") or "等待價格結構完成")
 
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
@@ -396,7 +397,7 @@ def render_battle_panel(st, forecast):
         <div class='dt'>AI執行計畫｜AI策略判斷｜信心 {intelligence_confidence}｜{'條件單' if decision_brief.get('candidate_mode') else decision_title}</div>
         <div class='thesis'>結論｜{intelligence_thesis}</div>
         <div class='action-now'>{current_action_text}</div>
-        <div class='price-command'>價格計畫｜{executive_price_line}</div>
+        <div class='price-command'>進場與分批｜{staged_entry_line}</div>
         <div class='risk'>失效／主要風險｜{intelligence_risk}</div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>決策依據</b>{evidence_summary}</div>
         <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>

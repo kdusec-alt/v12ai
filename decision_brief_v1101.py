@@ -153,7 +153,15 @@ def _intelligence_summary(
     code = str(snapshot.get("action_code") or "BLOCK").upper()
     aligned = [row for row in rows if _direction_match(code, int(_num(row.get("direction")) or 0)) > 0]
     contrary = [row for row in rows if _direction_match(code, int(_num(row.get("direction")) or 0)) < 0]
-    primary = aligned[0] if aligned else (rows[0] if rows else {})
+    price_rows = [
+        row for row in rows
+        if str(row.get("correlation_group") or row.get("category") or "").lower()
+        in {"price", "structure", "vwap"}
+        or any(token in str(row.get("label") or "") for token in ("價格", "VWAP", "結構"))
+    ]
+    # Price is the reality veto.  It must lead the thesis when available;
+    # flow/news can confirm it but cannot become the headline by themselves.
+    primary = price_rows[0] if price_rows else (aligned[0] if aligned else (rows[0] if rows else {}))
     primary_direction = int(_num(primary.get("direction")) or 0)
     # HOLD is not a direction.  Use the strongest accepted evidence as the
     # thesis and explicitly surface evidence pointing the other way as risk.
@@ -181,12 +189,20 @@ def _intelligence_summary(
     catalyst_text = f"；公司催化：{catalyst}" if catalyst else "；公司催化未驗證，不以總體新聞代替"
     thesis = _compact(f"{verdict}｜主導：{primary_label}－{primary_reason}{catalyst_text}", 130)
 
-    if contrary:
-        row = contrary[0]
-        risk = f"{_compact(row.get('label') or '反方證據', 16)}：{_compact(row.get('reason') or row.get('text') or '方向相反', 56)}"
-    else:
-        invalid = _price(plan.get("invalidation_price"))
-        risk = f"跌破 {invalid}，原判斷失效；取消條件單且不攤平" if invalid != "--" else "失效價尚未形成，不建立新部位"
+    invalid = _price(plan.get("invalidation_price"))
+    downside = [row for row in rows if int(_num(row.get("direction")) or 0) < 0]
+    risk_row = downside[0] if downside else (contrary[0] if contrary else {})
+    risk_detail = ""
+    if risk_row:
+        risk_detail = (
+            f"；{_compact(risk_row.get('label') or '風險證據', 16)}："
+            f"{_compact(risk_row.get('reason') or risk_row.get('text') or '方向轉弱', 52)}"
+        )
+    risk = (
+        f"跌破 {invalid}，取消條件單且不攤平{risk_detail}"
+        if invalid != "--"
+        else (risk_detail.lstrip("；") or "失效價尚未形成，不建立新部位")
+    )
 
     groups = {
         str(row.get("correlation_group") or row.get("category") or row.get("label") or "")
@@ -268,6 +284,8 @@ def _zone_text(plan: Mapping[str, Any]) -> str:
     if lower is None or upper is None:
         return "等待"
     lo, hi = sorted((lower, upper))
+    if abs(hi - lo) <= max(abs(lo) * 0.0002, 0.01):
+        return f"{_price(lo)} 附近"
     return f"{_price(lo)}～{_price(hi)}"
 
 
@@ -301,7 +319,7 @@ def build_decision_brief(
     intelligence = _intelligence_summary(snap, execution, radar, candidate_mode)
 
     return {
-        "schema": "TINO_DECISION_BRIEF_V1105",
+        "schema": "TINO_DECISION_BRIEF_V1106",
         "verdict": label,
         "summary": reason or "跨模組尚未形成可執行共識",
         "thesis": intelligence["thesis"],
@@ -319,6 +337,10 @@ def build_decision_brief(
         "breakout_instruction": str(execution.get("breakout_text") or "突破後才加碼"),
         "invalidation_instruction": str(execution.get("invalidation_text") or "條件失效即取消"),
         "candidate_mode": candidate_mode,
+        "staged_entry": (
+            f"{_zone_text(execution)} 止穩先 1/3；站回 {_price(execution.get('confirmation_price'))} 再 1/3；"
+            f"放量突破 {_price(execution.get('add_price') or execution.get('breakout_price'))} 才考慮最後 1/3"
+        ),
         "audit_preserved": True,
         "formal_model_unchanged": True,
     }
