@@ -110,6 +110,17 @@ class DecisionBriefV1101Tests(unittest.TestCase):
         self.assertEqual(brief["entry_zone"], "4,889 附近")
         self.assertNotIn("4,889～4,889", brief["staged_entry"])
 
+    def test_stale_data_notice_stays_out_of_executive_risk_and_top_three(self):
+        item = snapshot("HOLD")
+        item["evidence"].insert(0, {
+            "label": "融資去槓桿", "correlation_group": "leverage",
+            "direction": -1, "strength": 99, "confidence": 99,
+            "accepted": True, "reason": "資券最近有效 09/18 非今日資料",
+        })
+        brief = build_decision_brief(item)
+        self.assertNotIn("非今日資料", brief["primary_risk"])
+        self.assertFalse(any("非今日資料" in row for row in brief["reasons"]))
+
     def test_macro_event_cannot_masquerade_as_company_catalyst(self):
         brief = build_decision_brief(snapshot("HOLD"), radar={
             "Company News": "Company News｜MRVL｜主事件《Global Event Core｜油價快速回落》",
