@@ -825,6 +825,39 @@ _US_AI_SEMI_TERMS = [
 ]
 _US_EARNINGS_TERMS = ["earnings", "revenue", "guidance", "q1", "q2", "q3", "q4", "quarter", "outlook"]
 
+_US_CATALYST_TERMS: Dict[str, Tuple[str, ...]] = {
+    "order": ("order", "contract", "award", "selected by", "customer win", "purchase agreement"),
+    "capacity": ("capacity", "production", "manufacturing", "fab", "foundry", "supply agreement", "expands"),
+    "partnership": ("partnership", "collaboration", "teams with", "jointly", "strategic agreement"),
+    "product_demo": ("demonstrates", "demo", "showcase", "showcases", "unveils", "launches", "introduces", "technology demo", "technology demonstration"),
+    "earnings_guidance": ("earnings", "revenue", "guidance", "outlook", "forecast", "margin"),
+    "analyst": ("price target", "upgrade", "downgrade", "rating", "initiates coverage"),
+}
+
+
+def _us_catalyst_family(title: str) -> str:
+    text = re.sub(r"\s+", " ", str(title or "").lower()).strip()
+    for family in ("order", "capacity", "partnership", "product_demo", "earnings_guidance", "analyst"):
+        if any(
+            re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text)
+            for term in _US_CATALYST_TERMS[family]
+        ):
+            return family
+    return "company_event"
+
+
+def _us_source_authority(publisher: str) -> Tuple[str, float]:
+    """Return a conservative source tier and score multiplier."""
+    text = str(publisher or "").lower()
+    tier_1 = ("reuters", "associated press", "sec.gov", "business wire", "globenewswire", "pr newswire")
+    official = ("investor relations", "technology, inc", "corporation", "corp.", "holdings, inc")
+    tier_2 = ("bloomberg", "cnbc", "wall street journal", "financial times", "barron's", "marketwatch")
+    if any(term in text for term in tier_1) or any(term in text for term in official):
+        return "source_tier1", 1.0
+    if any(term in text for term in tier_2):
+        return "source_tier2", 0.88
+    return "source_tier3", 0.72
+
 def _us_company_base_name(ticker: TickerInfo) -> str:
     sym = str(ticker.resolved_symbol or ticker.symbol or "").upper()
     info = US_PUBLIC_MEMORY.get(sym, {})
@@ -907,6 +940,12 @@ def _us_news_relevant_to_ticker(
         return False
     if any(_contains_alias(text, alias) for alias in _us_entity_aliases(ticker)):
         return True
+    # Official IR/press-release headlines sometimes omit the company name from
+    # the title because the publisher itself is the company.  Treat a matching
+    # publisher identity as direct entity evidence.
+    source_text = re.sub(r"\s+", " ", str(getattr(item, "source", "") or "").lower()).strip()
+    if any(_contains_alias(source_text, alias) for alias in _us_entity_aliases(ticker)):
+        return True
     if bucket != "industry":
         return False
     sym = str(ticker.resolved_symbol or "").upper()
@@ -934,6 +973,14 @@ def _us_news_profile_queries(ticker: TickerInfo) -> List[Tuple[str, str, int]]:
     base = _us_company_base_name(ticker)
     prof = _US_QUERY_PROFILES.get(sym, {})
     queries: List[Tuple[str, str, int]] = []
+    # Universal exact-entity catalyst route. It is generated from the resolved
+    # company name, so new US tickers receive the same announcement / order /
+    # capacity / partnership / product-demo coverage as profiled symbols.
+    catalyst_query = (
+        f'"{base}" announces OR launches OR unveils OR demonstrates OR '
+        "partnership OR collaboration OR expands capacity OR production OR contract OR order"
+    )
+    queries.append((catalyst_query, "company", 4))
     # Keep query count bounded for speed. Company / industry news is fetched
     # after Daily Headline so global market weather never gets starved by a
     # very active ticker such as MU/NVDA.
@@ -1103,6 +1150,9 @@ def _score_us_news(title: str, bucket: str = "company") -> Tuple[float, str]:
         else:
             tag = "us_company_news"
 
+    if bucket == "company":
+        tag += f"|catalyst_{_us_catalyst_family(title)}"
+
     if abs(score) >= 0.06:
         tag = ("bullish_" if score > 0 else "bearish_") + tag
     return round(max(-0.32, min(0.32, score)), 4), tag
@@ -1125,12 +1175,18 @@ def _google_news_us(query: str, bucket: str, limit: int = 4) -> List[NewsItem]:
             title = re.sub(r"\s+", " ", node.findtext("title") or "").strip()
             link = node.findtext("link") or "https://news.google.com/"
             pub = node.findtext("pubDate") or ""
+            source_node = node.find("source")
+            publisher = re.sub(r"\s+", " ", source_node.text or "").strip() if source_node is not None else ""
             if not title or not _us_news_recent_enough(pub, bucket):
                 continue
             score, tag = _score_us_news(title, bucket)
+            source_tier, multiplier = _us_source_authority(publisher)
+            if bucket != "daily":
+                score = round(score * multiplier, 4)
+                tag += f"|{source_tier}"
             provenance = resolve_aggregator_timestamp(pub, link)
             items.append(NewsItem(
-                "GoogleNewsUS",
+                f"GoogleNewsUS/{publisher}" if publisher else "GoogleNewsUS",
                 provenance.display_time,
                 guarded_score(score, provenance),
                 append_provenance_tag(tag, provenance),
@@ -1146,7 +1202,7 @@ def _google_news_us(query: str, bucket: str, limit: int = 4) -> List[NewsItem]:
 
 def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsItem]:
     sym = str(ticker.resolved_symbol or ticker.symbol or "").upper()
-    cache_key = f"v1072_us_news_forward_first:{sym}:{date.today().isoformat()}"
+    cache_key = f"v1104_us_catalyst_first:{sym}:{date.today().isoformat()}"
     now_ts = time.time()
     cached = _US_NEWS_CACHE.get(cache_key)
     if not force_refresh and cached and now_ts - cached[0] < _US_NEWS_CACHE_TTL_SEC:
@@ -1190,8 +1246,15 @@ def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
         if len(out) >= 14:
             break
 
-    # Sort high-impact evidence first while keeping recency already enforced.
-    out = sorted(out, key=lambda n: (abs(float(n.score)), str(n.time)), reverse=True)[:14]
+    # Direct company catalysts outrank generic industry and market weather. A
+    # neutral official demo must not vanish behind larger macro scores.
+    def _priority(item: NewsItem):
+        tag = str(item.tag or "").lower()
+        bucket_priority = 3 if "us_company" in tag else 2 if "us_industry" in tag else 1
+        source_priority = 3 if "source_tier1" in tag else 2 if "source_tier2" in tag else 1
+        return bucket_priority, source_priority, abs(float(item.score)), str(item.time)
+
+    out = sorted(out, key=_priority, reverse=True)[:14]
 
     # Guarantee the evidence layer is never empty, but make fallback neutral and explicit.
     if not out:

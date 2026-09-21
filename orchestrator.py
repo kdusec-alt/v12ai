@@ -1039,16 +1039,15 @@ def _us_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = N
 
 def _us_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
     causal = (price.context or {}).get("news_causal_v1073")
-    if isinstance(causal, dict) and causal.get("accepted"):
-        return (
-            f"Company News｜{price.ticker.resolved_symbol}｜"
-            f"{causal.get('company_text') or causal.get('causal_text') or '等待價格確認'}"
-            f"｜事件族去重 {int(causal.get('company_family_count') or 0)}"
-        )
     company = _us_news_filter(news_items, ('us_company', 'bullish_us_company', 'bearish_us_company'))
-    industry = _us_news_filter(news_items, ('us_industry', 'bullish_us_industry', 'bearish_us_industry'))
-    use = company + [x for x in industry if x not in company]
-    top = _us_news_top_text(use, 2)
+    # Company News is reserved for direct entity evidence. Sector headlines
+    # remain context and cannot masquerade as a company catalyst.
+    use = company
+    top = '；'.join(
+        _short_title(_news_title(n), 30)
+        for n in use[:2]
+        if _news_title(n)
+    )
     if top:
         earnings = assess_earnings_evidence(use)
         if earnings.get("accepted") and earnings.get("forward_priority"):
@@ -1059,8 +1058,51 @@ def _us_company_news_line(price: PriceFrame, news_items: List[NewsItem] | None =
         level, score, pos, neg = _us_news_strength(use)
         themes = _us_news_themes(use)
         tone = '偏多事件' if pos > neg else ('偏空/風險事件' if neg > pos else '事件觀察')
-        return f"Company News｜{price.ticker.resolved_symbol}｜{level}｜英文新聞 {len(use)}則｜{themes}｜{tone}｜{top}"
-    return f"Company News｜{price.ticker.resolved_symbol}｜英文新聞查詢中｜先看 Macro Core / VWAP / 財報"
+        family_labels = {
+            'catalyst_order': '訂單/客戶採用',
+            'catalyst_capacity': '產能/供應鏈',
+            'catalyst_partnership': '合作夥伴',
+            'catalyst_product_demo': '產品/技術展示',
+            'catalyst_earnings_guidance': '財報/財測',
+            'catalyst_analyst': '評級/目標價',
+            'catalyst_company_event': '公司事件',
+        }
+        first = use[0]
+        primary_tag = _news_tag(first)
+        all_tags = ' '.join(_news_tag(n) for n in use)
+        family = next((label for key, label in family_labels.items() if key in primary_tag), '')
+        if not family:
+            family = next((label for key, label in family_labels.items() if key in all_tags), themes)
+        if family == '產品/技術展示':
+            verdict = '技術定位加分，尚非訂單或營收指引'
+        elif family == '產能/供應鏈':
+            verdict = '供應能力改善，仍需量產與營收驗證'
+        elif family == '合作夥伴':
+            verdict = '合作催化，需確認金額、客戶採用與時程'
+        elif family == '訂單/客戶採用':
+            verdict = '商業催化較強，仍以公告金額與價格反應確認'
+        elif family == '財報/財測':
+            verdict = '以前瞻財測優先，歷史獲利不單獨主導'
+        elif family == '評級/目標價':
+            verdict = '屬評價催化，不視為公司營運事實'
+        else:
+            verdict = '保留為方向證據，等待價格與成交量確認'
+        source = str(getattr(first, 'source', '') or '').replace('GoogleNewsUS/', '')
+        time_label = str(getattr(first, 'time', '') or '')
+        evidence = ' / '.join(x for x in (source, time_label) if x)
+        causal_text = ''
+        if isinstance(causal, dict) and int(causal.get('company_family_count') or 0) > 0:
+            causal_text = str(causal.get('causal_text') or '')
+        causal_part = f"｜市場驗證：{causal_text}" if causal_text else ''
+        evidence_part = f"｜證據：{evidence}" if evidence else ''
+        return f"Company News｜{price.ticker.resolved_symbol}｜{level}｜{family}｜{tone}｜{verdict}{causal_part}{evidence_part}｜{top}"
+    if isinstance(causal, dict) and int(causal.get('company_family_count') or 0) > 0:
+        return (
+            f"Company News｜{price.ticker.resolved_symbol}｜"
+            f"{causal.get('company_text') or causal.get('causal_text') or '等待價格確認'}"
+            f"｜事件族去重 {int(causal.get('company_family_count') or 0)}"
+        )
+    return f"Company News｜{price.ticker.resolved_symbol}｜未取得直接公司催化劑｜總體新聞不代替公司證據"
 
 
 def _tw_daily_headline_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
