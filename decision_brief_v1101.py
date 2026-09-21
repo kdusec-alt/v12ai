@@ -61,13 +61,23 @@ def _direction_match(action_code: str, stance_value: int) -> int:
     return 1 if stance_value != 0 else 0
 
 
+def _public_evidence_eligible(row: Mapping[str, Any]) -> bool:
+    """Hide data-health notices from the executive brief, not from audit."""
+    reason = str(row.get("reason") or row.get("text") or "")
+    low_information = (
+        "非今日資料", "資料不足", "待同步", "尚未同步", "日期待確認",
+        "最近有效", "非本Session", "不同Session",
+    )
+    return not any(token in reason for token in low_information)
+
+
 def _ranked_reasons(snapshot: Mapping[str, Any], limit: int = 3) -> list[str]:
     reasoning = _mapping(snapshot.get("reasoning"))
     action_code = str(snapshot.get("action_code") or "HOLD").upper()
     rows = []
     for index, raw in enumerate(list(snapshot.get("evidence") or [])):
         row = _mapping(raw)
-        if not row or not bool(row.get("accepted")):
+        if not row or not bool(row.get("accepted")) or not _public_evidence_eligible(row):
             continue
         strength = int(_num(row.get("strength")) or 0)
         confidence = float(_num(row.get("confidence")) or 0)
@@ -111,7 +121,7 @@ def _ranked_evidence_rows(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     ranked: list[tuple[float, int, dict[str, Any]]] = []
     for index, raw in enumerate(list(snapshot.get("evidence") or [])):
         row = _mapping(raw)
-        if not row or not bool(row.get("accepted")):
+        if not row or not bool(row.get("accepted")) or not _public_evidence_eligible(row):
             continue
         strength = int(_num(row.get("strength")) or 0)
         confidence = float(_num(row.get("confidence")) or 0)
