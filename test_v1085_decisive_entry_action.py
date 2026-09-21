@@ -68,7 +68,9 @@ class V1085DecisiveEntryActionTests(unittest.TestCase):
         self.assertIn("AI交易決策", ui)
         self.assertIn("action_decision", ui)
         self.assertIn("_decision_snapshot_payload", ui)
-        self.assertIn("最終決策｜", ui)
+        self.assertIn("AI執行計畫", ui)
+        self.assertIn("空手｜", ui)
+        self.assertIn("持股｜", ui)
         self.assertIn("AI執行價格", ui)
         self.assertIn("html_block(html, height=642, scrolling=False)", ui)
 
