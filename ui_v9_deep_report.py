@@ -37,9 +37,20 @@ def render_deep_report(st, forecast):
     with st.expander(title, expanded=False):
         st.text(str(forecast.deep_report or ""))
         news = list(forecast.news_items or [])
+        company_news = [
+            n for n in news
+            if ("us_company" in str(getattr(n, "tag", "")) or "tw_company" in str(getattr(n, "tag", "")))
+            and "news_wait" not in str(getattr(n, "tag", ""))
+        ]
+        context_news = [n for n in news if n not in company_news]
+        news = company_news + context_news
         st.markdown(f"**新聞來源｜{forecast.ticker.resolved_symbol}｜{len(news)}則**")
         if news:
             for idx, item in enumerate(news[:20], start=1):
+                if idx == 1 and company_news:
+                    st.markdown("**公司直接催化劑**")
+                if idx == len(company_news) + 1 and context_news:
+                    st.markdown("**產業／總體風險背景**")
                 source = _md_text(getattr(item, "source", ""))
                 time_label = _md_text(getattr(item, "time", ""))
                 tag = _md_text(getattr(item, "tag", ""))
