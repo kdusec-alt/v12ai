@@ -105,6 +105,108 @@ def _ranked_reasons(snapshot: Mapping[str, Any], limit: int = 3) -> list[str]:
     return selected or ["有效證據不足，等待下一交易時段重新計算"]
 
 
+def _ranked_evidence_rows(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Return accepted, de-correlated evidence in decision priority order."""
+    action_code = str(snapshot.get("action_code") or "HOLD").upper()
+    ranked: list[tuple[float, int, dict[str, Any]]] = []
+    for index, raw in enumerate(list(snapshot.get("evidence") or [])):
+        row = _mapping(raw)
+        if not row or not bool(row.get("accepted")):
+            continue
+        strength = int(_num(row.get("strength")) or 0)
+        confidence = float(_num(row.get("confidence")) or 0)
+        direction = int(_num(row.get("direction")) or 0)
+        score = strength + confidence * 0.12 + _direction_match(action_code, direction) * 8
+        ranked.append((score, index, row))
+    output: list[dict[str, Any]] = []
+    groups: set[str] = set()
+    for _, _, row in sorted(ranked, key=lambda item: (item[0], -item[1]), reverse=True):
+        group = str(row.get("correlation_group") or row.get("category") or row.get("label") or "")
+        if group and group in groups:
+            continue
+        output.append(row)
+        if group:
+            groups.add(group)
+    return output
+
+
+def _direct_company_catalyst(radar: Mapping[str, Any] | None) -> str:
+    line = str(_mapping(radar).get("Company News") or "").strip()
+    blocked = (
+        "Global Event Core", "未取得直接公司催化劑", "個股實體關聯新聞觀察中",
+        "等待市場傳導確認", "事件時間或價格時間未完整標示",
+    )
+    if not line or any(token in line for token in blocked):
+        return ""
+    line = re.sub(r"^Company News[｜|][^｜|]+[｜|]?", "", line).strip("｜| ")
+    return _compact(line, 72)
+
+
+def _intelligence_summary(
+    snapshot: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    radar: Mapping[str, Any] | None,
+    candidate_mode: bool = False,
+) -> dict[str, str]:
+    """Turn accepted facts into an executive thesis without inventing facts/prices."""
+    rows = _ranked_evidence_rows(snapshot)
+    code = str(snapshot.get("action_code") or "BLOCK").upper()
+    aligned = [row for row in rows if _direction_match(code, int(_num(row.get("direction")) or 0)) > 0]
+    contrary = [row for row in rows if _direction_match(code, int(_num(row.get("direction")) or 0)) < 0]
+    primary = aligned[0] if aligned else (rows[0] if rows else {})
+    primary_direction = int(_num(primary.get("direction")) or 0)
+    # HOLD is not a direction.  Use the strongest accepted evidence as the
+    # thesis and explicitly surface evidence pointing the other way as risk.
+    if code == "HOLD" and primary_direction:
+        contrary = [
+            row for row in rows
+            if int(_num(row.get("direction")) or 0) * primary_direction < 0
+        ]
+    primary_label = _compact(primary.get("label") or "證據", 15)
+    primary_reason = _compact(primary.get("reason") or primary.get("text") or "有效證據仍不足", 52)
+
+    verdict_map = {
+        "BUY": "條件成立，可分批執行",
+        "SELL": "結構轉弱，退出優先",
+        "REDUCE": "位置過熱，降低曝險",
+        "BLOCK": "禁止進場，等待重建",
+        "HOLD": "條件未齊，等待價格確認",
+    }
+    verdict = (
+        "條件候選，未觸發不進場"
+        if candidate_mode and code not in {"SELL", "REDUCE"}
+        else verdict_map.get(code, "條件未齊，等待確認")
+    )
+    catalyst = _direct_company_catalyst(radar)
+    catalyst_text = f"；公司催化：{catalyst}" if catalyst else "；公司催化未驗證，不以總體新聞代替"
+    thesis = _compact(f"{verdict}｜主導：{primary_label}－{primary_reason}{catalyst_text}", 130)
+
+    if contrary:
+        row = contrary[0]
+        risk = f"{_compact(row.get('label') or '反方證據', 16)}：{_compact(row.get('reason') or row.get('text') or '方向相反', 56)}"
+    else:
+        invalid = _price(plan.get("invalidation_price"))
+        risk = f"跌破 {invalid}，原判斷失效；取消條件單且不攤平" if invalid != "--" else "失效價尚未形成，不建立新部位"
+
+    groups = {
+        str(row.get("correlation_group") or row.get("category") or row.get("label") or "")
+        for row in rows
+    }
+    accepted = len(rows)
+    opposite = len(contrary)
+    directions = {int(_num(row.get("direction")) or 0) for row in rows}
+    directional_conflict = 1 in directions and -1 in directions
+    if accepted >= 3 and len(groups) >= 3 and opposite == 0 and not directional_conflict:
+        confidence = "高"
+    elif accepted >= 3 and len(groups) >= 3 and opposite <= 1:
+        confidence = "中高"
+    elif accepted >= 2:
+        confidence = "中"
+    else:
+        confidence = "低"
+    return {"thesis": thesis, "risk": _compact(risk, 90), "confidence": confidence}
+
+
 def _actions(snapshot: Mapping[str, Any], plan: Mapping[str, Any]) -> tuple[str, str]:
     code = str(snapshot.get("action_code") or "BLOCK").upper()
     instruction = _compact(snapshot.get("instruction"), 74)
@@ -169,7 +271,10 @@ def _zone_text(plan: Mapping[str, Any]) -> str:
     return f"{_price(lo)}～{_price(hi)}"
 
 
-def build_decision_brief(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+def build_decision_brief(
+    snapshot: Mapping[str, Any],
+    radar: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build one concise public brief from the immutable decision snapshot."""
     snap = _mapping(snapshot)
     reasoning = _mapping(snap.get("reasoning"))
@@ -193,10 +298,15 @@ def build_decision_brief(snapshot: Mapping[str, Any]) -> dict[str, Any]:
             f"{_price(candidate.get('confirmation_price'))} 不加碼"
         )
 
+    intelligence = _intelligence_summary(snap, execution, radar, candidate_mode)
+
     return {
-        "schema": "TINO_DECISION_BRIEF_V1102",
+        "schema": "TINO_DECISION_BRIEF_V1105",
         "verdict": label,
         "summary": reason or "跨模組尚未形成可執行共識",
+        "thesis": intelligence["thesis"],
+        "primary_risk": intelligence["risk"],
+        "confidence_label": intelligence["confidence"],
         "reasons": _ranked_reasons(snap),
         "flat_action": flat_action,
         "holding_action": holding_action,
