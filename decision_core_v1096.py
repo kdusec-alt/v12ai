@@ -574,6 +574,94 @@ def _acceptance(entry: Mapping[str, Any], facts: Sequence[EvidenceFact]) -> Dict
     return {"code": "STRUCTURED_ACCEPTANCE", "title": "進場品質", "score": score, "grade": grade, "label": f"進場品質 {score}%｜{grade}"}
 
 
+def _tick_size(market: str, asset_type: str, price: float | None) -> float:
+    """Return the exchange tick used only to format a conditional plan."""
+    if price is None or price <= 0:
+        return 0.01
+    if market != "TW":
+        return 0.01
+    if asset_type in {"etf", "etn"}:
+        return 0.01 if price < 50 else 0.05
+    if price < 10:
+        return 0.01
+    if price < 50:
+        return 0.05
+    if price < 100:
+        return 0.10
+    if price < 500:
+        return 0.50
+    if price < 1000:
+        return 1.00
+    return 5.00
+
+
+def _round_up(value: float | None, step: float) -> float | None:
+    if value is None:
+        return None
+    return round(math.ceil((value - 1e-10) / step) * step, 2)
+
+
+def _conditional_next_session_plan(
+    forecast: Any, entry: Mapping[str, Any], formal_plan: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Prepare a next-session candidate from verified OHLC without relaxing gates."""
+    frame = getattr(forecast, "price_frame", None)
+    truth = getattr(frame, "truth", None)
+    state = str(entry.get("state") or "DATA_WAIT")
+    if (
+        frame is None or not bool(getattr(truth, "accepted", False))
+        or state not in {"DATA_WAIT", "WAIT_NEXT_SESSION"}
+        or state in {"SELLING_EXPANSION_BLOCK", "FAILED_BREAKOUT_EXIT"}
+    ):
+        return {"eligible": False, "reason": "沒有可驗證的價格結構，不建立候選條件單"}
+
+    last = _num(getattr(frame, "last", None)
+    )
+    low = _num(getattr(frame, "low", None))
+    high = _num(getattr(frame, "high", None))
+    vwap = _num(getattr(frame, "vwap", None))
+    atr = _num(getattr(frame, "atr14", None))
+    if last is None or low is None or high is None or high < low:
+        return {"eligible": False, "reason": "OHLC不完整，不建立候選條件單"}
+    atr = max(atr or (high - low) or last * 0.012, last * 0.003, 0.01)
+    ticker = getattr(forecast, "ticker", None)
+    market = str(getattr(ticker, "market", "") or "").upper()
+    asset_type = str(getattr(ticker, "asset_type", "stock") or "stock").lower()
+    step = _tick_size(market, asset_type, last)
+
+    # Support is derived only from verified low/VWAP/ATR geometry.  This is a
+    # conditional 1/3 probe, never a fabricated immediate-buy price.
+    support_floor = max(low, last - atr * 0.55)
+    support_ceiling = min(last, low + max(atr * 0.35, step * 2))
+    if support_ceiling < support_floor:
+        support_ceiling = support_floor
+    stop = _num(formal_plan.get("invalidation_price") or formal_plan.get("stop_price"))
+    if stop is None or stop >= support_floor:
+        stop = max(0.0, support_floor - max(atr * 0.35, step))
+    confirmation = _round_up(max(support_ceiling + step, min(vwap or last, last)), step)
+    breakout = _round_up(max(high + step, (confirmation or high) + max(atr * 0.25, step)), step)
+    if confirmation is None or breakout is None or not (stop < support_floor <= support_ceiling < confirmation < breakout):
+        return {"eligible": False, "reason": "價格階層無法驗證，不建立候選條件單"}
+
+    return {
+        "eligible": True,
+        "kind": "NEXT_SESSION_CONDITIONAL",
+        "label": "下一交易日條件候選",
+        "source_date": str(getattr(frame, "price_date", "") or getattr(truth, "date", "")),
+        "session_kind": str(getattr(frame, "market_status", "") or ""),
+        "entry_zone": {"lower": support_floor, "upper": support_ceiling},
+        "entry_text": "回測區量縮止穩，先建立 1/3；未觸發不追價",
+        "confirmation_price": confirmation,
+        "confirmation_text": "站回確認價後再補 1/3",
+        "breakout_price": breakout,
+        "breakout_text": "放量站穩突破價，才考慮最後 1/3",
+        "invalidation_price": stop,
+        "invalidation_text": "跌破失效價取消條件單，不攤平",
+        "risk": "正式進場門檻尚未通過；這是下一交易日條件單，不是即時買進指令",
+        "formal_gate_preserved": True,
+    }
+
+
 def _funnel(
     entry: Mapping[str, Any], facts: Sequence[EvidenceFact], gate: Mapping[str, Any],
     lifecycle: Mapping[str, Any], plan: Mapping[str, Any], acceptance: Mapping[str, Any],
@@ -641,6 +729,12 @@ def build_decision_snapshot(
     plan["distance_from_local_low_atr"] = (
         round((current_price - local_low_20) / atr14, 4)
         if current_price is not None and local_low_20 is not None and atr14 and atr14 > 0 else None
+    )
+    # A blocked live decision must remain blocked.  Separately expose a
+    # verified, next-session conditional plan so a closed/holiday reference
+    # does not degrade into an empty "等待" screen.
+    plan["conditional_next_session"] = _conditional_next_session_plan(
+        forecast, entry, plan,
     )
     acceptance = _acceptance(entry, facts)
     drivers = _drivers(facts)
