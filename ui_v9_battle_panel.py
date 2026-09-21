@@ -235,7 +235,7 @@ def render_battle_panel(st, forecast):
         "icon": public_snapshot.get("icon"), "color": public_snapshot.get("color"),
         "instruction": public_snapshot.get("instruction"), "reason": public_snapshot.get("reason"),
     }
-    decision_brief = build_decision_brief(public_snapshot)
+    decision_brief = build_decision_brief(public_snapshot, radar=p.radar)
     conditional_plan = entry_plan.get("conditional_next_session") if isinstance(entry_plan.get("conditional_next_session"), dict) else {}
     display_plan = conditional_plan if bool(decision_brief.get("candidate_mode")) else entry_plan
     entry = {
@@ -249,6 +249,9 @@ def render_battle_panel(st, forecast):
     entry_icon = safe(action_decision.get("icon") or entry.get("icon") or "🔴")
     entry_label = safe(decision_brief.get("verdict") or action_decision.get("label") or "禁止進場")
     entry_summary = safe(decision_brief.get("summary") or action_decision.get("reason") or "禁止進場｜不建立新部位")
+    intelligence_thesis = safe(decision_brief.get("thesis") or entry_summary)
+    intelligence_risk = safe(decision_brief.get("primary_risk") or "風險條件待確認")
+    intelligence_confidence = safe(decision_brief.get("confidence_label") or "低")
     entry_score_html = ""
     if bool(entry.get("show_score")):
         entry_score_html = f"<span class='score'>{int(entry.get('score') or 0)}%</span>"
@@ -356,6 +359,8 @@ def render_battle_panel(st, forecast):
     .decision{{margin-top:5px;border:1px solid rgba(255,211,78,.48);border-radius:12px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:5px 7px}}
     .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}
     .action-now{{border:1px solid rgba(95,244,255,.42);border-left:4px solid #5ff4ff;border-radius:8px;background:linear-gradient(90deg,rgba(0,78,102,.48),rgba(4,17,25,.88));color:#eaffff;font-size:11.5px;line-height:1.12;font-weight:950;padding:5px 8px;margin-bottom:3px}}
+    .thesis{{border-left:4px solid #ffd35a;background:rgba(80,59,0,.22);border-radius:0 8px 8px 0;color:#fff7ce;font-size:10.7px;line-height:1.18;font-weight:850;padding:5px 8px;margin-bottom:3px}}
+    .risk{{border-left:3px solid #ff6f8e;background:rgba(70,10,25,.22);border-radius:0 7px 7px 0;color:#ffe1e8;font-size:9.7px;line-height:1.15;font-weight:760;padding:4px 7px;margin-bottom:3px}}
     .price-command{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:10.7px;line-height:1.08;font-weight:820;padding:4px 8px;margin-bottom:2px}}
     .reasoning-line{{padding:2px 6px;border-left:3px solid #74f4c3;background:rgba(3,31,33,.62);color:#d9fff1;font-size:8.7px;line-height:1.14;border-radius:0 6px 6px 0;margin-bottom:2px}}
     .reasoning-line b{{color:#74f4c3;margin-right:4px}}.reasoning-conflict{{display:block;color:#cfe7f7;margin-top:1px}}.reasoning-price{{display:block;color:#fff1a8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.reasoning-price b{{color:#ffd96a}}
@@ -388,9 +393,11 @@ def render_battle_panel(st, forecast):
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜{safe(d.get('漲跌標籤','漲跌'))}：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>{safe(d.get('價格範圍標籤','今日'))}高：{fmt(d.get('最高'))}｜{safe(d.get('價格範圍標籤','今日'))}低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
       <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI交易決策</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div></div>
       <div class='decision'>
-        <div class='dt'>{'AI 條件單｜進場與分批（正式買進仍須觸發）' if decision_brief.get('candidate_mode') else 'AI執行計畫｜' + decision_title}</div>
+        <div class='dt'>AI執行計畫｜AI策略判斷｜信心 {intelligence_confidence}｜{'條件單' if decision_brief.get('candidate_mode') else decision_title}</div>
+        <div class='thesis'>結論｜{intelligence_thesis}</div>
         <div class='action-now'>{current_action_text}</div>
         <div class='price-command'>價格計畫｜{executive_price_line}</div>
+        <div class='risk'>失效／主要風險｜{intelligence_risk}</div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>決策依據</b>{evidence_summary}</div>
         <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
         <div class='pricebar'>{price_tiles_html}</div>

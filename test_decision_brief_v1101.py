@@ -83,6 +83,22 @@ class DecisionBriefV1101Tests(unittest.TestCase):
         self.assertIn("先 1/3", brief["flat_action"])
         self.assertEqual(brief["breakout"], "106.8")
 
+    def test_v1105_builds_executive_thesis_risk_and_confidence(self):
+        brief = build_decision_brief(snapshot("HOLD"), radar={
+            "Company News": "Company News｜TEST｜中高｜產品/技術展示｜偏多事件｜新品獲客戶採用",
+        })
+        self.assertIn("主導", brief["thesis"])
+        self.assertIn("公司催化", brief["thesis"])
+        self.assertIn(brief["confidence_label"], {"高", "中高", "中", "低"})
+        self.assertTrue(brief["primary_risk"])
+
+    def test_macro_event_cannot_masquerade_as_company_catalyst(self):
+        brief = build_decision_brief(snapshot("HOLD"), radar={
+            "Company News": "Company News｜MRVL｜主事件《Global Event Core｜油價快速回落》",
+        })
+        self.assertIn("公司催化未驗證", brief["thesis"])
+        self.assertNotIn("油價快速回落", brief["thesis"])
+
     def test_ui_uses_brief_and_keeps_full_audit(self):
         source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
         self.assertIn("build_decision_brief", source)
@@ -90,7 +106,8 @@ class DecisionBriefV1101Tests(unittest.TestCase):
         self.assertIn("空手｜", source)
         self.assertIn("持股｜", source)
         self.assertIn("展開完整 AI 證據", source)
-        self.assertIn("AI 條件單｜進場與分批", source)
+        self.assertIn("AI策略判斷", source)
+        self.assertIn("失效／主要風險", source)
         self.assertNotIn("目前動作｜最終決策｜", source)
 
 
