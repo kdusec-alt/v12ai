@@ -33,7 +33,7 @@ class ResponsiveUiV1065Tests(unittest.TestCase):
     def test_battle_panel_uses_orchestrator_owned_session_snapshot(self):
         self.assertIn("_decision_snapshot_payload", self.battle_source)
         self.assertNotIn("entry = assess_entry_opportunity(p)", self.battle_source)
-        self.assertIn("canonical_main_message", self.battle_source)
+        self.assertIn("build_decision_brief", self.battle_source)
         self.assertIn("AI交易決策", self.battle_source)
         self.assertIn("entry_price_strategy", self.battle_source)
         self.assertNotIn("from low_entry_readiness_v1065 import assess_low_entry_readiness", self.battle_source)
