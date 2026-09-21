@@ -557,12 +557,18 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
     breakout_price = None
     if actionable and zone_hi is not None:
         # Pullback confirmation must sit strictly above the whole low-entry zone.
-        confirmation_price = max(zone_hi + step, vwap + step if vwap is not None else zone_hi + step) if not gate or bool(gate.get("allow_pullback", True)) else None
+        if gate.get("left_low_candidate") and bool(gate.get("allow_pullback", True)):
+            # Left-side lane confirms a bounce out of the verified low zone;
+            # requiring a full VWAP reclaim would turn it back into right-side
+            # momentum buying and miss the intended low-risk entry.
+            confirmation_price = zone_hi + step
+        else:
+            confirmation_price = max(zone_hi + step, vwap + step if vwap is not None else zone_hi + step) if not gate or bool(gate.get("allow_pullback", True)) else None
         if is_tw_etf and confirmation_price is not None:
             confirmation_price = round(math.ceil((confirmation_price - 1e-9) / step) * step, 2)
         # If price is already above the zone, require a reclaim of the current
         # reference after the pullback instead of reusing VWAP as a fake trigger.
-        if confirmation_price is not None and last is not None and last > confirmation_price:
+        if confirmation_price is not None and last is not None and last > confirmation_price and not gate.get("left_low_candidate"):
             confirmation_price = last
         if confirmation_price is not None:
             confirmation_condition = "回測量縮守穩後重新站回，觸發小量買進"
@@ -597,6 +603,12 @@ def _entry_plan(forecast: Any, entry: Mapping[str, Any], gate: Mapping[str, Any]
         entry_state_code, entry_state_label, missing = "TRIGGERED", "正式觸發", []
     elif zone_lo is not None and zone_hi is not None and last is not None and zone_lo <= last <= zone_hi:
         entry_state_code, entry_state_label, missing = "IN_PULLBACK", "已進入回測區", ["量縮守穩", "重新站回確認價"]
+    elif (
+        gate.get("left_low_candidate") and session_touched_zone
+        and confirmation_price is not None and last is not None and last >= confirmation_price
+    ):
+        entry_state_code, entry_state_label, missing = "TRIGGERED", "左側止跌觸發", []
+        entry_sequence_verified = True
     elif zone_hi is not None and last is not None and last > zone_hi:
         if session_touched_zone:
             entry_state_code, entry_state_label, missing = (
@@ -771,11 +783,14 @@ def _decisive_action(
     elif state in {"DATA_WAIT", "WAIT_NEXT_SESSION"}:
         code, reason = "BLOCK", "Session或同源價格無法驗證，禁止以失真資料下單"
         situation = "BLOCK_DATA"
-    elif state == "BUY_TODAY_CONFIRM" and trigger_status == "TRIGGERED" and price_order_valid:
+    elif (
+        trigger_status == "TRIGGERED" and price_order_valid
+        and (state == "BUY_TODAY_CONFIRM" or gate.get("left_low_candidate"))
+    ):
         if gate.get("recovery_setup") and score >= 55 and dominance >= -20:
             code, reason = "BUY", "融資／事件／市場與價格修復形成共振，回測確認後開放第一層布局"
             situation = "BUY_RECOVERY_ENTRY"
-        elif gate.get("controlled_low_trade") and score >= 55 and dominance >= -20:
+        elif gate.get("controlled_low_trade") and score >= (48 if gate.get("left_low_candidate") else 55) and dominance >= -20:
             code, reason = "BUY", "低檔回測已確認，T1風險收斂且無強空共振，只開放小倉試單"
             situation = "BUY_LOW_ENTRY"
         elif score >= 55 and dominance >= -20:
@@ -787,7 +802,7 @@ def _decisive_action(
         else:
             code, reason = "HOLD", "價格觸發已到，但有效證據尚未通過買進門檻"
             situation = "HOLD_NO_ENTRY"
-    elif state == "WAIT_VWAP_RECLAIM" and (score < 50 or dominance <= -60):
+    elif state == "WAIT_VWAP_RECLAIM" and not gate.get("left_low_candidate") and (score < 50 or dominance <= -60):
         code, reason = "REDUCE", "價格未收復VWAP且偏空證據明顯占優"
         situation = "REDUCE_WEAKNESS"
     elif hard_bearish:
