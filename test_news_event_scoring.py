@@ -4,7 +4,13 @@ from __future__ import annotations
 import unittest
 
 from data_sources_tw import _score_news, _tw_company_news_relevant
-from data_sources_us import _score_us_news, _us_news_relevant_to_ticker
+from data_sources_us import (
+    _score_us_news,
+    _us_catalyst_family,
+    _us_news_profile_queries,
+    _us_news_relevant_to_ticker,
+    _us_source_authority,
+)
 from models import NewsItem, TickerInfo
 from orchestrator import _directional_company_news, _news_summary
 
@@ -94,6 +100,23 @@ class NewsEventScoringTests(unittest.TestCase):
         filtered = _directional_company_news(rows)
         self.assertEqual(len(filtered), 1)
         self.assertIn("company", filtered[0].tag)
+
+    def test_unknown_us_stock_receives_universal_catalyst_query(self):
+        ticker = TickerInfo("XYZ", "XYZ", "Example Systems, Inc.", "US", "stock")
+        queries = _us_news_profile_queries(ticker)
+        self.assertEqual(queries[0][1], "company")
+        self.assertIn('"Example Systems, Inc."', queries[0][0])
+        self.assertIn("demonstrates", queries[0][0])
+        self.assertIn("contract", queries[0][0])
+
+    def test_catalyst_family_distinguishes_demo_from_order(self):
+        self.assertEqual(_us_catalyst_family("Marvell demonstrates 2nm optical technology"), "product_demo")
+        self.assertEqual(_us_catalyst_family("Ondas wins new defense contract"), "order")
+        self.assertEqual(_us_catalyst_family("Marvell Technology earnings beat estimates"), "earnings_guidance")
+
+    def test_unknown_publisher_cannot_gain_full_directional_weight(self):
+        self.assertEqual(_us_source_authority("Unknown Blog"), ("source_tier3", 0.72))
+        self.assertEqual(_us_source_authority("Reuters"), ("source_tier1", 1.0))
 
 
 if __name__ == "__main__":
