@@ -2,6 +2,13 @@
 from __future__ import annotations
 
 import unittest
+import sys
+import types
+
+# The lightweight contract workflow intentionally does not install runtime
+# dependencies.  These tests exercise only pure news-routing functions, so a
+# minimal import stub keeps the contract independent from pandas installation.
+sys.modules.setdefault("pandas", types.ModuleType("pandas"))
 
 from data_sources_us import (
     _score_us_news,
