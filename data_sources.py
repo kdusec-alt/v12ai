@@ -178,7 +178,9 @@ def _news_identity(item: NewsItem) -> str:
 def _merge_news(primary: List[NewsItem], global_rows: List[NewsItem], limit: int = 24) -> List[NewsItem]:
     out: List[NewsItem] = []
     seen: set[str] = set()
-    for item in [*(global_rows or []), *(primary or [])]:
+    # Direct ticker evidence owns the first slots. Global Event rows remain as
+    # Macro/Policy context, but cannot starve company catalysts.
+    for item in [*(primary or []), *(global_rows or [])]:
         key = _news_identity(item)
         if not key or key in seen:
             continue
