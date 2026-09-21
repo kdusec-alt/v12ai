@@ -48,7 +48,7 @@ class DecisionBriefV1101Tests(unittest.TestCase):
 
     def test_holding_and_flat_actions_are_separated(self):
         brief = build_decision_brief(snapshot())
-        self.assertIn("不進場", brief["flat_action"])
+        self.assertIn("先 1/3", brief["flat_action"])
         self.assertIn("96.15", brief["holding_action"])
 
     def test_next_session_candidate_is_actionable_without_relaxing_formal_gate(self):
@@ -76,6 +76,13 @@ class DecisionBriefV1101Tests(unittest.TestCase):
         self.assertIn("1/3", brief["flat_action"])
         self.assertIn("不是即時買進", brief["summary"])
 
+    def test_verified_formal_price_ladder_is_a_conditional_order(self):
+        brief = build_decision_brief(snapshot("HOLD"))
+        self.assertTrue(brief["candidate_mode"])
+        self.assertEqual(brief["verdict"], "條件式候選｜等待觸發")
+        self.assertIn("先 1/3", brief["flat_action"])
+        self.assertEqual(brief["breakout"], "106.8")
+
     def test_ui_uses_brief_and_keeps_full_audit(self):
         source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
         self.assertIn("build_decision_brief", source)
@@ -83,7 +90,7 @@ class DecisionBriefV1101Tests(unittest.TestCase):
         self.assertIn("空手｜", source)
         self.assertIn("持股｜", source)
         self.assertIn("展開完整 AI 證據", source)
-        self.assertIn("下一交易日條件單", source)
+        self.assertIn("AI 條件單｜進場與分批", source)
         self.assertNotIn("目前動作｜最終決策｜", source)
 
 

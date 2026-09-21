@@ -388,7 +388,7 @@ def render_battle_panel(st, forecast):
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜{safe(d.get('漲跌標籤','漲跌'))}：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>{safe(d.get('價格範圍標籤','今日'))}高：{fmt(d.get('最高'))}｜{safe(d.get('價格範圍標籤','今日'))}低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
       <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI交易決策</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div></div>
       <div class='decision'>
-        <div class='dt'>{'下一交易日條件單｜正式買進仍須觸發' if decision_brief.get('candidate_mode') else 'AI執行計畫｜' + decision_title}</div>
+        <div class='dt'>{'AI 條件單｜進場與分批（正式買進仍須觸發）' if decision_brief.get('candidate_mode') else 'AI執行計畫｜' + decision_title}</div>
         <div class='action-now'>{current_action_text}</div>
         <div class='price-command'>價格計畫｜{executive_price_line}</div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>決策依據</b>{evidence_summary}</div>

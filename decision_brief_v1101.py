@@ -130,7 +130,34 @@ def _actions(snapshot: Mapping[str, Any], plan: Mapping[str, Any]) -> tuple[str,
 
 def _candidate(plan: Mapping[str, Any]) -> Mapping[str, Any]:
     candidate = _mapping(plan.get("conditional_next_session"))
-    return candidate if bool(candidate.get("eligible")) else {}
+    if bool(candidate.get("eligible")):
+        return candidate
+    # The formal plan already contains a verified price ladder during premarket
+    # and wait-for-confirmation states.  Present it as a conditional order,
+    # rather than hiding it behind generic HOLD wording.
+    zone = _mapping(plan.get("low_entry_zone"))
+    if (
+        _num(zone.get("lower")) is not None
+        and _num(zone.get("upper")) is not None
+        and _num(plan.get("confirmation_price")) is not None
+        and _num(plan.get("invalidation_price")) is not None
+    ):
+        return {
+            "eligible": True,
+            "kind": "FORMAL_CONDITIONAL",
+            "label": "條件式候選｜等待觸發",
+            "entry_zone": zone,
+            "entry_text": str(plan.get("low_entry_condition") or "回測區量縮止穩，先建立 1/3；未觸發不追價"),
+            "confirmation_price": plan.get("confirmation_price"),
+            "confirmation_text": str(plan.get("confirmation_text") or "站回確認價後再補 1/3"),
+            "breakout_price": plan.get("add_price") or plan.get("breakout_price"),
+            "breakout_text": str(plan.get("add_text") or plan.get("breakout_text") or "放量站穩後才考慮最後 1/3"),
+            "invalidation_price": plan.get("invalidation_price"),
+            "invalidation_text": str(plan.get("invalidation_text") or "跌破失效價取消條件單，不攤平"),
+            "risk": "正式進場條件尚未觸發；僅在價格與量能同時確認後執行",
+            "formal_gate_preserved": True,
+        }
+    return {}
 
 
 def _zone_text(plan: Mapping[str, Any]) -> str:
@@ -155,9 +182,12 @@ def build_decision_brief(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     execution = candidate or plan
     candidate_mode = bool(candidate)
     if candidate_mode:
-        label = str(candidate.get("label") or "下一交易日條件候選")
-        reason = _compact(candidate.get("risk"), 70)
-        flat_action = f"不追價；回測 {_zone_text(candidate)} 量縮止穩才先 1/3"
+        label = str(candidate.get("label") or "條件式候選｜等待觸發")
+        reason = _compact(candidate.get("risk") or reason, 70)
+        flat_action = (
+            f"{_zone_text(candidate)} 守穩先 1/3；站回 "
+            f"{_price(candidate.get('confirmation_price'))} 再補 1/3"
+        )
         holding_action = (
             f"守 {_price(candidate.get('invalidation_price'))}；未站回 "
             f"{_price(candidate.get('confirmation_price'))} 不加碼"
