@@ -55,6 +55,8 @@ jobs:
         run: python -m unittest -v test_v1098_low_entry_ma60.py
       - name: Run V1101 intelligent decision brief contracts
         run: python -m unittest -v test_decision_brief_v1101.py
+      - name: Run V1104 universal US company catalyst contracts
+        run: python -m unittest -v test_us_catalyst_router_v1104.py
       - name: Run event and low-entry tests
         run: |
           python -m unittest -v \
