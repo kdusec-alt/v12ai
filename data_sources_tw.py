@@ -1580,18 +1580,30 @@ def fetch_tw_price(ticker: TickerInfo) -> PriceFrame:
         tr = pd.concat([(hist["High"] - hist["Low"]).abs(), (hist["High"] - hist["Close"].shift()).abs(), (hist["Low"] - hist["Close"].shift()).abs()], axis=1).max(axis=1)
         atr = float(tr.rolling(14).mean().iloc[-1]) if len(tr) >= 14 else max(close * 0.03, 0.01)
 
-        closes = [float(x) for x in hist["Close"].tail(60)]
-        highs = [float(x) for x in hist["High"].tail(60)]
-        lows = [float(x) for x in hist["Low"].tail(60)]
-        volumes = [float(x) for x in hist["Volume"].tail(60)]
-        if closes:
-            closes[-1] = close
-        if highs:
-            highs[-1] = max(highs[-1], high)
-        if lows:
-            lows[-1] = min(lows[-1], low)
-        if volumes:
-            volumes[-1] = max(volumes[-1], vol)
+        # Keep one extra bar because TrendEngine deliberately removes the live,
+        # unconfirmed session before calculating formal moving averages.  With
+        # only 60 rows the removal left 59 closes and MA60 was permanently
+        # reported as unavailable during Taiwan market hours.
+        closes = [float(x) for x in hist["Close"].tail(61)]
+        highs = [float(x) for x in hist["High"].tail(61)]
+        lows = [float(x) for x in hist["Low"].tail(61)]
+        volumes = [float(x) for x in hist["Volume"].tail(61)]
+        if fast.get("accepted") and closes:
+            hist_date = parse_date_safe(hist.index[-1].date().isoformat())
+            same_trade_date = bool(price_date and hist_date == price_date)
+            if same_trade_date:
+                closes[-1] = close
+                highs[-1] = max(highs[-1], high)
+                lows[-1] = min(lows[-1], low)
+                volumes[-1] = max(volumes[-1], vol)
+            else:
+                # The daily endpoint can lag one session intraday.  Preserve
+                # yesterday's formal close and append the live bar separately;
+                # TrendEngine will remove only this appended live observation.
+                closes = [*closes, close][-61:]
+                highs = [*highs, high][-61:]
+                lows = [*lows, low][-61:]
+                volumes = [*volumes, vol][-61:]
 
         context = _merge_official_context(
             ticker,
