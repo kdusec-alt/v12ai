@@ -529,7 +529,7 @@ def _render_event_watch_status(forecast) -> None:
     if not bool(st.session_state.get("admin_authenticated", False)):
         return
     if not _event_reassessment_enabled():
-        st.caption("⚪ Admin 事件監測已停用")
+        st.caption("⚪ 自動事件監測已停用｜按「個股分析」仍會更新當下新聞與事件風險")
         return
     symbol = str(getattr(getattr(forecast, "ticker", None), "resolved_symbol", "") or "").strip().upper()
     # V1097: industry conferences are purple forward context.  They are not
