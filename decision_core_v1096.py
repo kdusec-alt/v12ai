@@ -449,10 +449,25 @@ def _structured_gate(
         if item.accepted and item.direction > 0 and item.family in {"leverage", "event", "market", "chip"}
     }
     recovery_confirmation_count = len(source_groups)
-    controlled_low = bool(
-        t1_return is not None and -0.8 < t1_return <= 0 and b is not None and b >= 45
-        and (c is None or c <= 30) and chip_bear < 78 and not event_bear
+    state = str(entry.get("state") or "DATA_WAIT")
+    # Left-side low entry is a separate execution lane.  It requires a positive
+    # forward edge, a pullback-dominant path and verified institutional support;
+    # it does not require price to be green or already above VWAP.
+    left_low_candidate = bool(
+        state == "WAIT_VWAP_RECLAIM"
+        and t1_return is not None and t1_return > 0
+        and -4.0 < day_return <= 0.5
+        and b is not None and b >= 40
+        and (c is None or c <= 25)
+        and chip_bull >= 55 and chip_bear < 78 and not event_bear
     )
+    controlled_low = bool(
+        (
+            t1_return is not None and -0.8 < t1_return <= 0
+            and b is not None and b >= 45 and (c is None or c <= 30)
+        )
+        or left_low_candidate
+    ) and chip_bear < 78 and not event_bear
     recovery_candidate = bool(
         deleveraging and t1_return is not None and -2.5 <= t1_return <= 0.8
         and day_return >= 1.0 and price_above_vwap and b is not None and b >= 45
@@ -460,7 +475,6 @@ def _structured_gate(
         and recovery_confirmation_count >= 2
     )
     recovery_setup = bool(recovery_candidate and lifecycle.get("sequence_verified"))
-    state = str(entry.get("state") or "DATA_WAIT")
     reasons = []
     allow_immediate = True
     allow_pullback = True
@@ -485,8 +499,11 @@ def _structured_gate(
         allow_breakout = False
         reasons.append("修復條件已形成，但跨Session回測收復順序尚未完成")
     if recovery_setup or controlled_low:
+        allow_immediate = False
         allow_pullback = True
         allow_breakout = False
+    if left_low_candidate:
+        reasons.append("左側低接候選：T1轉正、回測情境主導且法人支持；只在止跌回升後試單")
     if state in {"OVERHEATED_NO_CHASE", "LIMIT_LIQUIDITY_WAIT"}:
         allow_immediate = allow_pullback = allow_breakout = False
         reasons.append("過熱或流動性限制，當日不追價")
@@ -514,6 +531,7 @@ def _structured_gate(
         "t1_price": t1, "t1_return_pct": t1_return, "abc_a": a, "abc_b": b, "abc_c": c,
         "chip_bear_strength": chip_bear, "chip_bull_strength": chip_bull,
         "event_bearish_veto": event_bear, "controlled_low_trade": controlled_low,
+        "left_low_candidate": left_low_candidate,
         "recovery_candidate": recovery_candidate, "recovery_setup": recovery_setup,
         "recovery_confirmation_count": recovery_confirmation_count,
         "recovery_confirmation_groups": sorted(source_groups),
@@ -543,14 +561,17 @@ def _acceptance(entry: Mapping[str, Any], facts: Sequence[EvidenceFact]) -> Dict
     score = 50
     price = next((item for item in facts if item.family == "price"), None)
     if price and price.accepted:
-        score += 18 if price.direction > 0 else -18 if price.direction < 0 else 0
+        # VWAP is one price-location fact, not three independent confirmations.
+        score += 10 if price.direction > 0 else -10 if price.direction < 0 else 0
     state = str(entry.get("state") or "")
-    score += {"BUY_TODAY_CONFIRM": 15, "WAIT_VWAP_PULLBACK": 8, "WAIT_VWAP_RECLAIM": -8, "SELLING_EXPANSION_BLOCK": -22, "FAILED_BREAKOUT_EXIT": -28}.get(state, 0)
-    positive = sum(1 for item in facts if item.accepted and item.direction > 0)
-    negative = sum(1 for item in facts if item.accepted and item.direction < 0)
+    score += {"BUY_TODAY_CONFIRM": 6, "WAIT_VWAP_PULLBACK": 3, "WAIT_VWAP_RECLAIM": 0, "SELLING_EXPANSION_BLOCK": -25, "FAILED_BREAKOUT_EXIT": -30}.get(state, 0)
+    # Price/VWAP was already counted above.  Excluding it here prevents the
+    # same green/red location from being counted a second time as evidence.
+    positive = sum(1 for item in facts if item.family != "price" and item.accepted and item.direction > 0)
+    negative = sum(1 for item in facts if item.family != "price" and item.accepted and item.direction < 0)
     score = int(round(_clamp(score + min(positive, 3) * 3 - min(negative, 3) * 3)))
     grade = "已形成" if score >= 72 else "待加強" if score >= 55 else "尚未完成" if score >= 40 else "明顯不足"
-    return {"code": "STRUCTURED_ACCEPTANCE", "title": "價格結構確認度", "score": score, "grade": grade, "label": f"價格結構確認度 {score}%｜{grade}"}
+    return {"code": "STRUCTURED_ACCEPTANCE", "title": "進場品質", "score": score, "grade": grade, "label": f"進場品質 {score}%｜{grade}"}
 
 
 def _funnel(
@@ -565,7 +586,7 @@ def _funnel(
     return (
         stage("truth", str(entry.get("state")) not in {"DATA_WAIT", "WAIT_NEXT_SESSION"}, "Session與價格真實性"),
         stage("deleveraging", bool(gate.get("deleveraging_evidence")) if leverage else None, "融資清洗必須來自數值欄位", (x.evidence_id for x in leverage)),
-        stage("price_repair", bool(gate.get("price_above_vwap")), "價格站回VWAP"),
+        stage("entry_path", bool(gate.get("price_above_vwap") or gate.get("left_low_candidate")), "右側站回VWAP，或左側低接條件完整"),
         stage("abc_risk", (_num(gate.get("abc_c")) or 0) <= 30 if gate.get("abc_c") is not None else None, "ABC防守受控"),
         stage("independent_confirmation", int(gate.get("recovery_confirmation_count") or 0) >= 2, "至少兩個獨立相關性群組"),
         stage("event_veto", not bool(gate.get("event_bearish_veto")), "無重大負面事件否決", (x.evidence_id for x in event)),
