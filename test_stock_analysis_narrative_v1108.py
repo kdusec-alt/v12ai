@@ -22,7 +22,8 @@ def _forecast(market="TW", events=None, entry="90～92"):
     return SimpleNamespace(
         ticker=ticker, price_frame=price, decision_card={"現價": 98, "VWAP位置": "VWAP下方"},
         radar={"Fair Value": "下緣情境 80｜現價基準 98｜上緣情境 110",
-               "三大法人": "外資買超", "Quantum 貢獻": "產業聯動｜SOX +1.2%"},
+               "三大法人": "外資買超", "Quantum 貢獻": "產業聯動｜SOX +1.2%",
+               "Company News": "Company News｜2330.TW｜未取得直接公司催化劑｜總體新聞不代替公司證據"},
         news_items=list(events or []),
     )
 
@@ -57,7 +58,9 @@ class StockAnalysisNarrativeV1108Tests(unittest.TestCase):
                                 source="公開資訊觀測站", score=0.3)
         stale = SimpleNamespace(tag="tw_company_2330", title="台積電舊公告", time="2026-09-18", source="新聞", score=0.2)
         unrelated = SimpleNamespace(tag="tw_company_2317", title="鴻海公告新合作", time="2026-09-23", source="新聞", score=0.3)
-        result = build_stock_analysis(_forecast(events=[fresh, stale, unrelated]),
+        forecast = _forecast(events=[fresh, stale, unrelated])
+        forecast.radar["Company News"] = "Company News｜2330.TW｜中｜公司事件｜偏多｜台積電公告新合作"
+        result = build_stock_analysis(forecast,
                                       {"entry_zone": "95～96", "invalidation": "90"}, date(2026, 9, 23))
         self.assertIn("台積電公告新合作", result["evidence"])
         self.assertNotIn("舊公告", result["evidence"])
@@ -69,11 +72,24 @@ class StockAnalysisNarrativeV1108Tests(unittest.TestCase):
         self.assertIn("VWAP", result["evidence"])
         self.assertIn("法人", result["evidence"])
 
+    def test_raw_company_mention_is_rejected_when_right_panel_did_not_adjudicate_it(self):
+        item = SimpleNamespace(tag="us_company_mrvl", title="Marvell Technology announces a market update",
+                               time="2026-09-23", source="News", score=0.4)
+        forecast = _forecast(market="US", events=[item])
+        forecast.ticker = SimpleNamespace(resolved_symbol="MRVL", name="Marvell Technology, Inc.", market="US")
+        forecast.price_frame.ticker = forecast.ticker
+        forecast.radar["Company News"] = "Company News｜MRVL｜未取得直接公司催化劑｜總體新聞不代替公司證據"
+        result = build_stock_analysis(forecast, {}, date(2026, 9, 23))
+        self.assertIn("近3個交易日未偵測到新的公司專屬事件", result["evidence"])
+        self.assertFalse(Path(narrative.COMPANY_EVENT_CACHE_PATH).exists())
+
     def test_company_event_is_reused_on_later_query_and_expires_after_three_sessions(self):
         item = SimpleNamespace(tag="tw_company_2330", title="台積電公告新合作",
                                time="2026-09-21T10:00:00+08:00",
                                source="公開資訊觀測站", score=0.3)
-        first = build_stock_analysis(_forecast(events=[item]), {}, date(2026, 9, 21))
+        forecast = _forecast(events=[item])
+        forecast.radar["Company News"] = "Company News｜2330.TW｜中｜公司事件｜偏多｜台積電公告新合作"
+        first = build_stock_analysis(forecast, {}, date(2026, 9, 21))
         later = build_stock_analysis(_forecast(events=[]), {}, date(2026, 9, 22))
         expired = build_stock_analysis(_forecast(events=[]), {}, date(2026, 9, 25))
         self.assertIn("台積電公告新合作", first["evidence"])

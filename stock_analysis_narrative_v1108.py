@@ -17,16 +17,16 @@ from typing import Any, Mapping
 
 try:
     from memory_store import MEMORY_DIR, read_json, write_json
-    COMPANY_EVENT_CACHE_PATH = Path(MEMORY_DIR) / "stock_company_events_v1108.json"
+    COMPANY_EVENT_CACHE_PATH = Path(MEMORY_DIR) / "stock_company_events_v1109.json"
 except Exception:
-    COMPANY_EVENT_CACHE_PATH = Path(".tino_memory/stock_company_events_v1108.json")
+    COMPANY_EVENT_CACHE_PATH = Path(".tino_memory/stock_company_events_v1109.json")
     read_json = None
     write_json = None
 
 
 _PRICE_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 _EVENT_CACHE_LOCK = threading.RLock()
-_EVENT_CACHE_SCHEMA = "TINO_STOCK_COMPANY_EVENT_CACHE_V1108"
+_EVENT_CACHE_SCHEMA = "TINO_STOCK_COMPANY_EVENT_CACHE_V1109"
 
 
 def _map(value: Any) -> dict[str, Any]:
@@ -99,9 +99,25 @@ def _fresh_company_events(forecast: Any, reference: date) -> list[dict[str, Any]
     ticker = getattr(forecast, "ticker", None)
     symbol = str(getattr(ticker, "resolved_symbol", "") or "")
     name = str(getattr(ticker, "name", "") or "")
+    radar = _map(getattr(forecast, "radar", {}))
+    company_line = str(radar.get("Company News") or "")
+    company_line_lower = company_line.lower()
+    company_line_accepts_events = bool(
+        company_line
+        and "未取得直接公司催化劑" not in company_line
+        and "個股實體關聯新聞觀察中" not in company_line
+    )
     output: dict[str, dict[str, Any]] = {}
     for item in list(getattr(forecast, "news_items", []) or []):
         if not _company_event(item, symbol, name):
+            continue
+        title = " ".join(str(getattr(item, "title", "") or "").split())
+        # Raw news may contain a rejected or weak company mention.  Only cache
+        # the item if the orchestrator's existing Company News adjudication
+        # includes its title; this keeps the presentation layer subordinate to
+        # the right-side evidence decision.
+        title_key = title[:22].strip().lower()
+        if not company_line_accepts_events or len(title_key) < 8 or title_key not in company_line_lower:
             continue
         published = _date(getattr(item, "time", ""))
         age = _weekday_age(published, reference) if published else None
@@ -109,7 +125,7 @@ def _fresh_company_events(forecast: Any, reference: date) -> list[dict[str, Any]
             continue
         row = {
             "ticker": symbol, "name": name,
-            "title": str(getattr(item, "title", "") or "").strip(),
+            "title": title,
             "source": str(getattr(item, "source", "") or "").strip(),
             "time": str(getattr(item, "time", "") or "").strip(),
             "tag": str(getattr(item, "tag", "") or "").strip(),
