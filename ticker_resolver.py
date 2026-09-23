@@ -6,6 +6,12 @@ from models import TickerInfo
 from exchange_rule_engine_v1069 import ticker_with_exchange_rule
 
 TW_NAME_MAP = {
+    "3702": ("大聯大", "3702.TW", "TWSE"),
+    "3045": ("台灣大", "3045.TW", "TWSE"),
+    "2303": ("聯電", "2303.TW", "TWSE"),
+    "6446": ("藥華藥", "6446.TW", "TWSE"),
+    "2542": ("興富發", "2542.TW", "TWSE"),
+    "1303": ("南亞", "1303.TW", "TWSE"),
     "2337": ("旺宏", "2337.TW", "TWSE"),
     "2327": ("國巨", "2327.TW", "TWSE"),
     "2454": ("聯發科", "2454.TW", "TWSE"),
@@ -44,6 +50,8 @@ EMERGING_CODE_OVERRIDES = {
 }
 
 TW_NAME_ALIAS = {
+    "大聯大": "3702", "台灣大": "3045", "聯電": "2303",
+    "藥華藥": "6446", "興富發": "2542", "南亞": "1303",
     "聯發科": "2454", "MEDIATEK": "2454",
     "旺宏": "2337", "MACRONIX": "2337",
     "國巨": "2327", "YAGEO": "2327",

@@ -441,6 +441,67 @@ def render_watch_center(st) -> None:
     _watch_css(st)
     st.markdown("<div class='watch-shell'><h2>📊 TINO Watch Center</h2><div class='watch-help'>戰情中心：30秒輕量更新即時價 / 漲跌 / VWAP / TINO預估；完整 AI 分析仍回主頁手動啟動。每張卡右上角 × 可直接移除。</div></div>", unsafe_allow_html=True)
 
+    # Explicit, bounded multi-stock run. The panel reuses each ticker's formal
+    # TINO snapshot and only ranks the user-supplied pool; it does not claim a
+    # whole-market scan or infer holdings.
+    with st.expander("🗞️ 早報式多股票排序分析", expanded=False):
+        st.caption("輸入最多 12 檔候選股，系統依正式 TINO 決策快照排序前 6 名；不自動讀取持股，也不代表全市場掃描。財報日期僅採即時日曆來源，無法驗證時會標示待同步。")
+        candidates_text = st.text_input(
+            "候選股票（代碼或名稱，以逗號分隔）",
+            value="3702,3045,2303,6446,2542,1303",
+            key="morning_brief_candidates_v1107",
+            help="範例候選池可直接替換；支援台股與美股代碼。",
+        )
+        run_brief = st.button("分析候選池並排序前 6", type="primary", key="run_morning_brief_v1107")
+        if run_brief:
+            symbols: list[str] = []
+            for token in str(candidates_text or "").replace("，", ",").replace(";", ",").split(","):
+                symbol = _normalize_symbol(token)
+                if symbol and symbol not in symbols:
+                    symbols.append(symbol)
+            if not symbols:
+                st.warning("請先輸入候選股票代碼。")
+            elif len(symbols) > 12:
+                st.warning("候選池最多 12 檔，請縮小清單後再分析。")
+            else:
+                try:
+                    from data_sources import fetch_news, fetch_price
+                    from orchestrator import orchestrate
+                    from morning_brief_v1107 import analyze_candidate_symbols
+                    with st.spinner(f"正在逐檔完成 TINO 分析並排序（{len(symbols)} 檔）…"):
+                        ranked = analyze_candidate_symbols(
+                            symbols,
+                            price_fetcher=fetch_price,
+                            news_fetcher=fetch_news,
+                            orchestrator=orchestrate,
+                        )
+                    st.session_state["morning_brief_rows_v1107"] = ranked
+                    st.session_state["morning_brief_symbols_v1107"] = symbols
+                except Exception as exc:
+                    st.error(f"早報分析未完成：{type(exc).__name__}。原單股分析不受影響。")
+
+        ranked = st.session_state.get("morning_brief_rows_v1107", [])
+        if ranked:
+            st.caption("排序分數是候選池內的相對排序（非勝率）：綜合方向證據、信心、獨立證據覆蓋、風險報酬與進場條件。不得覆蓋各股原始決策；紅燈／資料不足仍照原決策等待。")
+            table = []
+            for row in ranked:
+                reference_price = row.get("last")
+                table.append({
+                    "排序": row.get("rank"),
+                    "股票": f"{row.get('symbol')}｜{row.get('name')}",
+                    "產業": row.get("industry"),
+                    "價格基準": (
+                        f"{row.get('price_date') or '日期待同步'}｜{_fmt_price(reference_price)}"
+                        if reference_price is not None and row.get("accepted_truth")
+                        else "價格／日期未驗證，不列參考"
+                    ),
+                    "進場與分批": row.get("entry"),
+                    "失效／主要風險": f"{row.get('invalidation')}｜{row.get('risk')}",
+                    "證據／來源": f"{row.get('evidence')}｜{row.get('sources')}",
+                    "信心／排序分": f"{row.get('confidence')}%｜{row.get('sort_score')}",
+                })
+            st.dataframe(table, hide_index=True, use_container_width=True)
+
     # Fragment reruns may execute before this page-level state is materialized.
     # Always initialize with dict-style access; attribute access raises AttributeError
     # on Streamlit Cloud when the key is missing inside a fragment context.
