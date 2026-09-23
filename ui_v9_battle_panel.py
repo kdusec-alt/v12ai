@@ -349,6 +349,7 @@ def render_battle_panel(st, forecast):
     analysis_entry = safe(analysis_row.get("entry"))
     analysis_risk = safe(analysis_row.get("risk"))
     analysis_evidence = safe(analysis_row.get("evidence"))
+    analysis_chip_context = safe(analysis_row.get("chip_context"))
     analysis_confidence = safe(analysis_row.get("confidence"))
 
     html = f"""
@@ -371,6 +372,7 @@ def render_battle_panel(st, forecast):
     .analysis-cell{{min-width:0;padding:6px 7px;border-right:1px solid rgba(85,200,255,.2);color:#e6f5ff;font-size:10px;line-height:1.27;overflow-wrap:anywhere}}
     .analysis-cell:last-child{{border-right:0}}.analysis-cell b{{display:block;color:#8fd7ff;font-size:9.5px;margin-bottom:3px;letter-spacing:.02em}}
     .analysis-cell .sub{{display:block;color:#bfe8ff;margin-top:2px}}.analysis-cell .confidence{{display:block;color:#ffe28a;margin-top:3px;font-weight:850}}
+    .analysis-cell .chip-context{{display:block;margin-top:5px;padding:3px 5px;border-left:3px solid #ffd35a;border-radius:0 5px 5px 0;background:rgba(80,59,0,.18);color:#fff1b3;font-weight:750}}
     .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}
     .action-now{{border:1px solid rgba(95,244,255,.42);border-left:4px solid #5ff4ff;border-radius:8px;background:linear-gradient(90deg,rgba(0,78,102,.48),rgba(4,17,25,.88));color:#eaffff;font-size:11.5px;line-height:1.12;font-weight:950;padding:5px 8px;margin-bottom:3px}}
     .thesis{{border-left:4px solid #ffd35a;background:rgba(80,59,0,.22);border-radius:0 8px 8px 0;color:#fff7ce;font-size:10.7px;line-height:1.18;font-weight:850;padding:5px 8px;margin-bottom:3px}}
@@ -411,7 +413,7 @@ def render_battle_panel(st, forecast):
         <div class='analysis-cell'><b>產業／價格狀態</b>{analysis_industry}<span class='sub'>{analysis_price}</span><span class='sub'>{analysis_model_low}</span></div>
         <div class='analysis-cell'><b>條件式低接／分批方式</b>{analysis_entry}</div>
         <div class='analysis-cell'><b>失效條件／主要風險</b>{analysis_risk}</div>
-        <div class='analysis-cell'><b>證據與聯動</b>{analysis_evidence}<span class='confidence'>模型信心：{analysis_confidence}</span></div>
+        <div class='analysis-cell'><b>證據與聯動</b>{analysis_evidence}<span class='chip-context'>籌碼／去槓桿：{analysis_chip_context}</span><span class='confidence'>模型信心：{analysis_confidence}</span></div>
       </div>
       <div class='decision'>
         <div class='dt'>AI執行計畫｜AI策略判斷｜信心 {intelligence_confidence}｜{'條件單' if decision_brief.get('candidate_mode') else decision_title}</div>

@@ -319,6 +319,12 @@ def build_stock_analysis(forecast: Any, decision_brief: Mapping[str, Any],
     risk_cell = (risk if repeats_invalidation else f"跌破 {_price(invalid)}／{risk}") if _num(invalid) is not None else f"{invalid}；{risk}"
 
     events = _fresh_company_events(forecast, reference)
+    try:
+        from chip_deleveraging_guard_v1112 import classify_tw_chip_context
+        chip_context = classify_tw_chip_context(forecast)
+    except Exception:
+        # A supplementary narrative must never interrupt the formal analysis.
+        chip_context = {"label": "本次不分類", "text": "籌碼判讀模組暫不可用；不影響正式模型結論。"}
     if events:
         parts = []
         for item in events[:2]:
@@ -361,6 +367,7 @@ def build_stock_analysis(forecast: Any, decision_brief: Mapping[str, Any],
             f"{vwap}；{volume_line}；Quantum／產業代理：{linkage or '資料待確認'}；"
             f"基本面：{fundamental or '資料待確認'}"
         )
+    evidence += f" 籌碼判讀：{chip_context.get('label') or '本次不分類'}；{chip_context.get('text') or ''}"
 
     return {
         "industry": _industry(forecast),
@@ -369,6 +376,7 @@ def build_stock_analysis(forecast: Any, decision_brief: Mapping[str, Any],
         "entry": staged,
         "risk": risk_cell,
         "evidence": evidence,
+        "chip_context": str(chip_context.get("label") or "本次不分類") + "；" + str(chip_context.get("text") or ""),
         "confidence": str(decision_brief.get("confidence_label") or "待確認"),
         "market": market,
     }

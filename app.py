@@ -52,6 +52,9 @@ def _render_admin_trace(trace: str) -> None:
 
 _boot_print("script_enter", python=os.sys.version.split()[0])
 
+# Visible build marker for confirming which integrated release is running.
+APP_BUILD_VERSION = "V1112"
+
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
 os.environ.setdefault("TINO_FUND_DEEP_CROSSCHECK", "0")
@@ -161,6 +164,8 @@ def _theme():
     .bootbox{border:1px solid rgba(255,217,106,.35);border-radius:14px;background:#071727;padding:18px 20px;margin-top:12px;color:#eaf6ff;font-weight:850;line-height:1.6;}
     textarea{font-family:'Consolas','Microsoft JhengHei',monospace!important;color:#eaf6ff!important;background:#071727!important;border:1px solid #15506d!important;}
     .tino-nav-spacer{height:0;}
+    .tino-app-version-wrap{display:flex;justify-content:flex-end;align-items:center;min-height:44px;height:100%;}
+    .tino-app-version{display:inline-block;border:1px solid rgba(54,230,255,.48);border-radius:999px;padding:7px 12px;background:linear-gradient(90deg,rgba(5,52,67,.92),rgba(8,29,45,.96));color:#a9f3ff;font-size:12px;font-weight:950;letter-spacing:.02em;white-space:nowrap;box-shadow:0 0 14px rgba(54,230,255,.10);}
     [data-testid="stVerticalBlock"]{gap:.62rem!important;}
     .tino-nav-note{color:#bfe6ff;font-size:12px;font-weight:850;margin:-2px 0 6px;}
     .market-command{border:1px solid rgba(54,230,255,.28);border-left:5px solid #36e6ff;border-radius:12px;background:#061827;padding:8px 12px;margin:4px 0 8px;color:#eaf6ff;line-height:1.35}
@@ -884,6 +889,12 @@ def _render_main_nav():
         with n4:
             st.button("🔬 AI Research Lab", use_container_width=True, key="nav_research",
                       on_click=_set_main_view, args=("research",))
+    with n5:
+        st.markdown(
+            f"<div class='tino-app-version-wrap'><span class='tino-app-version'>"
+            f"TINO {APP_BUILD_VERSION}｜V1052 籌碼／去槓桿整合</span></div>",
+            unsafe_allow_html=True,
+        )
     return st.session_state.get("main_view", "analysis")
 
 
