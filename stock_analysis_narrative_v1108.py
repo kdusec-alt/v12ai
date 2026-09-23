@@ -52,6 +52,11 @@ def _price(value: Any) -> str:
     return f"{number:.2f}"
 
 
+def _compact_line(value: Any, limit: int = 120) -> str:
+    text = " ".join(str(value or "").replace("\n", " ").split())
+    return text if len(text) <= limit else text[:limit - 1].rstrip(" ｜,;，") + "…"
+
+
 def _date(value: Any) -> date | None:
     text = str(value or "").strip()
     if not text:
@@ -308,7 +313,10 @@ def build_stock_analysis(forecast: Any, decision_brief: Mapping[str, Any],
 
     invalid = str(decision_brief.get("invalidation") or "待模型確認")
     risk = str(decision_brief.get("primary_risk") or "價格與量能尚未確認")
-    risk_cell = f"跌破 {_price(invalid)}／{risk}" if _num(invalid) is not None else f"{invalid}；{risk}"
+    repeats_invalidation = bool(
+        _num(invalid) is not None and str(risk).lstrip().startswith("跌破")
+    )
+    risk_cell = (risk if repeats_invalidation else f"跌破 {_price(invalid)}／{risk}") if _num(invalid) is not None else f"{invalid}；{risk}"
 
     events = _fresh_company_events(forecast, reference)
     if events:
@@ -321,8 +329,12 @@ def build_stock_analysis(forecast: Any, decision_brief: Mapping[str, Any],
             parts.append("／".join(x for x in (title, source, stamp) if x))
         evidence = "近3交易日公司事件：" + "；".join(parts)
     else:
-        inst = str(radar.get("三大法人") or "籌碼資料待確認")
-        quantum = str(radar.get("Quantum 貢獻") or "")
+        if market == "US":
+            chip_label = "美股空方籌碼"
+            inst = str(radar.get("空方成本 / 回補") or radar.get("資券 / 融資融券") or "Short Float 待確認")
+        else:
+            chip_label = "法人籌碼"
+            inst = str(radar.get("三大法人") or "法人資料待確認")
         vwap = str(decision.get("VWAP位置") or "VWAP待確認")
         volume = _num(getattr(price, "volume", None))
         avg_volume = None
@@ -332,9 +344,23 @@ def build_stock_analysis(forecast: Any, decision_brief: Mapping[str, Any],
         if usable:
             avg_volume = sum(usable) / len(usable)
         volume_line = f"量能 {volume / avg_volume:.2f}倍近5日均量" if volume and avg_volume else "量能資料待確認"
-        linkage = quantum.split("｜", 1)[0] if quantum else "產業聯動資料待確認"
-        evidence = ("近3個交易日未偵測到新的公司專屬事件；改以法人、價格/VWAP、量能與產業聯動判斷。 "
-                    f"法人：{inst[:100]}；{vwap}；{volume_line}；聯動：{linkage[:100]}")
+        quantum = str(radar.get("Quantum 貢獻") or "")
+        linkage = quantum.split("Quantum 貢獻", 1)[-1].strip(" ｜:") or quantum
+        if "方向總分" in linkage:
+            linkage = linkage.split("方向總分", 1)[0].rstrip(" ｜")
+        fundamental = str(radar.get("基本面") or "")
+        if market == "US" and "財報/營收" in fundamental:
+            fundamental = fundamental.split("財報/營收", 1)[-1].lstrip(" ｜:")
+        if "AI泡沫雷達" in fundamental:
+            fundamental = fundamental.split("AI泡沫雷達", 1)[0].rstrip(" ｜")
+        fundamental = _compact_line(fundamental, 125)
+        linkage = _compact_line(linkage, 125)
+        evidence = (
+            "近3個交易日未找到通過右側 Company News 仲裁的新公司事件；改以價格/VWAP、量能、"
+            f"{chip_label}、產業聯動與基本面判斷。{chip_label}：{_compact_line(inst, 95)}；"
+            f"{vwap}；{volume_line}；Quantum／產業代理：{linkage or '資料待確認'}；"
+            f"基本面：{fundamental or '資料待確認'}"
+        )
 
     return {
         "industry": _industry(forecast),

@@ -23,7 +23,8 @@ def _forecast(market="TW", events=None, entry="90～92"):
         ticker=ticker, price_frame=price, decision_card={"現價": 98, "VWAP位置": "VWAP下方"},
         radar={"Fair Value": "下緣情境 80｜現價基準 98｜上緣情境 110",
                "三大法人": "外資買超", "Quantum 貢獻": "產業聯動｜SOX +1.2%",
-               "Company News": "Company News｜2330.TW｜未取得直接公司催化劑｜總體新聞不代替公司證據"},
+               "Company News": "Company News｜2330.TW｜未取得直接公司催化劑｜總體新聞不代替公司證據",
+               "基本面": "財報/營收｜營收年增 +24%｜EPS 正成長"},
         news_items=list(events or []),
     )
 
@@ -68,9 +69,11 @@ class StockAnalysisNarrativeV1108Tests(unittest.TestCase):
 
     def test_no_fresh_company_event_explains_alternate_evidence(self):
         result = build_stock_analysis(_forecast(), {"entry_zone": "95～96"}, date(2026, 9, 23))
-        self.assertIn("近3個交易日未偵測到新的公司專屬事件", result["evidence"])
+        self.assertIn("近3個交易日未找到通過右側 Company News 仲裁", result["evidence"])
         self.assertIn("VWAP", result["evidence"])
         self.assertIn("法人", result["evidence"])
+        self.assertIn("SOX +1.2%", result["evidence"])
+        self.assertIn("EPS 正成長", result["evidence"])
 
     def test_raw_company_mention_is_rejected_when_right_panel_did_not_adjudicate_it(self):
         item = SimpleNamespace(tag="us_company_mrvl", title="Marvell Technology announces a market update",
@@ -79,8 +82,14 @@ class StockAnalysisNarrativeV1108Tests(unittest.TestCase):
         forecast.ticker = SimpleNamespace(resolved_symbol="MRVL", name="Marvell Technology, Inc.", market="US")
         forecast.price_frame.ticker = forecast.ticker
         forecast.radar["Company News"] = "Company News｜MRVL｜未取得直接公司催化劑｜總體新聞不代替公司證據"
+        forecast.radar["空方成本 / 回補"] = "Short Float：5.1%｜回補成本區 240～260"
+        forecast.radar["Quantum 貢獻"] = "Quantum 貢獻｜MU +8.9｜SOX +4.2｜方向總分 +12"
+        forecast.radar["基本面"] = "財報/營收｜營收YoY +36%｜GAAP EPS +50%｜AI泡沫雷達 研究模式"
         result = build_stock_analysis(forecast, {}, date(2026, 9, 23))
-        self.assertIn("近3個交易日未偵測到新的公司專屬事件", result["evidence"])
+        self.assertIn("近3個交易日未找到通過右側 Company News 仲裁", result["evidence"])
+        self.assertIn("Short Float", result["evidence"])
+        self.assertIn("MU +8.9", result["evidence"])
+        self.assertIn("營收YoY +36%", result["evidence"])
         self.assertFalse(Path(narrative.COMPANY_EVENT_CACHE_PATH).exists())
 
     def test_company_event_is_reused_on_later_query_and_expires_after_three_sessions(self):
@@ -94,7 +103,7 @@ class StockAnalysisNarrativeV1108Tests(unittest.TestCase):
         expired = build_stock_analysis(_forecast(events=[]), {}, date(2026, 9, 25))
         self.assertIn("台積電公告新合作", first["evidence"])
         self.assertIn("台積電公告新合作", later["evidence"])
-        self.assertIn("未偵測到新的公司專屬事件", expired["evidence"])
+        self.assertIn("未找到通過右側 Company News 仲裁", expired["evidence"])
 
 
 if __name__ == "__main__":

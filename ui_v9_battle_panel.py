@@ -409,7 +409,7 @@ def render_battle_panel(st, forecast):
       <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI交易決策</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div></div>
       <div class='analysis-row' aria-label='單股智能分析'>
         <div class='analysis-cell'><b>產業／價格狀態</b>{analysis_industry}<span class='sub'>{analysis_price}</span><span class='sub'>{analysis_model_low}</span></div>
-        <div class='analysis-cell'><b>今日最佳低接／分批</b>{analysis_entry}</div>
+        <div class='analysis-cell'><b>條件式低接／分批方式</b>{analysis_entry}</div>
         <div class='analysis-cell'><b>失效條件／主要風險</b>{analysis_risk}</div>
         <div class='analysis-cell'><b>證據與聯動</b>{analysis_evidence}<span class='confidence'>模型信心：{analysis_confidence}</span></div>
       </div>
