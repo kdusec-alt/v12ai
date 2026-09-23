@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 14336)
-Total output lines: 1257
-
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
@@ -575,7 +572,175 @@ def _fallback_price(ticker: TickerInfo, reason: str) -> PriceFrame:
     short["date"] = d
     persona = _us_etf_persona(ticker, info) if is_etf else _sector_persona(ticker.resolved_symbol, info)
     ctx = {
-        "macro": _us…2336 tokens truncated…mory market", "AI memory demand"],
+        "macro": _us_macro_context(d),
+        "short": short,
+        "persona": persona,
+        "fundamental": _us_fundamental_context(ticker.resolved_symbol, info, d, ticker.asset_type),
+        "inst": {"accepted": False, "source": "US", "date": d},
+        "margin": {"accepted": False, "source": "US", "date": d},
+    }
+    if is_etf:
+        ctx["etf_mode"] = True
+        ctx["distribution"] = "ETF Mode：價格熱度 / 成分 / 流動性 / 市場風險"
+    return PriceFrame(ticker, make_truth("US_PRICE_SAMPLE", d, True, True, reason, "fallback_reference"), b["open"], b["high"], b["low"], b["last"], b["previous_close"], b["volume"], b["vwap"], b["atr14"], closes, highs, lows, vols, d, _us_market_status_now(), ctx)
+
+
+def _us_fundamental_context(symbol: str, info: Dict[str, object], price_date: str, asset_type: str = "stock") -> Dict[str, object]:
+    return build_us_fundamental_context(info, price_date, asset_type=asset_type)
+
+def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
+    if os.environ.get("TINO_OFFLINE_TEST") == "1":
+        return _fallback_price(ticker, "offline smoke test fallback")
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(ticker.resolved_symbol).history(period="6mo", interval="1d", auto_adjust=False, timeout=8)
+        if hist is None or hist.empty or len(hist) < 3:
+            return _fallback_price(ticker, "yfinance 無資料，使用美股樣本方向參考")
+        hist = hist.dropna(subset=["Open", "High", "Low", "Close"])
+        status = _us_market_status_now()
+        formal_hist = _formal_us_history(hist, status)
+        if formal_hist is None or len(formal_hist) < 2:
+            return _fallback_price(ticker, "正式日K不足，使用美股樣本方向參考")
+        regular_row = formal_hist.iloc[-1]
+        formal_prev_row = formal_hist.iloc[-2]
+        regular_close = float(regular_row["Close"])
+        formal_previous_close = float(formal_prev_row["Close"])
+        d = parse_date_safe(formal_hist.index[-1].date().isoformat())
+        formal_prev_date = parse_date_safe(formal_hist.index[-2].date().isoformat())
+        active_session = status in {"pre_market", "intraday", "after_hours"}
+        session_reference_close = regular_close if active_session else formal_previous_close
+        ext = _fetch_us_extended_quote(ticker.resolved_symbol, session_reference_close, status)
+        promoted_regular_reference = False
+        ext_reference_date = parse_date_safe(str(ext.get("reference_close_date") or ""))
+        ext_reference_close = _clean_num(ext.get("reference_close"), None)
+        # If intraday history knows about a completed regular session that the
+        # daily endpoint has not published yet, promote it to the formal
+        # reference.  This prevents a two-day event move from masquerading as a
+        # single pre-market/after-hours percentage.
+        if (
+            ext.get("accepted")
+            and ext_reference_close is not None
+            and ext_reference_date
+            and ext_reference_date > d
+        ):
+            formal_previous_close = regular_close
+            formal_prev_date = d
+            regular_close = float(ext_reference_close)
+            d = ext_reference_date
+            promoted_regular_reference = True
+        elif (
+            ext.get("accepted")
+            and ext_reference_close is not None
+            and ext_reference_date == d
+        ):
+            regular_close = float(ext_reference_close)
+        session_reference_close = (
+            float(ext.get("reference_close") or regular_close)
+            if active_session and ext.get("accepted")
+            else regular_close
+            if active_session
+            else formal_previous_close
+        )
+        # Formal daily K remains the backbone for trend / MA / regular-session validation.
+        # During pre-market / after-hours / intraday, use only that session's
+        # bars for tactical O/H/L/V/VWAP; never blend daily and extended ranges.
+        live_last = float(ext.get("last") or regular_close) if ext.get("accepted") else regular_close
+        live_open = float(ext.get("open") or live_last) if ext.get("accepted") else float(regular_row["Open"])
+        live_high = float(ext.get("high") or live_last) if ext.get("accepted") else float(regular_row["High"])
+        live_low = float(ext.get("low") or live_last) if ext.get("accepted") else float(regular_row["Low"])
+        live_volume = float(ext.get("volume") or 0) if ext.get("accepted") else float(regular_row.get("Volume", 0) or 0)
+        live_vwap = (
+            float(ext.get("vwap"))
+            if ext.get("accepted") and ext.get("vwap") is not None
+            else live_last
+            if ext.get("accepted")
+            else (float(regular_row["High"]) + float(regular_row["Low"]) + regular_close) / 3
+        )
+        tr = pd.concat([(formal_hist["High"]-formal_hist["Low"]).abs(), (formal_hist["High"]-formal_hist["Close"].shift()).abs(), (formal_hist["Low"]-formal_hist["Close"].shift()).abs()], axis=1).max(axis=1)
+        atr = float(tr.rolling(14).mean().iloc[-1]) if len(tr) >= 14 else max(regular_close*0.04, .01)
+        info = _get_us_info(ticker.resolved_symbol)
+        ticker = _resolved_us_ticker(ticker, info)
+        is_etf = ticker.asset_type == "etf"
+        short = {"accepted": False, "source": "US_ETF", "date": d} if is_etf else _us_short_context(ticker.resolved_symbol, info, live_last, live_low, live_high, atr)
+        short["date"] = d
+        price_meta = {
+            "label": ext.get("timestamp") or "",
+            "source": ext.get("source") if ext.get("accepted") else "YahooFinance_Daily",
+            "session": status,
+            "session_label": ext.get("label") or _us_session_label(status),
+            "regular_close": round(regular_close, 4),
+            "regular_close_date": d,
+            "formal_previous_close": round(formal_previous_close, 4),
+            "formal_previous_close_date": formal_prev_date,
+            "session_reference_close": round(session_reference_close, 4),
+            "previous_close": round(session_reference_close, 4),
+            "extended_accepted": bool(ext.get("accepted")),
+            "vwap_accepted": bool(ext.get("vwap_accepted")),
+            "vwap_scope": ext.get("vwap_scope") or "regular_session",
+            "current_trade_date": ext.get("trade_date") or d,
+            "history_scope": "formal_daily_only",
+            "session_reference_date": ext.get("reference_close_date") or d,
+            "session_reference_source": ext.get("reference_source") or "YahooFinance_Daily",
+            "session_reference_promoted": promoted_regular_reference,
+        }
+        ctx = {
+            "macro": _us_macro_context(d),
+            "short": short,
+            "persona": _us_etf_persona(ticker, info) if is_etf else _sector_persona(ticker.resolved_symbol, info),
+            "fundamental": _us_fundamental_context(ticker.resolved_symbol, info, d, ticker.asset_type),
+            "inst": {"accepted":False,"source":"US","date":d},
+            "margin": {"accepted":False,"source":"US","date":d},
+            "us_session": ext,
+            "price_meta": price_meta,
+        }
+        if is_etf:
+            ctx["etf_mode"] = True
+            ctx["distribution"] = "ETF Mode：價格熱度 / 成分 / 流動性 / 市場風險"
+        truth_source = str(ext.get("source") or "YahooFinance_PrePost") if ext.get("accepted") else "YahooFinance"
+        truth_reason = f"{_us_session_label(status)}價格快照｜正式日K保留" if ext.get("accepted") else "價格最新｜日K"
+        formal_closes = [float(x) for x in formal_hist["Close"].tail(60)]
+        formal_highs = [float(x) for x in formal_hist["High"].tail(60)]
+        formal_lows = [float(x) for x in formal_hist["Low"].tail(60)]
+        formal_volumes = [float(x) for x in formal_hist["Volume"].tail(60)]
+        if promoted_regular_reference:
+            formal_closes.append(float(regular_close))
+            formal_highs.append(float(ext.get("reference_high") or regular_close))
+            formal_lows.append(float(ext.get("reference_low") or regular_close))
+            formal_volumes.append(float(ext.get("reference_volume") or 0))
+        return PriceFrame(
+            ticker,
+            make_truth(truth_source, d, False, True, truth_reason, "latest"),
+            live_open,
+            live_high,
+            live_low,
+            live_last,
+            session_reference_close,
+            live_volume,
+            live_vwap,
+            atr,
+            formal_closes[-60:],
+            formal_highs[-60:],
+            formal_lows[-60:],
+            formal_volumes[-60:],
+            d,
+            status,
+            ctx,
+        )
+    except Exception as exc:
+        return _fallback_price(ticker, f"資料源錯誤：{type(exc).__name__}")
+
+
+
+# --- RC24 US News Query Router / Time Engine / Daily Headline -----------------
+_US_NEWS_CACHE: Dict[str, Tuple[float, List[NewsItem]]] = {}
+# "Current news" means the same five-minute freshness window used by the
+# event-reassessment loop. Repeated clicks inside the window stay bounded.
+_US_NEWS_CACHE_TTL_SEC = 5 * 60
+
+_US_QUERY_PROFILES: Dict[str, Dict[str, List[str]]] = {
+    "MU": {
+        "company": ["Micron Technology earnings", "Micron HBM", "Micron DRAM NAND", "Micron guidance"],
+        "industry": ["HBM memory pricing", "DRAM NAND memory market", "AI memory demand"],
         "peers": ["SK hynix Samsung HBM Micron", "NVIDIA HBM supply Micron"],
     },
     "MRVL": {
