@@ -76,6 +76,37 @@ class EarningsCalendarGuardV1076Tests(unittest.TestCase):
         self.assertEqual(result["earnings_days"], 0)
         self.assertEqual(result["source"], "Yahoo get_calendar")
 
+    def test_live_calendar_beats_nearer_stale_info_date(self):
+        ticker = FakeTicker(calendar={"Earnings Date": [date(2026, 9, 30)]})
+        result = resolve_us_earnings_calendar(
+            "MU",
+            {"nextEarningsDate": "2026-09-23"},
+            ticker_obj=ticker,
+            now=datetime(2026, 9, 23, 10, 0, tzinfo=NY),
+        )
+        self.assertEqual(result["next_earnings_date"], "2026-09-30")
+        self.assertEqual(result["source"], "Yahoo get_calendar")
+
+    def test_quote_summary_crosschecks_info_only_date(self):
+        result = resolve_us_earnings_calendar(
+            "MU",
+            {"nextEarningsDate": "2026-09-23"},
+            now=datetime(2026, 9, 23, 10, 0, tzinfo=NY),
+            quote_summary_fetcher=lambda _symbol: {
+                "calendarEvents": {
+                    "earnings": {"earningsDate": [{"raw": int(datetime(2026, 9, 30, 0, 0, tzinfo=ZoneInfo("UTC")).timestamp())}]}
+                }
+            },
+        )
+        self.assertEqual(result["next_earnings_date"], "2026-09-30")
+        self.assertEqual(result["source"], "Yahoo quoteSummary calendarEvents")
+
+    def test_us_public_memory_does_not_publish_expired_earnings_date_as_live(self):
+        from data_sources_us import US_PUBLIC_MEMORY
+        for symbol in ("MU", "MRVL", "ONDS"):
+            self.assertNotIn("nextEarningsDate", US_PUBLIC_MEMORY[symbol])
+            self.assertNotIn("earningsDays", US_PUBLIC_MEMORY[symbol])
+
     def test_msft_after_close_timestamp_converts_to_taipei_next_day(self):
         timestamp = int(datetime(2026, 7, 29, 16, 5, tzinfo=NY).timestamp())
         result = resolve_us_earnings_calendar(

@@ -72,8 +72,6 @@ US_PUBLIC_MEMORY = {
         "revenueGrowth": 0.0100,
         "trailingPE": 91.67,
         "fiscalQuarterLabel": "Q1",
-        "nextEarningsDate": "2026-08-27",
-        "earningsDays": 59,
     },
     "MU": {
         "shortPercentOfFloat": 0.0370,
@@ -89,8 +87,6 @@ US_PUBLIC_MEMORY = {
         "revenueGrowth": 3.4572,
         "trailingPE": 25.58,
         "fiscalQuarterLabel": "Q3",
-        "nextEarningsDate": "2026-09-23",
-        "earningsDays": 86,
     },
     "ONDS": {
         "shortPercentOfFloat": 0.3329,
@@ -106,8 +102,6 @@ US_PUBLIC_MEMORY = {
         "revenueGrowth": 10.7990,
         "trailingPE": 87.00,
         "fiscalQuarterLabel": "Q2",
-        "nextEarningsDate": "2026-08-12",
-        "earningsDays": 44,
     },
 }
 
@@ -188,12 +182,12 @@ def _get_us_info(symbol: str) -> Dict[str, object]:
             info = dict(ticker_obj.info or {})
         except Exception:
             info = {}
-    info = _merge_public_memory(symbol, info)
-    # V1076 Earnings Calendar Truth Guard: get_info() often omits the next
-    # earnings event even while calendar/get_earnings_dates still has it.
-    # Merge public memory first so its date receives a fresh dynamic countdown;
-    # live calendar routes still outrank that fallback.
+    # Resolve the calendar from live Yahoo routes BEFORE applying the public
+    # metrics fallback. A date in US_PUBLIC_MEMORY is a historical snapshot,
+    # not a live calendar; letting it enter the resolver can make it outrank a
+    # newer event by being one day closer (e.g. MU 09/23 vs Yahoo 09/30).
     info = merge_us_earnings_calendar(symbol, info, ticker_obj=ticker_obj)
+    info = _merge_public_memory(symbol, info)
     # ETFs do not have one-company quarterly revenue/EPS.  Skip the extra
     # fundamentals request entirely to keep the universal route lightweight.
     if detect_us_asset_type(info) != "etf":

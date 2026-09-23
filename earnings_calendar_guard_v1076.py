@@ -228,7 +228,9 @@ def resolve_us_earnings_calendar(
     for key in ("nextEarningsDate", "earningsDate"):
         add(raw_info.get(key), f"Yahoo info {key}", 30, date_only_hint=True)
     for key in ("earningsTimestamp", "earningsTimestampStart", "earningsTimestampEnd"):
-        add(raw_info.get(key), f"Yahoo info {key}", 30)
+        # Timestamped values are more specific than a date-only info field, so
+        # they don't need the extra quoteSummary cross-check request.
+        add(raw_info.get(key), f"Yahoo info {key}", 25)
 
     if ticker_obj is not None:
         try:
@@ -266,7 +268,10 @@ def resolve_us_earnings_calendar(
         except Exception:
             pass
 
-    if not candidates:
+    # Yahoo info can keep a formerly scheduled date after the company updates
+    # its calendar. When info is the only live route, cross-check quoteSummary
+    # rather than treating that stale value as authoritative.
+    if not candidates or all(row["priority"] >= 30 for row in candidates):
         fetcher = quote_summary_fetcher or _public_quote_summary
         try:
             summary = dict(fetcher(str(symbol or "").upper()) or {})
@@ -276,20 +281,23 @@ def resolve_us_earnings_calendar(
         add(
             earnings.get("earningsDate"),
             "Yahoo quoteSummary calendarEvents",
-            40,
+            5,
             date_only_hint=True,
         )
         for key in ("earningsTimestamp", "earningsTimestampStart", "earningsTimestampEnd"):
-            add(earnings.get(key), f"Yahoo quoteSummary {key}", 42)
+            add(earnings.get(key), f"Yahoo quoteSummary {key}", 5)
 
     if not candidates:
         return {"accepted": False, "source": "NO_EARNINGS_CALENDAR_SOURCE"}
 
     future = [row for row in candidates if row["days"] >= 0]
     pool = future or candidates
+    # Prefer the strongest current source first, then the nearest event from
+    # that source. Sorting by date first lets an older info/cache date beat a
+    # later confirmed Yahoo calendar date.
     pool.sort(key=lambda row: (
-        max(row["days"], 0),
         row["priority"],
+        max(row["days"], 0),
         0 if row["has_time"] else 1,
         row["event_dt"],
     ))
