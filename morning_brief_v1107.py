@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Compact, cross-market multi-stock morning brief built from TINO snapshots.
+"""Compact, cross-market, per-stock morning brief built from TINO snapshots.
 
-This is a ranking/presentation layer only: it does not re-arbitrate a stock's
-formal decision, alter model weights, or claim to scan the whole market.
+This display layer preserves the user's symbol order and formal model values.
+It does not rank stocks, re-arbitrate decisions, or scan the whole market.
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def _industry(price: Any) -> str:
     return "產業資料未同步"
 
 
-def _evidence(snapshot: Mapping[str, Any]) -> tuple[list[dict[str, Any]], float, float]:
+def _evidence(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     rows = [
         dict(item) for item in snapshot.get("evidence", [])
         if isinstance(item, Mapping) and item.get("accepted") and item.get("verified")
@@ -64,18 +64,11 @@ def _evidence(snapshot: Mapping[str, Any]) -> tuple[list[dict[str, Any]], float,
         key=lambda row: (float(row.get("strength") or 0), float(row.get("confidence") or 0)),
         reverse=True,
     )
-    weighted = [
-        (int(row.get("direction") or 0), max(1.0, float(row.get("strength") or 0)) * max(0.0, float(row.get("confidence") or 0)))
-        for row in selected
-    ]
-    total_weight = sum(weight for _direction, weight in weighted)
-    consensus = sum(direction * weight for direction, weight in weighted) / total_weight if total_weight else 0.0
-    coverage = min(100.0, len(selected) * 25.0)
-    return selected[:3], (consensus + 1.0) * 50.0, coverage
+    return selected[:3]
 
 
 def build_morning_brief_row(forecast: Any) -> dict[str, Any]:
-    """Project one completed formal analysis into a concise ranked row."""
+    """Project one formal analysis into the user's per-stock briefing format."""
     ticker = getattr(forecast, "ticker", None)
     price = getattr(forecast, "price_frame", None)
     symbol = str(getattr(ticker, "resolved_symbol", "") or "")
@@ -96,24 +89,15 @@ def build_morning_brief_row(forecast: Any) -> dict[str, Any]:
     last = _number(getattr(price, "last", None)) if price is not None else None
     previous_close = _number(getattr(price, "previous_close", None)) if price is not None else None
     stop = _number(execution.get("invalidation_price") or execution.get("stop_price"))
-    target = _number(getattr(forecast, "final_t1", None))
-    risk_reward = None
-    if last is not None and stop is not None and target is not None and last > stop:
-        risk = last - stop
-        if risk > 0:
-            risk_reward = max(-2.0, min(5.0, (target - last) / risk))
-
-    evidence, consensus_score, coverage_score = _evidence(snapshot)
+    evidence = _evidence(snapshot)
     confidence = max(0.0, min(100.0, float(getattr(forecast, "confidence", 0.0) or 0.0)))
     truth = getattr(price, "truth", None) if price is not None else None
     accepted_truth = bool(getattr(truth, "accepted", False)) and not bool(getattr(truth, "fallback", True))
-    has_execution = bool(_number(brief.get("invalidation"))) and bool(_number(brief.get("confirmation")) or _number(brief.get("entry_zone")))
-    action_code = str(snapshot.get("action_code") or "BLOCK").upper()
-    execution_score = 100.0 if has_execution and action_code not in {"BLOCK", "STOP"} else (35.0 if action_code not in {"BLOCK", "STOP"} else 0.0)
-    rr_score = max(0.0, min(100.0, (risk_reward or 0.0) * 50.0))
-    data_score = (confidence * 0.35 + consensus_score * 0.25 + coverage_score * 0.15 + rr_score * 0.15 + execution_score * 0.10)
-    if not accepted_truth or bool(getattr(forecast, "stopped", False)):
-        data_score *= 0.35
+    try:
+        from stock_analysis_narrative_v1108 import build_stock_analysis
+        narrative = build_stock_analysis(forecast, brief)
+    except Exception:
+        narrative = {}
 
     evidence_text = "；".join(
         f"{row.get('label') or row.get('family')}:{'偏多' if int(row.get('direction') or 0) > 0 else '偏空' if int(row.get('direction') or 0) < 0 else '中性'}"
@@ -125,38 +109,24 @@ def build_morning_brief_row(forecast: Any) -> dict[str, Any]:
         "symbol": code,
         "name": str(getattr(ticker, "name", "") or code),
         "market": str(getattr(ticker, "market", "") or ""),
-        "industry": _industry(price) if price is not None else "產業資料未同步",
+        "industry": narrative.get("industry") or (_industry(price) if price is not None else "產業資料未同步"),
         "price_date": str(getattr(price, "price_date", "") or "") if price is not None else "",
         "previous_close": previous_close,
         "last": last,
+        "price_status": (narrative.get("price_status") or "價格／日期未驗證，不列參考") if accepted_truth else "價格／日期未驗證，不列參考",
         "action": str(brief.get("verdict") or snapshot.get("label") or "禁止進場"),
-        "entry": str(brief.get("staged_entry") or brief.get("entry_instruction") or "條件未形成，等待確認"),
+        "entry": str(narrative.get("entry") or brief.get("staged_entry") or brief.get("entry_instruction") or "條件未形成，等待確認"),
         "invalidation": str(brief.get("invalidation") or "待確認"),
-        "risk": str(brief.get("primary_risk") or snapshot.get("reason") or "主要風險資料不足"),
+        "risk": str(narrative.get("risk") or brief.get("primary_risk") or snapshot.get("reason") or "主要風險資料不足"),
+        "risk_cell": str(narrative.get("risk") or "主要風險資料不足"),
+        "narrative_evidence": str(narrative.get("evidence") or "有效證據不足；來源待確認"),
         "evidence": evidence_text,
         "sources": source_text,
         "confidence": round(confidence),
-        "risk_reward": round(risk_reward, 2) if risk_reward is not None else None,
-        "sort_score": round(data_score, 1),
         "accepted_truth": accepted_truth,
         "candidate_mode": bool(brief.get("candidate_mode")),
-        "action_code": action_code,
+        "action_code": str(snapshot.get("action_code") or "BLOCK").upper(),
     }
-
-
-def rank_morning_brief(rows: list[Mapping[str, Any]], limit: int = 6) -> list[dict[str, Any]]:
-    """Rank an explicitly supplied candidate pool; never imply market-wide scan."""
-    ranked = [dict(row) for row in rows if isinstance(row, Mapping)]
-    ranked.sort(
-        key=lambda row: (
-            bool(row.get("accepted_truth")),
-            float(row.get("sort_score") or 0.0),
-            float(row.get("confidence") or 0.0),
-            str(row.get("symbol") or ""),
-        ),
-        reverse=True,
-    )
-    return [{**row, "rank": index + 1} for index, row in enumerate(ranked[:max(0, int(limit))])]
 
 
 def analyze_candidate_symbols(symbols: list[str], *, price_fetcher, news_fetcher, orchestrator) -> list[dict[str, Any]]:
@@ -171,13 +141,15 @@ def analyze_candidate_symbols(symbols: list[str], *, price_fetcher, news_fetcher
         except Exception as exc:
             rows.append({
                 "symbol": str(symbol), "name": str(symbol), "market": "",
-                "industry": "產業資料未同步", "price_date": "",
+                "industry": "產業資料未同步", "price_date": "", "price_status": "價格／日期未驗證，不列參考",
                 "previous_close": None, "last": None,
                 "action": "分析未完成", "entry": "不建立新部位；先確認資料源",
                 "invalidation": "待確認", "risk": f"本檔分析失敗：{type(exc).__name__}",
+                "risk_cell": f"本檔分析失敗：{type(exc).__name__}",
+                "narrative_evidence": "有效證據不足；來源待確認",
                 "evidence": "有效證據不足", "sources": "來源待確認",
-                "confidence": 0, "risk_reward": None, "sort_score": 0.0,
+                "confidence": 0,
                 "accepted_truth": False, "candidate_mode": False,
                 "action_code": "BLOCK",
             })
-    return rank_morning_brief(rows, limit=6)
+    return rows
