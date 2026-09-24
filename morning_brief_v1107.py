@@ -14,6 +14,7 @@ from decision_brief_v1101 import build_decision_brief
 _TW_INDUSTRIES = {
     "3702": "電子通路", "3045": "電信", "2303": "半導體",
     "6446": "生技製藥", "2542": "營建", "1303": "塑化材料",
+    "2382": "AI伺服器",
 }
 
 

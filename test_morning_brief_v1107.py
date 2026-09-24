@@ -58,6 +58,9 @@ class MorningBriefV1107Tests(unittest.TestCase):
         self.assertIn("未驗證", fallback["price_status"])
         self.assertFalse(fallback["accepted_truth"])
 
+    def test_quanta_uses_ai_server_industry_label(self):
+        self.assertEqual(build_morning_brief_row(self._forecast(code="2382"))["industry"], "AI伺服器")
+
     def test_one_fetch_failure_does_not_abort_or_reorder_other_candidates(self):
         def fetch_price(symbol):
             if symbol == "BAD":

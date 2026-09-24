@@ -54,7 +54,7 @@ def _render_admin_trace(trace: str) -> None:
 _boot_print("script_enter", python=os.sys.version.split()[0])
 
 # Visible build marker for confirming which integrated release is running.
-APP_BUILD_VERSION = "V1114"
+APP_BUILD_VERSION = "V1115"
 
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
