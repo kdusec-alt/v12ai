@@ -53,7 +53,7 @@ def _render_admin_trace(trace: str) -> None:
 _boot_print("script_enter", python=os.sys.version.split()[0])
 
 # Visible build marker for confirming which integrated release is running.
-APP_BUILD_VERSION = "V1112"
+APP_BUILD_VERSION = "V1113"
 
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
@@ -274,7 +274,10 @@ try:
     render_admin, run_admin_auto_audit_cycle = _load_required(
         "ui_admin", "render_admin", "run_admin_auto_audit_cycle"
     )
-    render_battle_panel = _load_required("ui_v9_battle_panel", "render_battle_panel")
+    render_battle_panel, build_stock_analysis_payload = _load_required(
+        "ui_v9_battle_panel", "render_battle_panel", "build_stock_analysis_payload"
+    )
+    render_stock_analysis_table = _load_required("ui_stock_analysis_table_v1113", "render_stock_analysis_table")
     render_deep_report = _load_required("ui_v9_deep_report", "render_deep_report")
     render_input = _load_required("ui_v9_input", "render_input")
     render_radar = _load_required("ui_v9_radar", "render_radar")
@@ -829,17 +832,20 @@ else:
 
 
 def _render_forecast(forecast):
-    """Render forecast with crash-forensics checkpoints.
-
-    RC25.1 keeps the V9 layout unchanged while recording the exact render
-    boundary.  These checkpoints are intentionally lightweight and do not
-    start workers or external I/O.
-    """
+    """Show the compact four-column summary first, then its supporting panels."""
     symbol = getattr(getattr(forecast, "ticker", None), "resolved_symbol", "")
+    analysis_payload = build_stock_analysis_payload(forecast)
+    analysis_row = analysis_payload.get("analysis_row") if isinstance(analysis_payload, dict) else None
+    if isinstance(analysis_row, dict):
+        render_stock_analysis_table(
+            st, analysis_row,
+            symbol=str(getattr(getattr(forecast, "ticker", None), "resolved_symbol", "") or ""),
+            name=str(getattr(getattr(forecast, "ticker", None), "name", "") or ""),
+        )
     left, right = st.columns([1.03, 0.97], gap="small")
     mark_runtime_stage("render_battle_start", symbol=symbol)
     with left:
-        render_battle_panel(st, forecast)
+        render_battle_panel(st, forecast, analysis_payload=analysis_payload)
     mark_runtime_stage("render_battle_done", symbol=symbol)
 
     mark_runtime_stage("render_radar_start", symbol=symbol)
@@ -892,7 +898,7 @@ def _render_main_nav():
     with n5:
         st.markdown(
             f"<div class='tino-app-version-wrap'><span class='tino-app-version'>"
-            f"TINO {APP_BUILD_VERSION}｜V1052 籌碼／去槓桿整合</span></div>",
+            f"TINO {APP_BUILD_VERSION}｜四欄分析＋V1052 籌碼判讀</span></div>",
             unsafe_allow_html=True,
         )
     return st.session_state.get("main_view", "analysis")

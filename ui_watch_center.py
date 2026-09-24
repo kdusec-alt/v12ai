@@ -483,17 +483,13 @@ def render_watch_center(st) -> None:
         rows = st.session_state.get("morning_brief_rows_v1107", [])
         if rows:
             st.caption("逐檔依輸入順序顯示；條件尚未觸發仍須等待，資料未驗證時不列為可執行參考。")
-            table = []
+            from ui_stock_analysis_table_v1113 import render_stock_analysis_table
             for row in rows:
-                table.append({
-                    "股票": f"{row.get('symbol')}｜{row.get('name')}",
-                    "產業": row.get("industry"),
-                    "價格狀態": row.get("price_status"),
-                    "條件式低接／分批方式": row.get("entry"),
-                    "失效條件／主要風險": row.get("risk_cell"),
-                    "證據": row.get("narrative_evidence"),
-                })
-            st.dataframe(table, hide_index=True, use_container_width=True)
+                render_stock_analysis_table(
+                    st, row,
+                    symbol=str(row.get("symbol") or ""),
+                    name=str(row.get("name") or ""),
+                )
 
     # Fragment reruns may execute before this page-level state is materialized.
     # Always initialize with dict-style access; attribute access raises AttributeError

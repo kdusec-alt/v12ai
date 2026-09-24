@@ -332,42 +332,46 @@ def build_stock_analysis(forecast: Any, decision_brief: Mapping[str, Any],
             source = str(item.get("source") or "").strip()
             published = _date(item.get("time"))
             stamp = f"{published.month}/{published.day}" if published else ""
-            parts.append("／".join(x for x in (title, source, stamp) if x))
-        evidence = "近3交易日公司事件：" + "；".join(parts)
+            parts.append("／".join(x for x in (_compact_line(title, 58), _compact_line(source, 18), stamp) if x))
+        company_evidence = "近3交易日公司事件：" + "；".join(parts)
     else:
-        if market == "US":
-            chip_label = "美股空方籌碼"
-            inst = str(radar.get("空方成本 / 回補") or radar.get("資券 / 融資融券") or "Short Float 待確認")
-        else:
-            chip_label = "法人籌碼"
-            inst = str(radar.get("三大法人") or "法人資料待確認")
-        vwap = str(decision.get("VWAP位置") or "VWAP待確認")
-        volume = _num(getattr(price, "volume", None))
-        avg_volume = None
-        recent = list(getattr(price, "recent_volumes", []) or [])
-        usable = [_num(x) for x in recent[-5:]]
-        usable = [x for x in usable if x is not None and x > 0]
-        if usable:
-            avg_volume = sum(usable) / len(usable)
-        volume_line = f"量能 {volume / avg_volume:.2f}倍近5日均量" if volume and avg_volume else "量能資料待確認"
-        quantum = str(radar.get("Quantum 貢獻") or "")
-        linkage = quantum.split("Quantum 貢獻", 1)[-1].strip(" ｜:") or quantum
-        if "方向總分" in linkage:
-            linkage = linkage.split("方向總分", 1)[0].rstrip(" ｜")
-        fundamental = str(radar.get("基本面") or "")
-        if market == "US" and "財報/營收" in fundamental:
-            fundamental = fundamental.split("財報/營收", 1)[-1].lstrip(" ｜:")
-        if "AI泡沫雷達" in fundamental:
-            fundamental = fundamental.split("AI泡沫雷達", 1)[0].rstrip(" ｜")
-        fundamental = _compact_line(fundamental, 125)
-        linkage = _compact_line(linkage, 125)
-        evidence = (
-            "近3個交易日未找到通過右側 Company News 仲裁的新公司事件；改以價格/VWAP、量能、"
-            f"{chip_label}、產業聯動與基本面判斷。{chip_label}：{_compact_line(inst, 95)}；"
-            f"{vwap}；{volume_line}；Quantum／產業代理：{linkage or '資料待確認'}；"
-            f"基本面：{fundamental or '資料待確認'}"
-        )
-    evidence += f" 籌碼判讀：{chip_context.get('label') or '本次不分類'}；{chip_context.get('text') or ''}"
+        company_evidence = "近3個交易日未找到通過右側 Company News 仲裁的新公司事件；今日未偵測到新的公司專屬事件，改以法人、價格／VWAP、量能、產業聯動與風險條件判斷"
+
+    if market == "US":
+        chip_label = "美股空方籌碼"
+        inst = str(radar.get("空方成本 / 回補") or radar.get("資券 / 融資融券") or "Short Float 待確認")
+    else:
+        chip_label = "法人籌碼"
+        inst = str(radar.get("三大法人") or "法人資料待確認")
+    vwap = str(decision.get("VWAP位置") or "VWAP待確認")
+    volume = _num(getattr(price, "volume", None))
+    avg_volume = None
+    recent = list(getattr(price, "recent_volumes", []) or [])
+    usable = [_num(x) for x in recent[-5:]]
+    usable = [x for x in usable if x is not None and x > 0]
+    if usable:
+        avg_volume = sum(usable) / len(usable)
+    volume_line = f"量能 {volume / avg_volume:.2f}×近5日均量" if volume and avg_volume else "量能待確認"
+    quantum = str(radar.get("Quantum 貢獻") or "")
+    linkage = quantum.split("Quantum 貢獻", 1)[-1].strip(" ｜:") or quantum
+    if "方向總分" in linkage:
+        linkage = linkage.split("方向總分", 1)[0].rstrip(" ｜")
+    fundamental = str(radar.get("基本面") or "")
+    if market == "US" and "財報/營收" in fundamental:
+        fundamental = fundamental.split("財報/營收", 1)[-1].lstrip(" ｜:")
+    if "AI泡沫雷達" in fundamental:
+        fundamental = fundamental.split("AI泡沫雷達", 1)[0].rstrip(" ｜")
+    chip_detail = str(chip_context.get("text") or "")
+    evidence = "；".join((
+        company_evidence,
+        f"{chip_label} {_compact_line(inst, 48)}",
+        _compact_line(vwap, 24),
+        volume_line,
+        f"產業聯動 {_compact_line(linkage or '待確認', 48)}",
+        f"基本面 {_compact_line(fundamental or '待確認', 48)}",
+        f"籌碼判讀 {chip_context.get('label') or '本次不分類'}：{_compact_line(chip_detail, 78)}",
+    ))
+    evidence = _compact_line(evidence, 420)
 
     return {
         "industry": _industry(forecast),

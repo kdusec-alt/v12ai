@@ -194,7 +194,20 @@ def _entry_map_tiles(plan, fallback_tiles):
     ]
 
 
-def render_battle_panel(st, forecast):
+def build_stock_analysis_payload(forecast):
+    """Build one shared analysis payload for the summary row and battle card."""
+    if getattr(forecast, "stopped", False):
+        return None
+    snapshot = _decision_snapshot_payload(forecast)
+    brief = build_decision_brief(snapshot, radar=getattr(forecast, "radar", {}) or {})
+    return {
+        "public_snapshot": snapshot,
+        "decision_brief": brief,
+        "analysis_row": build_stock_analysis(forecast, brief),
+    }
+
+
+def render_battle_panel(st, forecast, analysis_payload=None):
     if forecast.stopped:
         st.error(forecast.stop_reason)
         return
@@ -228,7 +241,8 @@ def render_battle_panel(st, forecast):
     header_trend = _header_trend_line(p)
     header_streak_positive = "+" in header_trend.split("│", 1)[0]
 
-    public_snapshot = _decision_snapshot_payload(p)
+    payload = analysis_payload if isinstance(analysis_payload, dict) else build_stock_analysis_payload(p)
+    public_snapshot = payload.get("public_snapshot") or _decision_snapshot_payload(p)
     reasoning = public_snapshot.get("reasoning") if isinstance(public_snapshot.get("reasoning"), dict) else {}
     entry_plan = public_snapshot.get("entry") if isinstance(public_snapshot.get("entry"), dict) else {}
     action_decision = reasoning.get("action_decision") if isinstance(reasoning.get("action_decision"), dict) else {
@@ -236,8 +250,8 @@ def render_battle_panel(st, forecast):
         "icon": public_snapshot.get("icon"), "color": public_snapshot.get("color"),
         "instruction": public_snapshot.get("instruction"), "reason": public_snapshot.get("reason"),
     }
-    decision_brief = build_decision_brief(public_snapshot, radar=p.radar)
-    analysis_row = build_stock_analysis(p, decision_brief)
+    decision_brief = payload.get("decision_brief") or build_decision_brief(public_snapshot, radar=p.radar)
+    analysis_row = payload.get("analysis_row") or build_stock_analysis(p, decision_brief)
     conditional_plan = entry_plan.get("conditional_next_session") if isinstance(entry_plan.get("conditional_next_session"), dict) else {}
     display_plan = conditional_plan if bool(decision_brief.get("candidate_mode")) else entry_plan
     entry = {
@@ -343,15 +357,6 @@ def render_battle_panel(st, forecast):
         f"加碼 {decision_brief.get('breakout')}｜失效 {decision_brief.get('invalidation')}"
     )
     staged_entry_line = safe(decision_brief.get("staged_entry") or "等待價格結構完成")
-    analysis_industry = safe(analysis_row.get("industry"))
-    analysis_price = safe(analysis_row.get("price_status"))
-    analysis_model_low = safe(analysis_row.get("model_low"))
-    analysis_entry = safe(analysis_row.get("entry"))
-    analysis_risk = safe(analysis_row.get("risk"))
-    analysis_evidence = safe(analysis_row.get("evidence"))
-    analysis_chip_context = safe(analysis_row.get("chip_context"))
-    analysis_confidence = safe(analysis_row.get("confidence"))
-
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
     <style>
@@ -368,11 +373,6 @@ def render_battle_panel(st, forecast):
     .entrytop{{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-weight:950;color:#fff}}.entrytop .name{{font-size:12.5px}}.entrytop .score{{font-size:18px}}.entrytop .state{{font-size:11.5px;color:#fff5b8}}
     .entrysummary{{margin-top:1px;color:#eaf7ff;font-size:10.2px;font-weight:780;line-height:1.12}}
     .decision{{margin-top:5px;border:1px solid rgba(255,211,78,.48);border-radius:12px;background:linear-gradient(180deg,rgba(28,26,34,.96),rgba(13,13,20,.96));padding:5px 7px}}
-    .analysis-row{{margin-top:5px;border:1px solid rgba(85,200,255,.34);border-radius:10px;background:#071727;overflow:hidden;display:grid;grid-template-columns:1.05fr 1.35fr 1.05fr 1.4fr}}
-    .analysis-cell{{min-width:0;padding:6px 7px;border-right:1px solid rgba(85,200,255,.2);color:#e6f5ff;font-size:10px;line-height:1.27;overflow-wrap:anywhere}}
-    .analysis-cell:last-child{{border-right:0}}.analysis-cell b{{display:block;color:#8fd7ff;font-size:9.5px;margin-bottom:3px;letter-spacing:.02em}}
-    .analysis-cell .sub{{display:block;color:#bfe8ff;margin-top:2px}}.analysis-cell .confidence{{display:block;color:#ffe28a;margin-top:3px;font-weight:850}}
-    .analysis-cell .chip-context{{display:block;margin-top:5px;padding:3px 5px;border-left:3px solid #ffd35a;border-radius:0 5px 5px 0;background:rgba(80,59,0,.18);color:#fff1b3;font-weight:750}}
     .dt{{font-size:11px;font-weight:850;color:#fff;margin-bottom:3px}}
     .action-now{{border:1px solid rgba(95,244,255,.42);border-left:4px solid #5ff4ff;border-radius:8px;background:linear-gradient(90deg,rgba(0,78,102,.48),rgba(4,17,25,.88));color:#eaffff;font-size:11.5px;line-height:1.12;font-weight:950;padding:5px 8px;margin-bottom:3px}}
     .thesis{{border-left:4px solid #ffd35a;background:rgba(80,59,0,.22);border-radius:0 8px 8px 0;color:#fff7ce;font-size:10.7px;line-height:1.18;font-weight:850;padding:5px 8px;margin-bottom:3px}}
@@ -397,24 +397,17 @@ def render_battle_panel(st, forecast):
       .info{{margin-top:4px;padding:4px 7px;font-size:10.4px;line-height:1.08}}.ptime{{font-size:8.6px}}
       .entrylamp{{margin-top:4px;padding:5px 7px}}.entrytop{{gap:6px}}.entrytop .name{{font-size:11.5px}}.entrytop .score{{font-size:16.5px}}.entrytop .state{{font-size:10.5px}}.entrysummary{{font-size:9.4px}}
       .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.action-now{{font-size:10.3px;padding:4px 7px}}.price-command{{font-size:9.8px;padding:3px 7px;margin-bottom:2px;line-height:1.05}}
-      .analysis-cell{{padding:5px;font-size:9.2px;line-height:1.2}}.analysis-cell b{{font-size:8.8px}}
       .reasoning-line{{font-size:8px;padding:2px 5px}}.evidence-summary{{font-size:8.3px;padding:2px 5px 2px 6px}}.evidence-details{{font-size:8px;margin-bottom:2px}}.evidence-full{{font-size:8.5px;max-height:130px}}
       .priceitem{{padding:3px 4px;font-size:8.7px}}.priceitem b{{font-size:8.2px;margin-right:2px}}
       .t1{{margin-top:4px;padding-top:3px}}.tl{{font-size:9.9px}}.tm{{font-size:14.6px}}.ts{{font-size:9.3px}}
     }}
     @media(max-width:720px){{
-      .head{{grid-template-columns:1fr}}.analysis-row{{grid-template-columns:repeat(2,minmax(0,1fr))}}.analysis-cell:nth-child(2){{border-right:0}}.analysis-cell:nth-child(-n+2){{border-bottom:1px solid rgba(85,200,255,.2)}}.pricebar{{grid-template-columns:repeat(2,minmax(0,1fr))}}.priceitem{{border-bottom:1px solid rgba(85,170,255,.18)}}.priceitem:last-child{{grid-column:1 / -1}}.panel{{overflow:visible}}
+      .head{{grid-template-columns:1fr}}.pricebar{{grid-template-columns:repeat(2,minmax(0,1fr))}}.priceitem{{border-bottom:1px solid rgba(85,170,255,.18)}}.priceitem:last-child{{grid-column:1 / -1}}.panel{{overflow:visible}}
     }}
     </style></head><body><div class='panel'>
       <div class='head'><div><h1>{safe(t.resolved_symbol)}｜{safe(t.name)}</h1><div class='streak'>{safe(header_trend)}</div>{persona_html}</div><div class='fvleft'><b>技術情境價格帶 / TECHNICAL RANGE</b>{fair}<span class='fvnote'>現價 ± ATR 技術情境｜不是基本面估值</span></div></div>
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜{safe(d.get('漲跌標籤','漲跌'))}：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>{safe(d.get('價格範圍標籤','今日'))}高：{fmt(d.get('最高'))}｜{safe(d.get('價格範圍標籤','今日'))}低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
       <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI交易決策</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div></div>
-      <div class='analysis-row' aria-label='單股智能分析'>
-        <div class='analysis-cell'><b>產業／價格狀態</b>{analysis_industry}<span class='sub'>{analysis_price}</span><span class='sub'>{analysis_model_low}</span></div>
-        <div class='analysis-cell'><b>條件式低接／分批方式</b>{analysis_entry}</div>
-        <div class='analysis-cell'><b>失效條件／主要風險</b>{analysis_risk}</div>
-        <div class='analysis-cell'><b>證據與聯動</b>{analysis_evidence}<span class='chip-context'>籌碼／去槓桿：{analysis_chip_context}</span><span class='confidence'>模型信心：{analysis_confidence}</span></div>
-      </div>
       <div class='decision'>
         <div class='dt'>AI執行計畫｜AI策略判斷｜信心 {intelligence_confidence}｜{'條件單' if decision_brief.get('candidate_mode') else decision_title}</div>
         <div class='thesis'>結論｜{intelligence_thesis}</div>
@@ -430,3 +423,4 @@ def render_battle_panel(st, forecast):
     </div></body></html>
     """
     html_block(html, height=642, scrolling=False)
+    return analysis_row
