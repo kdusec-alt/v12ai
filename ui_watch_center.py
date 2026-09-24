@@ -483,13 +483,25 @@ def render_watch_center(st) -> None:
         rows = st.session_state.get("morning_brief_rows_v1107", [])
         if rows:
             st.caption("逐檔依輸入順序顯示；條件尚未觸發仍須等待，資料未驗證時不列為可執行參考。")
-            from ui_stock_analysis_table_v1113 import render_stock_analysis_table
-            for row in rows:
-                render_stock_analysis_table(
-                    st, row,
-                    symbol=str(row.get("symbol") or ""),
-                    name=str(row.get("name") or ""),
-                )
+            try:
+                from ui_stock_analysis_table_v1113 import render_stock_analysis_table
+            except ImportError:
+                render_stock_analysis_table = None
+            if render_stock_analysis_table:
+                for row in rows:
+                    render_stock_analysis_table(
+                        st, row,
+                        symbol=str(row.get("symbol") or ""),
+                        name=str(row.get("name") or ""),
+                    )
+            else:
+                st.dataframe([{
+                    "股票": f"{row.get('symbol', '')}｜{row.get('name', '')}",
+                    "產業／價格狀態": "｜".join(str(row.get(key) or "") for key in ("industry", "price_status", "model_low")),
+                    "條件式進場與分批": row.get("entry"),
+                    "失效條件／主要風險": row.get("risk") or row.get("risk_cell"),
+                    "證據": row.get("evidence") or row.get("narrative_evidence"),
+                } for row in rows], hide_index=True, use_container_width=True)
 
     # Fragment reruns may execute before this page-level state is materialized.
     # Always initialize with dict-style access; attribute access raises AttributeError

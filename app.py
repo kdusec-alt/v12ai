@@ -290,6 +290,17 @@ def _build_stock_analysis_payload_compat(forecast):
     }
 
 
+def _render_stock_analysis_table_compat(st, row, *, symbol="", name=""):
+    """Plain Streamlit fallback while a newly added table module is syncing."""
+    st.markdown(f"### {symbol}｜{name}" if symbol or name else "### 個股分析")
+    st.dataframe([{
+        "產業／價格狀態": "｜".join(str(row.get(key) or "") for key in ("industry", "price_status", "model_low")),
+        "條件式進場與分批": row.get("entry") or "等待模型位階",
+        "失效條件／主要風險": row.get("risk") or row.get("risk_cell") or "風險條件待確認",
+        "證據": row.get("evidence") or row.get("narrative_evidence") or "有效證據不足；來源待確認",
+    }], hide_index=True, use_container_width=True)
+
+
 try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
     orchestrate = _load_required("orchestrator", "orchestrate")
@@ -302,7 +313,11 @@ try:
     build_stock_analysis_payload = getattr(
         _battle_panel_module, "build_stock_analysis_payload", _build_stock_analysis_payload_compat
     )
-    render_stock_analysis_table = _load_required("ui_stock_analysis_table_v1113", "render_stock_analysis_table")
+    render_stock_analysis_table = _load_optional(
+        "ui_stock_analysis_table_v1113",
+        ("render_stock_analysis_table",),
+        _render_stock_analysis_table_compat,
+    )
     render_deep_report = _load_required("ui_v9_deep_report", "render_deep_report")
     render_input = _load_required("ui_v9_input", "render_input")
     render_radar = _load_required("ui_v9_radar", "render_radar")
