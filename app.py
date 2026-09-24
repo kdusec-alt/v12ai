@@ -7,6 +7,7 @@ import traceback
 import time
 import gc
 import importlib
+import inspect
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import streamlit as st
@@ -53,7 +54,7 @@ def _render_admin_trace(trace: str) -> None:
 _boot_print("script_enter", python=os.sys.version.split()[0])
 
 # Visible build marker for confirming which integrated release is running.
-APP_BUILD_VERSION = "V1113"
+APP_BUILD_VERSION = "V1114"
 
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
@@ -267,6 +268,28 @@ def _market_proxy_degraded(*args, **kwargs):
     return {"accepted": False}
 
 
+def _build_stock_analysis_payload_compat(forecast):
+    """Build the summary from existing formal outputs when an older panel is loaded.
+
+    Streamlit Cloud can briefly expose app.py from a new commit beside an older
+    cached UI module. Keep that mixed deployment from taking the whole app down.
+    This adapter only reads the existing decision snapshot; it does not arbitrate.
+    """
+    if getattr(forecast, "stopped", False):
+        return None
+    panel_module = importlib.import_module("ui_v9_battle_panel")
+    snapshot = panel_module._decision_snapshot_payload(forecast)
+    from decision_brief_v1101 import build_decision_brief
+    from stock_analysis_narrative_v1108 import build_stock_analysis
+
+    brief = build_decision_brief(snapshot, radar=getattr(forecast, "radar", {}) or {})
+    return {
+        "public_snapshot": snapshot,
+        "decision_brief": brief,
+        "analysis_row": build_stock_analysis(forecast, brief),
+    }
+
+
 try:
     fetch_news, fetch_price = _load_required("data_sources", "fetch_news", "fetch_price")
     orchestrate = _load_required("orchestrator", "orchestrate")
@@ -274,8 +297,10 @@ try:
     render_admin, run_admin_auto_audit_cycle = _load_required(
         "ui_admin", "render_admin", "run_admin_auto_audit_cycle"
     )
-    render_battle_panel, build_stock_analysis_payload = _load_required(
-        "ui_v9_battle_panel", "render_battle_panel", "build_stock_analysis_payload"
+    render_battle_panel = _load_required("ui_v9_battle_panel", "render_battle_panel")
+    _battle_panel_module = importlib.import_module("ui_v9_battle_panel")
+    build_stock_analysis_payload = getattr(
+        _battle_panel_module, "build_stock_analysis_payload", _build_stock_analysis_payload_compat
     )
     render_stock_analysis_table = _load_required("ui_stock_analysis_table_v1113", "render_stock_analysis_table")
     render_deep_report = _load_required("ui_v9_deep_report", "render_deep_report")
@@ -845,7 +870,15 @@ def _render_forecast(forecast):
     left, right = st.columns([1.03, 0.97], gap="small")
     mark_runtime_stage("render_battle_start", symbol=symbol)
     with left:
-        render_battle_panel(st, forecast, analysis_payload=analysis_payload)
+        try:
+            supports_shared_payload = "analysis_payload" in inspect.signature(render_battle_panel).parameters
+        except (TypeError, ValueError):
+            supports_shared_payload = False
+        if supports_shared_payload:
+            render_battle_panel(st, forecast, analysis_payload=analysis_payload)
+        else:
+            # Compatibility with a cached pre-V1113 panel during Cloud sync.
+            render_battle_panel(st, forecast)
     mark_runtime_stage("render_battle_done", symbol=symbol)
 
     mark_runtime_stage("render_radar_start", symbol=symbol)
