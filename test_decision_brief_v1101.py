@@ -128,6 +128,49 @@ class DecisionBriefV1101Tests(unittest.TestCase):
         self.assertIn("公司催化未驗證", brief["thesis"])
         self.assertNotIn("油價快速回落", brief["thesis"])
 
+    def test_scenario_changes_with_price_chip_and_fresh_company_catalyst(self):
+        item = snapshot("HOLD")
+        item["evidence"] = [
+            {"label": "價格／VWAP結構", "family": "price", "correlation_group": "price_structure",
+             "direction": -1, "strength": 90, "confidence": 92, "accepted": True,
+             "value": -3.0, "unit": "pct_above_vwap",
+             "metadata": {"last": 97.0, "vwap": 100.0, "day_return_pct": -3.0},
+             "reason": "現價在VWAP下方"},
+            {"label": "法人流向", "family": "chip", "correlation_group": "tw_institutional",
+             "direction": 1, "strength": 80, "confidence": 85, "accepted": True, "reason": "外資買超"},
+            {"label": "融資去槓桿", "family": "leverage", "correlation_group": "tw_margin",
+             "direction": 1, "strength": 70, "confidence": 80, "accepted": True, "reason": "融資下降"},
+        ]
+        brief = build_decision_brief(item)
+        self.assertIn("價格仍弱", brief["thesis"])
+        self.assertIn("法人承接", brief["thesis"])
+        other = snapshot("HOLD")
+        other["evidence"] = [
+            {"label": "價格／VWAP結構", "family": "price", "correlation_group": "price_structure",
+             "direction": 1, "strength": 90, "confidence": 92, "accepted": True,
+             "value": 2.0, "unit": "pct_above_vwap",
+             "metadata": {"last": 102.0, "vwap": 100.0, "day_return_pct": 1.2},
+             "reason": "現價在VWAP上方"},
+            {"label": "法人流向", "family": "chip", "correlation_group": "tw_institutional",
+             "direction": -1, "strength": 80, "confidence": 85, "accepted": True, "reason": "外資賣超"},
+            {"label": "新聞事件", "family": "event", "correlation_group": "verified_company_event",
+             "direction": 1, "strength": 72, "confidence": 75, "accepted": True, "reason": "公司新品通過客戶認證"},
+        ]
+        second = build_decision_brief(other)
+        self.assertIn("價格偏強但籌碼分歧", second["thesis"])
+        self.assertNotEqual(brief["thesis"], second["thesis"])
+
+    def test_unadjudicated_generic_verdict_still_has_unique_scenario(self):
+        item = snapshot()
+        item["evidence"][0]["family"] = "price"
+        item["evidence"][0]["correlation_group"] = "price_structure"
+        item["evidence"][0]["value"] = -2.0
+        item["evidence"][0]["unit"] = "pct_above_vwap"
+        item["evidence"][0]["metadata"] = {"last": 98, "vwap": 100, "day_return_pct": -2.5}
+        brief = build_decision_brief(item)
+        self.assertIn("價格走弱", brief["thesis"])
+        self.assertIn("近3交易日無已仲裁", brief["thesis"])
+
     def test_ui_uses_brief_and_keeps_full_audit(self):
         source = (ROOT / "ui_v9_battle_panel.py").read_text(encoding="utf-8")
         self.assertIn("build_decision_brief", source)

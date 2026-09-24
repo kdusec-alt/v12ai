@@ -54,7 +54,7 @@ def _render_admin_trace(trace: str) -> None:
 _boot_print("script_enter", python=os.sys.version.split()[0])
 
 # Visible build marker for confirming which integrated release is running.
-APP_BUILD_VERSION = "V1115"
+APP_BUILD_VERSION = "V1116"
 
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
@@ -872,16 +872,9 @@ else:
 
 
 def _render_forecast(forecast):
-    """Show the compact four-column summary first, then its supporting panels."""
+    """Render the integrated per-ticker decision and its supporting panels."""
     symbol = getattr(getattr(forecast, "ticker", None), "resolved_symbol", "")
     analysis_payload = build_stock_analysis_payload(forecast)
-    analysis_row = analysis_payload.get("analysis_row") if isinstance(analysis_payload, dict) else None
-    if isinstance(analysis_row, dict):
-        render_stock_analysis_table(
-            st, analysis_row,
-            symbol=str(getattr(getattr(forecast, "ticker", None), "resolved_symbol", "") or ""),
-            name=str(getattr(getattr(forecast, "ticker", None), "name", "") or ""),
-        )
     left, right = st.columns([1.03, 0.97], gap="small")
     mark_runtime_stage("render_battle_start", symbol=symbol)
     with left:
@@ -946,7 +939,7 @@ def _render_main_nav():
     with n5:
         st.markdown(
             f"<div class='tino-app-version-wrap'><span class='tino-app-version'>"
-            f"TINO {APP_BUILD_VERSION}｜四欄分析＋V1052 籌碼判讀</span></div>",
+            f"TINO {APP_BUILD_VERSION}｜證據融合＋近20日買點</span></div>",
             unsafe_allow_html=True,
         )
     return st.session_state.get("main_view", "analysis")

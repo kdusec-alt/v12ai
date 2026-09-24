@@ -252,6 +252,7 @@ def render_battle_panel(st, forecast, analysis_payload=None):
     }
     decision_brief = payload.get("decision_brief") or build_decision_brief(public_snapshot, radar=p.radar)
     analysis_row = payload.get("analysis_row") or build_stock_analysis(p, decision_brief)
+    near20 = entry_plan.get("near20_buy_point") if isinstance(entry_plan.get("near20_buy_point"), dict) else {}
     conditional_plan = entry_plan.get("conditional_next_session") if isinstance(entry_plan.get("conditional_next_session"), dict) else {}
     display_plan = conditional_plan if bool(decision_brief.get("candidate_mode")) else entry_plan
     entry = {
@@ -353,9 +354,26 @@ def render_battle_panel(st, forecast, analysis_payload=None):
     abc_detail = safe((reasoning.get("abc_context") or {}).get("text") or "未形成")
     quantum_detail = safe((reasoning.get("quantum_context") or {}).get("text") or "未形成")
     executive_price_line = safe(
-        f"低接 {decision_brief.get('entry_zone')}｜確認 {decision_brief.get('confirmation')}｜"
+        f"今日低接 {decision_brief.get('entry_zone')}｜確認 {decision_brief.get('confirmation')}｜"
         f"加碼 {decision_brief.get('breakout')}｜失效 {decision_brief.get('invalidation')}"
     )
+    near20_zone = near20.get("zone") if isinstance(near20.get("zone"), dict) else {}
+    if near20.get("status") in {"watch_pullback", "in_zone", "zone_broken", "unreachable_within_3_sessions"}:
+        near20_band = _entry_range_text(near20_zone.get("lower"), near20_zone.get("upper"))
+        probability = near20.get("touch_probability_pct")
+        if probability is None:
+            near20_line_raw = f"近20日歷史買點 {near20_band}｜三日機率未估：{near20.get('reason') or '資料待確認'}"
+        else:
+            near20_line_raw = (
+                f"近20日觀察買點 {near20_band}｜未來3交易日觸及估計 {float(probability):.1f}%｜"
+                f"距離 {near20.get('distance_pct', 0):+.2f}%｜非自動買進"
+            )
+    else:
+        near20_line_raw = f"近20日買點觀察｜{near20.get('reason') or '資料未通過估算門檻'}"
+    near20_line = safe(near20_line_raw)
+    near20_detail = "；".join(str(item) for item in list(near20.get("drivers") or [])[:4])
+    near20_calibration = str(near20.get("calibration_status") or "尚未校準")
+    near20_full = safe(f"{near20_detail}｜{near20_calibration}" if near20_detail else near20_calibration)
     staged_entry_line = safe(decision_brief.get("staged_entry") or "等待價格結構完成")
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
@@ -379,7 +397,7 @@ def render_battle_panel(st, forecast, analysis_payload=None):
     .risk{{border-left:3px solid #ff6f8e;background:rgba(70,10,25,.22);border-radius:0 7px 7px 0;color:#ffe1e8;font-size:9.7px;line-height:1.15;font-weight:760;padding:4px 7px;margin-bottom:3px}}
     .price-command{{background:rgba(0,0,0,.24);border-radius:8px;color:#fff9c9;font-size:10.7px;line-height:1.08;font-weight:820;padding:4px 8px;margin-bottom:2px}}
     .reasoning-line{{padding:2px 6px;border-left:3px solid #74f4c3;background:rgba(3,31,33,.62);color:#d9fff1;font-size:8.7px;line-height:1.14;border-radius:0 6px 6px 0;margin-bottom:2px}}
-    .reasoning-line b{{color:#74f4c3;margin-right:4px}}.reasoning-conflict{{display:block;color:#cfe7f7;margin-top:1px}}.reasoning-price{{display:block;color:#fff1a8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.reasoning-price b{{color:#ffd96a}}
+    .reasoning-line b{{color:#74f4c3;margin-right:4px}}.reasoning-conflict{{display:block;color:#cfe7f7;margin-top:1px}}.reasoning-price{{display:block;color:#fff1a8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.reasoning-price b{{color:#ffd96a}}.near20{{display:block;color:#9ff5df;font-size:9.2px;line-height:1.12;margin:2px 0 3px;padding:3px 6px;border-left:3px solid #40d9aa;background:rgba(0,65,52,.24);border-radius:0 6px 6px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
     .evidence-summary{{border-left:3px solid #ff6f8e;padding:3px 6px 3px 7px;color:#dff2ff;background:rgba(4,18,30,.72);font-size:9.1px;font-weight:700;line-height:1.16;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0 6px 6px 0}}
     .evidence-summary b{{color:#8fd7ff;margin-right:4px}}
     .evidence-details{{margin:2px 0 3px 3px;color:#bfe8ff;font-size:8.7px}}
@@ -398,6 +416,7 @@ def render_battle_panel(st, forecast, analysis_payload=None):
       .entrylamp{{margin-top:4px;padding:5px 7px}}.entrytop{{gap:6px}}.entrytop .name{{font-size:11.5px}}.entrytop .score{{font-size:16.5px}}.entrytop .state{{font-size:10.5px}}.entrysummary{{font-size:9.4px}}
       .decision{{margin-top:4px;padding:4px 6px}}.dt{{font-size:9.9px;margin-bottom:2px}}.action-now{{font-size:10.3px;padding:4px 7px}}.price-command{{font-size:9.8px;padding:3px 7px;margin-bottom:2px;line-height:1.05}}
       .reasoning-line{{font-size:8px;padding:2px 5px}}.evidence-summary{{font-size:8.3px;padding:2px 5px 2px 6px}}.evidence-details{{font-size:8px;margin-bottom:2px}}.evidence-full{{font-size:8.5px;max-height:130px}}
+      .near20{{font-size:8.2px;padding:2px 5px}}
       .priceitem{{padding:3px 4px;font-size:8.7px}}.priceitem b{{font-size:8.2px;margin-right:2px}}
       .t1{{margin-top:4px;padding-top:3px}}.tl{{font-size:9.9px}}.tm{{font-size:14.6px}}.ts{{font-size:9.3px}}
     }}
@@ -413,10 +432,11 @@ def render_battle_panel(st, forecast, analysis_payload=None):
         <div class='thesis'>結論｜{intelligence_thesis}</div>
         <div class='action-now'>目前動作｜{current_action_text}</div>
         <div class='reasoning-price'><b>模型價位</b>{executive_price_line}</div>
+        <div class='near20' title='{near20_full}'>{near20_line}</div>
         <div class='price-command'>進場與分批｜{staged_entry_line}</div>
         <div class='risk'>失效／主要風險｜{intelligence_risk}</div>
         <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>決策依據</b>{evidence_summary}</div>
-        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
+        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>近20日回測觀察：</b>{safe(near20.get('reason') or '尚無可用估算')}；{near20_full}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
         <div class='pricebar'>{price_tiles_html}</div>
       </div>
       <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>

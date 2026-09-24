@@ -77,6 +77,9 @@ def _ranked_reasons(snapshot: Mapping[str, Any], limit: int = 3) -> list[str]:
     rows = []
     for index, raw in enumerate(list(snapshot.get("evidence") or [])):
         row = _mapping(raw)
+        # DecisionSnapshot exposes dataclass-backed immutable EvidenceFact rows.
+        if not row and raw is not None and hasattr(raw, "to_dict"):
+            row = _mapping(raw.to_dict())
         if not row or not bool(row.get("accepted")) or not _public_evidence_eligible(row):
             continue
         strength = int(_num(row.get("strength")) or 0)
@@ -121,6 +124,19 @@ def _ranked_evidence_rows(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     ranked: list[tuple[float, int, dict[str, Any]]] = []
     for index, raw in enumerate(list(snapshot.get("evidence") or [])):
         row = _mapping(raw)
+        if not row and raw is not None and hasattr(raw, "to_dict"):
+            row = _mapping(raw.to_dict())
+        if row and not row.get("family"):
+            label = str(row.get("label") or "")
+            group = str(row.get("correlation_group") or "").lower()
+            row["family"] = (
+                "price" if group in {"price", "price_structure", "vwap"} or any(token in label for token in ("價格", "VWAP", "結構"))
+                else "chip" if group in {"chip", "tw_institutional", "us_short_interest"} or any(token in label for token in ("法人", "外資", "籌碼", "Short"))
+                else "leverage" if group in {"leverage", "tw_margin"} or "融資" in label
+                else "market" if group in {"market", "cross_market", "tw_market_leverage"} or "跨市場" in label
+                else "event" if "事件" in label or "催化" in label
+                else "other"
+            )
         if not row or not bool(row.get("accepted")) or not _public_evidence_eligible(row):
             continue
         strength = int(_num(row.get("strength")) or 0)
@@ -134,6 +150,17 @@ def _ranked_evidence_rows(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
         group = str(row.get("correlation_group") or row.get("category") or row.get("label") or "")
         if group and group in groups:
             continue
+        label = str(row.get("label") or "")
+        if not row.get("family"):
+            group_lower = group.lower()
+            row["family"] = (
+                "price" if group_lower in {"price", "price_structure", "vwap"} or any(token in label for token in ("價格", "VWAP", "結構"))
+                else "chip" if group_lower in {"chip", "tw_institutional", "us_short_interest"} or any(token in label for token in ("法人", "外資", "籌碼", "Short"))
+                else "leverage" if group_lower in {"leverage", "tw_margin"} or "融資" in label
+                else "market" if group_lower in {"market", "cross_market", "tw_market_leverage"} or "跨市場" in label
+                else "event" if "事件" in label or "催化" in label
+                else "other"
+            )
         output.append(row)
         if group:
             groups.add(group)
@@ -150,6 +177,85 @@ def _direct_company_catalyst(radar: Mapping[str, Any] | None) -> str:
         return ""
     line = re.sub(r"^Company News[｜|][^｜|]+[｜|]?", "", line).strip("｜| ")
     return _compact(line, 72)
+
+
+def _evidence_scenario(rows: list[dict[str, Any]], plan: Mapping[str, Any],
+                       radar: Mapping[str, Any] | None) -> tuple[str, str, str]:
+    """Choose a ticker-specific lead from accepted numeric/arbitrated evidence."""
+    price = next((row for row in rows if str(row.get("family") or "").lower() == "price"
+                  or str(row.get("correlation_group") or "").lower() in {"price_structure", "price", "vwap"}
+                  or any(token in str(row.get("label") or "") for token in ("價格", "VWAP", "結構"))), {})
+    price_meta = _mapping(price.get("metadata"))
+    vwap_gap = _num(price.get("value")) if str(price.get("unit") or "") == "pct_above_vwap" else None
+    if vwap_gap is None and int(_num(price.get("direction")) or 0) < 0:
+        vwap_gap = -1.0
+    elif vwap_gap is None and int(_num(price.get("direction")) or 0) > 0:
+        vwap_gap = 1.0
+    day_return = _num(price_meta.get("day_return_pct"))
+    last = _num(price_meta.get("last"))
+    vwap = _num(price_meta.get("vwap"))
+    price_bear = (vwap_gap is not None and vwap_gap < -0.5) or (day_return is not None and day_return <= -2.0)
+    price_bull = (vwap_gap is not None and vwap_gap > 0.5) and (day_return is None or day_return >= 0)
+
+    chip_rows = [row for row in rows if str(row.get("family") or "").lower() == "chip"
+                 or str(row.get("correlation_group") or "").lower() in {"chip", "tw_institutional", "us_short_interest"}]
+    leverage_rows = [row for row in rows if str(row.get("family") or "").lower() == "leverage"
+                     or str(row.get("correlation_group") or "").lower() in {"leverage", "tw_margin"}]
+    market_rows = [row for row in rows if str(row.get("family") or "").lower() == "market"
+                   or str(row.get("correlation_group") or "").lower() in {"market", "cross_market", "tw_market_leverage"}]
+    chip_score = sum((1 if int(_num(row.get("direction")) or 0) > 0 else -1 if int(_num(row.get("direction")) or 0) < 0 else 0)
+                     * float(_num(row.get("strength")) or 0) * float(_num(row.get("confidence")) or 0)
+                     for row in chip_rows)
+    chip_divergence = bool(chip_rows and any(int(_num(row.get("direction")) or 0) > 0 for row in chip_rows)
+                           and any(int(_num(row.get("direction")) or 0) < 0 for row in chip_rows))
+    chip_support = chip_score > 0 and not chip_divergence
+    chip_pressure = chip_score < 0 and not chip_divergence
+    price_chip_conflict = chip_divergence or (price_bull and chip_pressure) or (price_bear and chip_support)
+    leveraged_relief = any(int(_num(row.get("direction")) or 0) > 0 for row in leverage_rows)
+    macro_direction = sum(int(_num(row.get("direction")) or 0) for row in market_rows)
+
+    company = _direct_company_catalyst(radar)
+    event_rows = [row for row in rows if str(row.get("family") or "").lower() == "event"
+                  and str(row.get("correlation_group") or "") in {"verified_company_event", "verified_event"}]
+    fresh_company_event = bool(company and event_rows)
+
+    lower = _num(plan.get("low_entry_zone", {}).get("lower")) if isinstance(plan.get("low_entry_zone"), Mapping) else None
+    upper = _num(plan.get("low_entry_zone", {}).get("upper")) if isinstance(plan.get("low_entry_zone"), Mapping) else None
+    in_formal_zone = last is not None and lower is not None and upper is not None and lower <= last <= upper
+
+    # Concrete event repricing takes priority, but it cannot override price truth.
+    if fresh_company_event and price_bull:
+        return "個股事件帶動、價格同步確認", f"個股事件已通過仲裁：{company}", "公司事件與價格同向；仍須守正式失效價"
+    if price_bear and price_chip_conflict and len(chip_rows) > 1:
+        return "價格走弱且籌碼分歧，先防守", "價格／VWAP轉弱，法人與槓桿訊號互相抵銷", "反彈先視為修復；等收復確認價再評估"
+    if price_bear and chip_support:
+        lead = "價格仍弱，但法人承接提供緩衝" if not leveraged_relief else "價格仍弱，去槓桿／法人承接改善供需"
+        return lead, f"價格相對VWAP {vwap_gap:+.2f}%" if vwap_gap is not None else f"單日變動 {day_return:+.2f}%", "籌碼支持不等於趨勢反轉；等待價格收復"
+    if price_bear and chip_pressure:
+        if len(chip_rows) == 1 and not leverage_rows:
+            label = _compact(price.get("label") or "價格結構", 18)
+            reason = _compact(price.get("reason") or f"現價相對VWAP {vwap_gap:+.2f}%", 52)
+            return "價格走弱，反彈先視為修復", f"{label}：{reason}", "等待收復確認價，勿以單日反彈視為趨勢反轉"
+        return "價格與籌碼同弱，低接條件尚未成熟", f"VWAP差 {vwap_gap:+.2f}%" if vwap_gap is not None else f"單日變動 {day_return:+.2f}%", "等待賣壓收斂、止跌並站回確認位"
+    if price_bear:
+        label = _compact(price.get("label") or "價格結構", 18)
+        reason = _compact(price.get("reason") or (f"現價相對VWAP {vwap_gap:+.2f}%" if vwap_gap is not None else f"單日變動 {day_return:+.2f}%"), 52)
+        return "價格走弱，反彈先視為修復", f"{label}：{reason}", "等待收復確認價，勿以單日反彈視為趨勢反轉"
+    if in_formal_zone and not price_bear:
+        return "進入模型低接區，仍需量價確認", f"現價位於正式低接區 {_price(lower)}～{_price(upper)}", "觸及不是買進訊號；按原分批與失效條件執行"
+    if price_bull and price_chip_conflict:
+        return "價格偏強但籌碼分歧，追價風險升高", f"VWAP差 {vwap_gap:+.2f}%" if vwap_gap is not None else "價格偏強", "等籌碼與價格重新同向，分批條件不變"
+    if price_bull and chip_support:
+        return "價格與籌碼同向偏強，避免追價", f"現價在VWAP上方 {vwap_gap:+.2f}%" if vwap_gap is not None else "價格結構偏強", "等待回測承接或放量突破，不因強勢上漲放寬風險"
+    if fresh_company_event:
+        return "有個股事件，價格尚未確認反應", f"個股事件已通過仲裁：{company}", "不把新聞本身當成買點；以價格確認／失效位為準"
+    if chip_divergence:
+        return "籌碼方向分歧，等待價格給出主導", "法人／空方或槓桿指標訊號互相抵銷", "先守正式失效位；不以單一籌碼欄位推論方向"
+    if macro_direction < 0 and not price_bull:
+        return "外部環境偏逆風，部位採防守節奏", "跨市場／產業環境偏弱，個股價格尚未轉強", "等個股相對強度與量價確認"
+    if price_bull:
+        return "價格結構轉強，等待回測品質確認", f"現價在VWAP上方 {vwap_gap:+.2f}%", "沒有獨立籌碼／事件確認，不追價"
+    return "證據尚未形成單一主導情境", "有效價格、籌碼與事件訊號不足或互相抵銷", "依正式低接、確認與失效價等待新證據"
 
 
 def _intelligence_summary(
@@ -180,8 +286,7 @@ def _intelligence_summary(
             row for row in rows
             if int(_num(row.get("direction")) or 0) * primary_direction < 0
         ]
-    primary_label = _compact(primary.get("label") or "證據", 15)
-    primary_reason = _compact(primary.get("reason") or primary.get("text") or "有效證據仍不足", 52)
+    scenario, primary_reason, scenario_risk = _evidence_scenario(rows, plan, radar)
 
     verdict_map = {
         "BUY": "條件成立，可分批執行",
@@ -196,8 +301,8 @@ def _intelligence_summary(
         else verdict_map.get(code, "條件未齊，等待確認")
     )
     catalyst = _direct_company_catalyst(radar)
-    catalyst_text = f"；公司催化：{catalyst}" if catalyst else "；公司催化未驗證，不以總體新聞代替"
-    thesis = _compact(f"{verdict}｜主導：{primary_label}－{primary_reason}{catalyst_text}", 130)
+    catalyst_text = f"；公司催化：{catalyst}" if catalyst else "；近3交易日無已仲裁的新公司專屬事件，公司催化未驗證，不以總體新聞代替"
+    thesis = _compact(f"{verdict}｜主導情境：{scenario}；{primary_reason}{catalyst_text}", 180)
 
     invalid = _price(plan.get("invalidation_price"))
     downside = [row for row in rows if int(_num(row.get("direction")) or 0) < 0]
@@ -209,9 +314,9 @@ def _intelligence_summary(
             f"{_compact(risk_row.get('reason') or risk_row.get('text') or '方向轉弱', 52)}"
         )
     risk = (
-        f"跌破 {invalid}，取消條件單且不攤平{risk_detail}"
+        f"跌破 {invalid}，取消條件單且不攤平；{scenario_risk}{risk_detail}"
         if invalid != "--"
-        else (risk_detail.lstrip("；") or "失效價尚未形成，不建立新部位")
+        else (scenario_risk + (risk_detail or "") or "失效價尚未形成，不建立新部位")
     )
 
     groups = {

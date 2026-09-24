@@ -723,6 +723,19 @@ def build_decision_snapshot(
     lifecycle = build_recovery_lifecycle(forecast, entry, facts, prior_snapshot)
     gate = _structured_gate(forecast, entry, facts, lifecycle)
     plan = _entry_plan(forecast, entry, gate)
+    # A supplemental historical observation only. It must never mutate the
+    # formally arbitrated entry/action/forecast values.
+    try:
+        from near20_buy_point_v1116 import forecast_near20_buy_point
+        plan["near20_buy_point"] = forecast_near20_buy_point(forecast, facts)
+    except Exception as exc:
+        plan["near20_buy_point"] = {
+            "schema": "TINO_NEAR20_BUY_POINT_V1116", "status": "unavailable",
+            "reason": f"近20日觀察模型暫不可用（{type(exc).__name__}）",
+            "lookback_sessions": 20, "forecast_sessions": 3,
+            "touch_probability_pct": None, "zone": {"lower": None, "upper": None},
+            "drivers": [], "calibration_status": "unavailable", "formal_execution": False,
+        }
     price_frame = getattr(forecast, "price_frame", None)
     atr14 = _num(getattr(price_frame, "atr14", None)) if price_frame is not None else None
     recent_lows = list(getattr(price_frame, "recent_lows", []) or []) if price_frame is not None else []
