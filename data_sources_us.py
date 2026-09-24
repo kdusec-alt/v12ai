@@ -682,6 +682,13 @@ def fetch_us_price(ticker: TickerInfo) -> PriceFrame:
             "session_reference_date": ext.get("reference_close_date") or d,
             "session_reference_source": ext.get("reference_source") or "YahooFinance_Daily",
             "session_reference_promoted": promoted_regular_reference,
+            # A successful formal daily-history path is verified even when the
+            # live quote is pre/after-hours.  The near20 estimator uses this
+            # explicit flag to distinguish real US daily history from the
+            # fallback sample path above.
+            "price_verified": True,
+            "limited_price_mode": False,
+            "decision_blocked": False,
         }
         ctx = {
             "macro": _us_macro_context(d),
@@ -1255,3 +1262,4 @@ def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
         out = [NewsItem("GoogleNewsUS", "latest", 0.0, "us_company_news_wait", f"{base} 2026 English news syncing; use Macro Core / VWAP until updated", "https://news.google.com/")]
     _US_NEWS_CACHE[cache_key] = (now_ts, out)
     return out
+
