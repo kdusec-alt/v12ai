@@ -1011,6 +1011,7 @@ def main():
             if bool(st.session_state.get("admin_authenticated", False)):
                 with st.expander("Admin 診斷", expanded=False):
                     st.code(_research_ui_trace)
+        _admin_maintenance_fragment()
         return
 
     if main_view == "scanner":
