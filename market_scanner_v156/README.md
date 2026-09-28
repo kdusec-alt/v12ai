@@ -4,7 +4,7 @@ V156 掃描器在獨立 GitHub Actions 執行，不掛入 V1116 個股分析流�
 
 ## 啟用前設定
 
-1. 在 Google Cloud 建立專用 Service Account，啟用 Google Drive API，並把要存放結果的 Drive 資料夾分享給該帳號 email（編輯者）。
+1. 在 Google Cloud 建立 Service Account 並啟用 Google Drive API。此專案的輸出目標使用現有 `TINO_V156/snapshots` 資料夾（Folder ID：`1U_QKNRHVhClaO-1cGdC24sINnmeia3es`）；將這個資料夾分享給 Service Account 的 `client_email`，權限設為編輯者。手動結果仍留在 `snapshots/manual`。
 2. 在 repository 的 **Settings → Secrets and variables → Actions** 建立兩個 Repository secrets：
    - `GOOGLE_SERVICE_ACCOUNT_JSON`：Service Account JSON 金鑰完整內容。
    - `GOOGLE_DRIVE_FOLDER_ID`：共享目標資料夾的 ID。
