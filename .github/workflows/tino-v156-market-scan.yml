@@ -1,9 +1,7 @@
 name: TINO V156 Daily Market Scan
 
 on:
-  # 05:00 Asia/Taipei on weekdays = 21:00 UTC on Sun-Thu.
-  schedule:
-    - cron: "0 21 * * 0-4"
+  # Automatic GitHub scanning is paused; keep manual dispatch available only.
   workflow_dispatch:
 
 concurrency:
