@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,6 +14,8 @@ import streamlit as st
 _DRIVE_API = "https://www.googleapis.com/drive/v3"
 _READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 _MANIFEST_NAME = "TINO_V156_LATEST.json"
+_COLAB_FOLDER_NAME = "manual"
+_COLAB_RUN_MANIFEST_NAME = "run_manifest.json"
 
 
 def _drive_session(service_account_json: str):
@@ -47,6 +50,83 @@ def _choose_result_csv(files: list[dict]) -> dict | None:
     return candidates[0] if candidates else None
 
 
+def _list_drive_children(session: Any, parent_id: str) -> list[dict]:
+    """List all files in a Drive folder, including shared-drive items."""
+    items: list[dict] = []
+    page_token = None
+    while True:
+        params = {
+            "q": f"'{_escape_q(parent_id)}' in parents and trashed = false",
+            "pageSize": 1000,
+            "orderBy": "modifiedTime desc",
+            "fields": "nextPageToken,files(id,name,mimeType,modifiedTime,size)",
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        data = _drive_request(session, f"{_DRIVE_API}/files", params=params).json()
+        items.extend(data.get("files") or [])
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            return items
+
+
+def _load_colab_manual_snapshot(session: Any, folder_id: str):
+    """Read the commit manifest written last by the Colab manual scanner."""
+    root_items = _list_drive_children(session, folder_id)
+    manual = next(
+        (
+            item for item in root_items
+            if item.get("name") == _COLAB_FOLDER_NAME
+            and item.get("mimeType") == "application/vnd.google-apps.folder"
+        ),
+        None,
+    )
+    if not manual:
+        raise FileNotFoundError(
+            f"Drive has neither {_MANIFEST_NAME} nor Colab folder {_COLAB_FOLDER_NAME}"
+        )
+
+    files = _list_drive_children(session, manual["id"])
+    run_manifest_file = next(
+        (item for item in files if item.get("name") == _COLAB_RUN_MANIFEST_NAME),
+        None,
+    )
+    if not run_manifest_file:
+        raise FileNotFoundError("Colab folder has no completed run_manifest.json")
+    run_manifest = _drive_request(
+        session,
+        f"{_DRIVE_API}/files/{run_manifest_file['id']}",
+        params={"alt": "media"},
+    ).json()
+    if run_manifest.get("status") != "success":
+        raise ValueError("Colab run_manifest is not a successful scan")
+
+    artifact_names = set(run_manifest.get("artifacts") or [])
+    result_file = _choose_result_csv(
+        [item for item in files if item.get("name") in artifact_names]
+    )
+    if not result_file or not result_file.get("id"):
+        raise FileNotFoundError("Colab run_manifest does not reference an available result CSV")
+    response = _drive_request(
+        session, f"{_DRIVE_API}/files/{result_file['id']}", params={"alt": "media"}
+    )
+    frame = pd.read_csv(io.BytesIO(response.content), encoding="utf-8-sig")
+
+    # Normalize Colab's run manifest to the fields rendered by the V1116 page.
+    run_time = str(run_manifest.get("run_time_taipei", ""))
+    manifest = {
+        **run_manifest,
+        "published_at": run_time,
+        "snapshot_id": manual["id"],
+        "snapshot_name": f"Colab manual｜{run_time or '時間未知'}",
+        "files": [result_file],
+        "source": "Colab Drive manual snapshot",
+    }
+    return frame, manifest, result_file.get("name", "")
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_snapshot(folder_id: str, service_account_json: str, refresh_nonce: int = 0):
     """Download only the small latest pointer and its result CSV; never scan stocks."""
@@ -70,7 +150,7 @@ def _load_snapshot(folder_id: str, service_account_json: str, refresh_nonce: int
     ).json()
     manifests = listing.get("files") or []
     if not manifests:
-        raise FileNotFoundError(f"Drive folder has no {_MANIFEST_NAME}")
+        return _load_colab_manual_snapshot(session, folder_id)
 
     manifest_file = manifests[0]
     manifest = _drive_request(
@@ -92,9 +172,13 @@ def _load_snapshot(folder_id: str, service_account_json: str, refresh_nonce: int
 def _get_secret(name: str, default: str = "") -> str:
     try:
         value = st.secrets.get(name, default)
-        return str(value).strip() if value not in (None, "") else default
+        if value not in (None, ""):
+            return str(value).strip()
     except Exception:
-        return default
+        pass
+    # Also support deployment platforms that expose secrets as environment variables.
+    value = os.environ.get(name, default)
+    return str(value).strip() if value not in (None, "") else default
 
 
 def render_market_scanner(st_module=st) -> None:
