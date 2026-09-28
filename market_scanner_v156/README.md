@@ -1,6 +1,6 @@
 # TINO V156 Market Scanner（獨立排程）
 
-這個資料夾只放 V156 掃描器，不掛入 V1116 網頁請求流程。Colab 仍可手動執行；GitHub Actions 以同一支掃描核心執行排程，Drive 上傳採版本化 Snapshot，全部檔案上傳成功後才更新 `TINO_V156_LATEST.json`。
+V156 掃描器在獨立 GitHub Actions 執行，不掛入 V1116 個股分析流程。完整成功快照上傳 Google Drive；V1116 的「🌌 AI Market Scanner」入口只讀 Latest manifest 與結果 CSV，5 分鐘快取，不會因開頁而重跑全市場掃描。Colab 仍保留手動掃描。
 
 ## 啟用前設定
 
@@ -8,8 +8,8 @@
 2. 在 repository 的 **Settings → Secrets and variables → Actions** 建立兩個 Repository secrets：
    - `GOOGLE_SERVICE_ACCOUNT_JSON`：Service Account JSON 金鑰完整內容。
    - `GOOGLE_DRIVE_FOLDER_ID`：共享目標資料夾的 ID。
-3. 將此變更合併到 repository 預設分支，然後到 **Actions** 啟用 `TINO V156 Daily Market Scan`。排程工作只會從預設分支上的 workflow 執行。
-4. 第一次可用 **Run workflow** 手動測試。未設定 secrets 時，workflow 會在掃描前停止。
+3. 在 V1116 網站的 Streamlit 部署平台 **Settings → Secrets** 加入同名兩項，網站 Scanner 頁用唯讀 Drive 權限讀快照。
+4. 將此 PR 合併到預設分支後，到 **Actions** 啟用 `TINO V156 Daily Market Scan`；排程只會從預設分支上的 workflow 執行。第一次用 **Run workflow** 手動測試。未設定 Actions secrets 時，workflow 會在掃描前停止。
 
 **金鑰安全：**不要把 Service Account JSON 放在程式碼、Notebook、Issues 或 Pull Request。建議使用專用帳號，且只分享輸出資料夾。
 
@@ -17,7 +17,7 @@
 
 GitHub Actions 排程為 `21:00 UTC`（台北時間平日 05:00），GitHub 可能延後排程啟動。排程使用 GitHub-hosted Ubuntu Runner，掃描失敗或資料覆蓋率不足時不會更新 Drive 最新快照；前一個成功快照保留。
 
-手動測試可在 Colab 執行 `TINO_V156_Colab_Manual.ipynb`。此程式保留 3 年歷史，未安裝 FinMind 時只會略過台指夜盤輔助資料。
+網站讀取器位於 `market_scanner_v156/market_scanner_drive_reader.py`，只在管理員選擇 Scanner 入口時讀取 Drive，5 分鐘快取。讀取失敗會隔離顯示，不影響個股分析、即時股價、預測學習或 AI Research Lab。手動測試可在 Colab 執行 `TINO_V156_Colab_Manual.ipynb`。此程式保留 3 年歷史，未安裝 FinMind 時只會略過台指夜盤輔助資料。
 
 ## 本次輸出
 
