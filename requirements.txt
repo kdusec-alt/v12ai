@@ -11,3 +11,4 @@ tqdm
 lxml
 html5lib
 beautifulsoup4
+google-auth>=2.30,<3
