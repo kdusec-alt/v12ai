@@ -903,7 +903,7 @@ def _set_main_view(view: str) -> None:
     """Switch pages and release the heavy forecast before table-heavy views."""
     target = str(view or "analysis")
     st.session_state["main_view"] = target
-    if target in {"watch", "learning", "research"}:
+    if target in {"watch", "learning", "research", "scanner"}:
         st.session_state["forecast"] = None
         st.session_state["last_error"] = ""
         gc.collect()
@@ -913,15 +913,15 @@ def _render_main_nav():
     is_admin = bool(st.session_state.get("admin_authenticated", False))
     if "main_view" not in st.session_state:
         st.session_state["main_view"] = "analysis"
-    if st.session_state.get("main_view") in {"learning", "research"} and not is_admin:
+    if st.session_state.get("main_view") in {"learning", "research", "scanner"} and not is_admin:
         st.session_state["main_view"] = "analysis"
 
     st.markdown("<div class='tino-nav-spacer'></div>", unsafe_allow_html=True)
     if is_admin:
-        n1, n2, n3, n4, n5 = st.columns([0.16, 0.16, 0.16, 0.18, 0.34], gap="small")
+        n1, n2, n3, n4, n5, n6 = st.columns([0.14, 0.14, 0.14, 0.17, 0.18, 0.23], gap="small")
     else:
-        n1, n2, n5 = st.columns([0.18, 0.18, 0.64], gap="small")
-        n3 = n4 = None
+        n1, n2, n6 = st.columns([0.18, 0.18, 0.64], gap="small")
+        n3 = n4 = n5 = None
 
     with n1:
         st.button("🎯 個股分析", use_container_width=True, key="nav_analysis",
@@ -936,7 +936,10 @@ def _render_main_nav():
         with n4:
             st.button("🔬 AI Research Lab", use_container_width=True, key="nav_research",
                       on_click=_set_main_view, args=("research",))
-    with n5:
+        with n5:
+            st.button("🌌 AI Market Scanner", use_container_width=True, key="nav_scanner",
+                      on_click=_set_main_view, args=("scanner",))
+    with n6:
         st.markdown(
             f"<div class='tino-app-version-wrap'><span class='tino-app-version'>"
             f"TINO {APP_BUILD_VERSION}｜證據融合＋近20日買點</span></div>",
@@ -1008,7 +1011,19 @@ def main():
             if bool(st.session_state.get("admin_authenticated", False)):
                 with st.expander("Admin 診斷", expanded=False):
                     st.code(_research_ui_trace)
-        _admin_maintenance_fragment()
+        return
+
+    if main_view == "scanner":
+        # V156 is read-only and isolated: it downloads one Drive snapshot only.
+        try:
+            from market_scanner_v156.market_scanner_drive_reader import render_market_scanner
+            render_market_scanner(st)
+        except Exception as _scanner_ui_exc:
+            _scanner_trace = _log_exception("market_scanner_failed_safe", _scanner_ui_exc)
+            st.warning("AI Market Scanner 暫時無法載入；V12 個股分析與其他頁面不受影響。")
+            if bool(st.session_state.get("admin_authenticated", False)):
+                with st.expander("Scanner 診斷", expanded=False):
+                    st.code(_scanner_trace)
         return
 
     _boot_print("render_input_start")
