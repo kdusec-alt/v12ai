@@ -462,7 +462,13 @@ def render_market_scanner(st_module=st) -> None:
                             if result.get("accepted") and result.get("last"):
                                 price_date = str(result.get("price_date") or "")
                                 is_today = price_date == datetime.now(ZoneInfo("Asia/Taipei")).date().isoformat()
-                                label = "今日官方報價" if is_today else "最近官方報價（日期較舊）"
+                                quality = {
+                                    "last": "成交價",
+                                    "bid_ask_mid": "買賣中價參考",
+                                    "ask_proxy": "賣價參考",
+                                    "bid_proxy": "買價參考",
+                                }.get(str(result.get("mis_last_source") or ""), "報價參考")
+                                label = f"{('今日' if is_today else '最近')}官方{quality}" if is_today else f"最近官方{quality}（日期較舊）"
                                 quotes[symbol] = {"last": float(result["last"]), "raw_time": result.get("raw_time"), "label": label,
                                                  "source": result.get("source"), "fetched_at": datetime.now(ZoneInfo("Asia/Taipei")).isoformat()}
                             else:
