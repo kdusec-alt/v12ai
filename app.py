@@ -59,7 +59,7 @@ APP_BUILD_VERSION = "V1116"
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
 os.environ.setdefault("TINO_FUND_DEEP_CROSSCHECK", "0")
-os.environ.setdefault("TINO_INLINE_REMOTE_SYNC", "1")
+os.environ.setdefault("TINO_INLINE_REMOTE_SYNC", "0")
 os.environ.setdefault("TINO_INLINE_MEMORY_MIRROR", "0")
 os.environ.setdefault("TINO_V13_RESEARCH", "1")
 os.environ.setdefault("TINO_V13_CLOSE_RECHECK", "1")
