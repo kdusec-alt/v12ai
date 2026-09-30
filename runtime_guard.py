@@ -20,6 +20,18 @@ def _rss_mb() -> float | None:
     except Exception:
         return None
 
+def _rss_current_mb() -> float | None:
+    """Return current resident memory (not the lifetime high-water mark)."""
+    try:
+        # Linux Streamlit Cloud: resident pages are field 2 in /proc/self/statm.
+        with open("/proc/self/statm", "r", encoding="ascii") as handle:
+            resident_pages = int(handle.read().split()[1])
+        page_bytes = int(os.sysconf("SC_PAGE_SIZE"))
+        return round((resident_pages * page_bytes) / (1024.0 * 1024.0), 2)
+    except Exception:
+        return None
+
+
 def mark_runtime_stage(stage: str, **meta: Any) -> None:
     """Best-effort local stage marker; never raises into the app."""
     try:
@@ -28,6 +40,7 @@ def mark_runtime_stage(stage: str, **meta: Any) -> None:
             "time_tw": datetime.now(_TW).isoformat(timespec="seconds"),
             "pid": os.getpid(),
             "stage": str(stage),
+            "rss_current_mb": _rss_current_mb(),
             "rss_peak_mb": _rss_mb(),
             "threads": threading.active_count(),
         }
