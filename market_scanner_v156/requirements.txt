@@ -5,4 +5,4 @@ yfinance
 tqdm
 google-api-python-client
 google-auth
-scipy>=1.6.3
+FinMind
