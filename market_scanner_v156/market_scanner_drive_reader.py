@@ -6,7 +6,9 @@ import json
 import html
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 import pandas as pd
@@ -48,8 +50,14 @@ def _choose_result_csv(files: list[dict]) -> dict | None:
         if str(item.get("name", "")).startswith("tino_market_scanner_v156_")
         and str(item.get("name", "")).lower().endswith(".csv")
         and "_diagnostics_" not in str(item.get("name", "")).lower()
+        and "_tplus1_validation_" not in str(item.get("name", "")).lower()
     ]
     return candidates[0] if candidates else None
+
+
+def _choose_validation_csv(files: list[dict]) -> dict | None:
+    return next((item for item in files if str(item.get("name", "")).startswith(
+        "tino_market_scanner_v156_tplus1_validation_")), None)
 
 
 def _list_drive_children(session: Any, parent_id: str) -> list[dict]:
@@ -115,6 +123,18 @@ def _load_colab_manual_snapshot(session: Any, folder_id: str):
         session, f"{_DRIVE_API}/files/{result_file['id']}", params={"alt": "media"}
     )
     frame = pd.read_csv(io.BytesIO(response.content), encoding="utf-8-sig")
+    validation = pd.DataFrame()
+    validation_file = _choose_validation_csv([item for item in files if item.get("name") in artifact_names])
+    if validation_file and validation_file.get("id"):
+        try:
+            validation_response = _drive_request(session, f"{_DRIVE_API}/files/{validation_file['id']}", params={"alt": "media"})
+            validation = pd.read_csv(io.BytesIO(validation_response.content), encoding="utf-8-sig")
+        except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError):
+            # An empty T+1 validation CSV is expected when there were no prior
+            # recommendations. It must not prevent the valid result CSV loading.
+            validation = pd.DataFrame()
+        except Exception:
+            validation = pd.DataFrame()
 
     # Normalize Colab's run manifest to the fields rendered by the V1116 page.
     run_time = str(run_manifest.get("run_time_taipei", ""))
@@ -123,10 +143,10 @@ def _load_colab_manual_snapshot(session: Any, folder_id: str):
         "published_at": run_time,
         "snapshot_id": manual["id"],
         "snapshot_name": f"Colab manual｜{run_time or '時間未知'}",
-        "files": [result_file],
+        "files": [result_file] + ([validation_file] if validation_file else []),
         "source": "Colab Drive manual snapshot",
     }
-    return frame, manifest, result_file.get("name", "")
+    return frame, manifest, result_file.get("name", ""), validation
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -168,7 +188,15 @@ def _load_snapshot(folder_id: str, service_account_json: str, refresh_nonce: int
         session, f"{_DRIVE_API}/files/{result_file['id']}", params={"alt": "media"}
     )
     frame = pd.read_csv(io.BytesIO(response.content), encoding="utf-8-sig")
-    return frame, manifest, result_file.get("name", "")
+    validation = pd.DataFrame()
+    validation_file = _choose_validation_csv(manifest.get("files") or [])
+    if validation_file and validation_file.get("id"):
+        try:
+            validation_response = _drive_request(session, f"{_DRIVE_API}/files/{validation_file['id']}", params={"alt": "media"})
+            validation = pd.read_csv(io.BytesIO(validation_response.content), encoding="utf-8-sig")
+        except Exception:
+            validation = pd.DataFrame()
+    return frame, manifest, result_file.get("name", ""), validation
 
 
 def _get_secret(name: str, default: str = "") -> str:
@@ -208,7 +236,7 @@ def _row_number(row: pd.Series, key: str, digits: int = 1, suffix: str = "") -> 
     return f"{value:,.{digits}f}{suffix}"
 
 
-def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False) -> str:
+def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False, quote: dict | None = None) -> str:
     """Build an escaped, responsive candidate card from a V156 result row."""
     statuses = {
         "ACTIONABLE": ("可執行", "actionable"),
@@ -232,6 +260,22 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False) -> st
         f'<div class="v156-mini"><span>{label}</span><b>{value}</b></div>'
         for label, value in edge_items
     )
+    discovery_items = [
+        ("Stock", _row_number(row, "stock_edge_score", 0)),
+        ("Sector", _row_number(row, "sector_edge_score", 0)),
+        ("Leader", _row_number(row, "leader_edge_score", 0)),
+        ("Flow", _row_number(row, "institutional_flow_edge_score", 0)),
+        ("Entry", _row_number(row, "entry_edge_score", 0)),
+    ]
+    discovery_html = "".join(
+        f'<div class="v156-mini"><span>{label}</span><b>{value}</b></div>'
+        for label, value in discovery_items
+    )
+    discovery_score = html.escape(_row_number(row, "v157_total_score", 1))
+    sector_line = html.escape(
+        f"族群 {_row_value(row, 'sector')}｜龍頭 {_row_value(row, 'leader_label')} #{_row_value(row, 'leader_rank')}｜"
+        f"RS族群 {_row_number(row, 'rs_sector_5d_pct', 2, '%')}｜法人 {_row_value(row, 'inst_flow_status')}"
+    )
     prob_items = [
         ("A", _row_number(row, "pA", 1, "%")),
         ("B", _row_number(row, "pB", 1, "%")),
@@ -253,6 +297,24 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False) -> st
     )
     score = html.escape(_row_number(row, "recommendation_score", 1))
     price = html.escape(_row_number(row, "last_p", 2))
+    quote = quote or {}
+    live_price = quote.get("last")
+    live_time = html.escape(str(quote.get("raw_time") or ""))
+    live_label_raw = str(quote.get("label") or "尚未更新行情")
+    try:
+        quote_time = datetime.fromisoformat(str(quote.get("fetched_at")))
+        if (datetime.now(timezone.utc) - quote_time.astimezone(timezone.utc)).total_seconds() > 900:
+            live_label_raw += "｜報價超過 15 分鐘"
+    except Exception:
+        if live_price is not None:
+            live_label_raw += "｜更新時間未知"
+    live_label = html.escape(live_label_raw)
+    live_text = f"最新 {float(live_price):,.2f}｜{live_label} {live_time}" if isinstance(live_price, (int, float)) else live_label
+    live_text = html.escape(live_text)
+    delta = ""
+    if isinstance(live_price, (int, float)) and float(row.get("entry") or 0) > 0:
+        gap = (float(live_price) / float(row.get("entry")) - 1) * 100
+        delta = f"｜距 Entry {gap:+.2f}%"
     trades = html.escape(_row_number(row, "trade_n", 0))
     win_rate = html.escape(_row_number(row, "win_rate", 1, "%"))
     data_date = html.escape(_row_value(row, "data_date"))
@@ -260,18 +322,21 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False) -> st
       <div class="v156-card-head">
         <div><div class="v156-eyebrow">#{rank:02d}　{ticker}　·　{data_date}</div>
           <div class="v156-title">{title}</div>
-          <div class="v156-subtitle">{tag}　·　現價 {price}</div></div>
+          <div class="v156-subtitle">{tag}　·　掃描快照價 {price}</div>
+          <div class="v156-subtitle">{sector_line}</div>
+          <div class="v156-subtitle">{live_text}{html.escape(delta)}</div></div>
         <div class="v156-score"><b>{score}</b><span>評分</span></div>
       </div>
       <div class="v156-badges"><span class="v156-status {status_class}">{html.escape(status_label)}</span>{recommended_badge}</div>
       <div class="v156-section-label">訊號 Edge</div><div class="v156-mini-grid">{edge_html}</div>
+      <div class="v156-section-label">V157 可解釋總分 {discovery_score}（未校準，不改推薦排序）</div><div class="v156-mini-grid">{discovery_html}</div>
       <div class="v156-data-row"><span>預測機率</span><div class="v156-probs">{prob_html}</div></div>
       <div class="v156-data-row v156-backtest"><span>歷史交易 {trades} 筆</span><b>勝率 {win_rate}</b></div>
       <div class="v156-section-label">價格規劃</div><div class="v156-level-grid">{levels_html}</div>
     </article>"""
 
 
-def _render_card_section(st_module, title: str, frame: pd.DataFrame, *, recommended: bool = False) -> None:
+def _render_card_section(st_module, title: str, frame: pd.DataFrame, *, recommended: bool = False, quotes: dict | None = None) -> None:
     """Render two-column cards while keeping the full raw table out of the way."""
     st_module.markdown(title)
     if frame.empty:
@@ -303,7 +368,7 @@ def _render_card_section(st_module, title: str, frame: pd.DataFrame, *, recommen
         unsafe_allow_html=True,
     )
     cards = [
-        _scanner_card(row, index + 1, recommended=recommended)
+        _scanner_card(row, index + 1, recommended=recommended, quote=(quotes or {}).get(str(row.get("ticker", ""))))
         for index, (_, row) in enumerate(frame.iterrows())
     ]
     st_module.markdown('<div class="v156-cards">' + "".join(cards) + "</div>", unsafe_allow_html=True)
@@ -330,7 +395,7 @@ def render_market_scanner(st_module=st) -> None:
 
     try:
         with st_module.spinner("讀取 Google Drive 最新快照…"):
-            frame, manifest, result_name = _load_snapshot(
+            frame, manifest, result_name, validation = _load_snapshot(
                 folder_id, service_account_json, refresh_nonce
             )
     except Exception as exc:
@@ -354,6 +419,10 @@ def render_market_scanner(st_module=st) -> None:
         stale = True
 
     snapshot_label = str(manifest.get("snapshot_name") or result_name or "V156")
+    quote_snapshot_key = f"{manifest.get('snapshot_id', '')}|{manifest.get('published_at', '')}"
+    if st_module.session_state.get("v156_quote_snapshot_key") != quote_snapshot_key:
+        st_module.session_state["v156_live_quotes"] = {}
+        st_module.session_state["v156_quote_snapshot_key"] = quote_snapshot_key
     st_module.caption(
         f"快照：{snapshot_label}｜發布時間：{published or '未知'}｜"
         f"來源檔：{result_name or '未知'}｜Drive 快取 5 分鐘"
@@ -378,6 +447,44 @@ def render_market_scanner(st_module=st) -> None:
         top10 = top10.sort_values("recommendation_score", ascending=False)
     top10 = top10.head(10)
 
+    quote_nonce = int(st_module.session_state.get("v156_quote_refresh_nonce", 0))
+    if st_module.button("💹 一鍵更新 Top10 候選行情", key="v156_quote_refresh"):
+        quote_nonce += 1
+        st_module.session_state["v156_quote_refresh_nonce"] = quote_nonce
+        symbols = list(dict.fromkeys(top10.get("ticker", pd.Series(dtype=str)).astype(str).tolist()))[:10]
+        quotes: dict[str, dict] = {}
+        try:
+            from data_sources_tw_live_price import fetch_twse_mis_live_price
+            with st_module.spinner(f"向證交所／櫃買行情端更新 {len(symbols)} 檔候選…"):
+                # Bounded concurrency and bounded universe: this never runs the market scan.
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    futures = {pool.submit(fetch_twse_mis_live_price, symbol): symbol for symbol in symbols}
+                    for future in as_completed(futures):
+                        symbol = futures[future]
+                        try:
+                            result = future.result()
+                            if result.get("accepted") and result.get("last"):
+                                price_date = str(result.get("price_date") or "")
+                                is_today = price_date == datetime.now(ZoneInfo("Asia/Taipei")).date().isoformat()
+                                quality = {
+                                    "last": "成交價",
+                                    "bid_ask_mid": "買賣中價參考",
+                                    "ask_proxy": "賣價參考",
+                                    "bid_proxy": "買價參考",
+                                }.get(str(result.get("mis_last_source") or ""), "報價參考")
+                                label = f"{('今日' if is_today else '最近')}官方{quality}" if is_today else f"最近官方{quality}（日期較舊）"
+                                quotes[symbol] = {"last": float(result["last"]), "raw_time": result.get("raw_time"), "label": label,
+                                                 "source": result.get("source"), "fetched_at": datetime.now(ZoneInfo("Asia/Taipei")).isoformat()}
+                            else:
+                                quotes[symbol] = {"label": "官方行情未取得"}
+                        except Exception:
+                            quotes[symbol] = {"label": "官方行情更新失敗"}
+        except Exception:
+            quotes = {symbol: {"label": "官方行情模組不可用"} for symbol in symbols}
+        st_module.session_state["v156_live_quotes"] = quotes
+
+    quotes = st_module.session_state.get("v156_live_quotes", {})
+
     summary_cols = st_module.columns(3)
     summary_cols[0].metric("合格推薦", f"{len(recommended)} 檔", "最多 5 檔")
     summary_cols[1].metric("觀察候選", f"{len(top10)} 檔", "依 Scanner 評分排序")
@@ -386,8 +493,16 @@ def render_market_scanner(st_module=st) -> None:
         actionable_count = int(top10["execution_status"].astype(str).str.upper().eq("ACTIONABLE").sum())
     summary_cols[2].metric("目前可執行", f"{actionable_count} 檔", "依執行狀態")
 
-    _render_card_section(st_module, "### ✅ 合格推薦", recommended, recommended=True)
-    _render_card_section(st_module, "### 🏁 Top 10 觀察卡", top10)
+    st_module.caption("行情更新只查詢目前 Top10，僅更新卡牌顯示；Scanner 排名、Entry/T1/T2/Stop 與快照不會因此改寫。行情取得失敗時保留掃描快照價並標示狀態。")
+    _render_card_section(st_module, "### ✅ 合格推薦", recommended, recommended=True, quotes=quotes)
+    _render_card_section(st_module, "### 🏁 Top 10 觀察卡", top10, quotes=quotes)
+
+    if not validation.empty:
+        st_module.markdown("### 🔁 前次推薦隔日驗證")
+        st_module.caption("依前次推薦的 Entry、T1、Stop 與下一交易日 OHLC 逐檔核對。同一根日K同時碰到 T1/Stop 時標示歧義，不推定先後順序。")
+        st_module.dataframe(validation, use_container_width=True, hide_index=True)
+    else:
+        st_module.caption("隔日驗證將在下一次成功掃描後建立；首日或無前次推薦時會是空白。")
 
     with st_module.expander("查看完整 Scanner 結果"):
         st_module.dataframe(frame, use_container_width=True, hide_index=True)

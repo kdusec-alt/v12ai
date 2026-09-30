@@ -1,24 +1,32 @@
-# TINO V156 Market Scanner（獨立排程）
+# TINO V157 Market Discovery Scanner
 
-V156 掃描器在獨立 GitHub Actions 執行，不掛入 V1116 個股分析流程。完整成功快照上傳 Google Drive；V1116 的「🌌 AI Market Scanner」入口只讀 Latest manifest 與結果 CSV，5 分鐘快取，不會因開頁而重跑全市場掃描。Colab 仍保留手動掃描。
+Colab 是唯一的全市場掃描執行端；掃描成功後寫入已掛載 Google Drive 的 `TINO_V156/snapshots/manual/`。V1116 的 `AI Market Scanner` 只讀取 Drive 快照。開啟或重新整理網站頁面不會觸發 1900 檔掃描。GitHub Actions 全市場掃描不在此操作流程中。
 
-## 啟用前設定
+## V157 變更
 
-1. 在 Google Cloud 建立 Service Account 並啟用 Google Drive API。此專案的輸出目標使用現有 `TINO_V156/snapshots` 資料夾（Folder ID：`1U_QKNRHVhClaO-1cGdC24sINnmeia3es`）；將這個資料夾分享給 Service Account 的 `client_email`，權限設為編輯者。手動結果仍留在 `snapshots/manual`。
-2. 在 repository 的 **Settings → Secrets and variables → Actions** 建立兩個 Repository secrets：
-   - `GOOGLE_SERVICE_ACCOUNT_JSON`：Service Account JSON 金鑰完整內容。
-   - `GOOGLE_DRIVE_FOLDER_ID`：共享目標資料夾的 ID。
-3. 在 V1116 網站的 Streamlit 部署平台 **Settings → Secrets** 加入同名兩項，網站 Scanner 頁用唯讀 Drive 權限讀快照。
-4. 將此 PR 合併到預設分支後，到 **Actions** 啟用 `TINO V156 Daily Market Scan`；排程只會從預設分支上的 workflow 執行。第一次用 **Run workflow** 手動測試。未設定 Actions secrets 時，workflow 會在掃描前停止。
+- 在同一批 OHLC 下載上計算族群 1/3/5 日報酬、上漲廣度、量能加速，避免再逐檔重抓行情。
+- 全市場先做輕量流動性／趨勢／5日動能 Fast Filter，再取最高 300 檔進 KNN 與 Backtest；條件不足時不補滿 300。
+- 對族群作相對強度計算時排除個股自身；欄位含 RS vs Market、RS vs Sector 與族群內龍頭排名。
+- 法人資料透過 FinMind 單次批次查詢，不按 1900 檔各自發請求；來源失效時顯示 `UNAVAILABLE`。
+- 卡片與 CSV 顯示 Stock / Sector / Leader / Flow / Entry 五個可解釋分項及 coverage。
+- V157 總分先以 `SHADOW_UNCALIBRATED` 輸出，不改既有推薦排序與 V1116 預測模型；完成 walk-forward 校準後再決定是否啟用。
+- 每次成功執行比較前次成功快照的龍頭名次，並輸出前次推薦的 T+1 日K驗證 CSV；目標與停損同日觸及會標成歧義。
+- `run_manifest.json` 最後以原子替換更新；掃描未成功時保留舊 manifest 與 Last Known Good 結果。
+- V1116 卡牌新增候選 Top10 行情按鈕，只查詢最多 10 檔官方 MIS 行情，不改快照、排名或 Entry/T1/T2/Stop。
 
-**金鑰安全：**不要把 Service Account JSON 放在程式碼、Notebook、Issues 或 Pull Request。建議使用專用帳號，且只分享輸出資料夾。
+## Colab 手動流程
 
-## 執行排程
+1. 安裝 Notebook 套件並掛載 Google Drive。
+2. 將新版 `tino_v156_scanner.py` 放到 `MyDrive/TINO_V156/`。
+3. 執行掃描儲存格；輸出寫到 `MyDrive/TINO_V156/snapshots/manual/`。
+4. V1116 的 Drive 根資料夾設定需指向 `TINO_V156`，讀取器從其 `manual/` 子資料夾載入最新成功 `run_manifest.json`。
 
-GitHub Actions 排程為 `21:00 UTC`（台北時間平日 05:00），GitHub 可能延後排程啟動。排程使用 GitHub-hosted Ubuntu Runner，掃描失敗或資料覆蓋率不足時不會更新 Drive 最新快照；前一個成功快照保留。
+Notebook 的掃描仍需手動執行；Colab 筆記本執行不會讓閒置 Runtime 自動常駐。此版本不啟用 GitHub Actions 全市場掃描。
 
-網站讀取器位於 `market_scanner_v156/market_scanner_drive_reader.py`，只在管理員選擇 Scanner 入口時讀取 Drive，5 分鐘快取。讀取失敗會隔離顯示，不影響個股分析、即時股價、預測學習或 AI Research Lab。手動測試可在 Colab 執行 `TINO_V156_Colab_Manual.ipynb`。此程式保留 3 年歷史，未安裝 FinMind 時只會略過台指夜盤輔助資料。
+## 3 年歷史保留
 
-## 本次輸出
+維持 `period="3y"`、KNN lookback 360 與既有 Backtest。改成 1 年大約只有 250 個交易日，會少於目前 360 日 KNN 視窗並壓縮不同市況樣本；MA60/ATR14 可以計算，但 KNN shrinkage 與策略回測穩健度會先受損。速度優化放在「先以共享日線資料建立橫截面指標、失敗快照不發布」，不縮短重模型歷史。
 
-每次成功掃描建立獨立的 `TINO_V156_YYYYMMDD_HHMMSS` Drive 資料夾，放入候選 CSV、診斷 CSV、Metadata JSON 和 run manifest；最後更新父資料夾中的 `TINO_V156_LATEST.json`。若空 Universe、掃描候選空白或下載失敗率超標，流程失敗並保留既有 Latest pointer。
+## 重要欄位
+
+`sector`, `leader_rank`, `leader_rotation`, `sector_1d_pct`, `sector_3d_pct`, `sector_5d_pct`, `sector_breadth_pct`, `rs_market_5d_pct`, `rs_sector_5d_pct`, `inst_net_3d/5d/10d`, `inst_flow_status`, `stock_edge_score`, `sector_edge_score`, `leader_edge_score`, `institutional_flow_edge_score`, `entry_edge_score`, `v157_total_score`, `v157_score_coverage_pct`。

@@ -34,7 +34,7 @@ from urllib3.util.retry import Retry
 # =========================
 @dataclass(frozen=True)
 class Config:
-    scan_version: str = "TINO_MARKET_SCANNER_V156_TOP10_RECOMMEND5"
+    scan_version: str = "TINO_MARKET_SCANNER_V157_SECTOR_DISCOVERY"
     period: str = "3y"
     interval: str = "1d"
     chunk_size: int = 40
@@ -57,6 +57,7 @@ class Config:
     shortlist_n: int = 10
     recommend_n: int = 5
     top_n_full_detail: int = 5
+    active_pool_n: int = 300
     # 候選池先寬後嚴：Top10 後才做推薦仲裁
     max_entry_gap_pct: float = 2.0
     min_profit_factor: float = 1.05
@@ -217,6 +218,8 @@ def get_stock_universe() -> Tuple[list[str], Dict[str, str], Dict[str, Dict[str,
     tickers: list[str] = []
     name_map: Dict[str, str] = {}
     official_snapshot: Dict[str, Dict[str, Any]] = {}
+    # Use industry labels when provided by exchange feeds; missing labels stay explicit.
+    sector_map: Dict[str, str] = {}
     warnings: list[str] = []
     sources = [
         (
@@ -261,12 +264,44 @@ def get_stock_universe() -> Tuple[list[str], Dict[str, str], Dict[str, Dict[str,
                     ),
                     "source": source,
                 }
+                industry = next((str(item.get(k, "")).strip() for k in (
+                    "Industry", "IndustryName", "SecuritiesIndustryName",
+                    "IndustryCategory", "IndustryNameC", "產業別", "產業名稱"
+                ) if str(item.get(k, "")).strip()), "")
+                if industry:
+                    sector_map[ticker] = industry
                 source_count += 1
             if source_count == 0:
                 warnings.append(f"{source} API 成功但普通股筆數為 0")
         except Exception as exc:
             warnings.append(f"{source} universe 讀取失敗：{exc}")
     tickers = sorted(set(tickers))
+    # TWSE basic-company feed is an official fallback for listed-company sectors.
+    try:
+        rows = fetch_json("https://openapi.twse.com.tw/v1/opendata/t187ap03_L")
+        if isinstance(rows, list):
+            for item in rows:
+                code = str(item.get("公司代號") or item.get("Code") or item.get("公司代碼") or "").strip()
+                industry = str(item.get("產業別") or item.get("Industry") or item.get("產業名稱") or "").strip()
+                ticker = f"{code}.TW"
+                if code and industry and ticker in name_map:
+                    sector_map[ticker] = industry
+    except Exception as exc:
+        warnings.append(f"TWSE 產業分類補充資料略過：{type(exc).__name__}")
+    try:
+        rows = fetch_json("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_company")
+        if isinstance(rows, list):
+            for item in rows:
+                code = str(item.get("SecuritiesCompanyCode") or item.get("CompanyCode") or item.get("公司代號") or "").strip()
+                industry = str(item.get("IndustryName") or item.get("Industry") or item.get("SecuritiesIndustryName") or item.get("產業別") or "").strip()
+                ticker = f"{code}.TWO"
+                if code and industry and ticker in name_map:
+                    sector_map[ticker] = industry
+    except Exception as exc:
+        warnings.append(f"TPEx 產業分類補充資料略過：{type(exc).__name__}")
+    # Preserve the historical four-value API through the attached map field.
+    for ticker in tickers:
+        official_snapshot.setdefault(ticker, {})["sector"] = sector_map.get(ticker, "未分類")
     return tickers, name_map, official_snapshot, warnings
 # =========================
 # 3. yfinance 資料下載與正規化
@@ -356,6 +391,9 @@ def get_market_context() -> Dict[str, Any]:
         "market_score": 50.0,
         "twii_last": np.nan,
         "twii_ret20": np.nan,
+        "twii_ret1d_pct": np.nan,
+        "twii_ret3d_pct": np.nan,
+        "twii_ret5d_pct": np.nan,
         "vix": np.nan,
         "stress_score": 50.0,
         "tx_night_force": 0.0,
@@ -388,6 +426,9 @@ def get_market_context() -> Dict[str, Any]:
                     "market_score": clamp(score, 0, 100),
                     "twii_last": float(close.iloc[-1]),
                     "twii_ret20": float(ret20 * 100),
+                    "twii_ret1d_pct": float((close.iloc[-1] / close.iloc[-2] - 1) * 100),
+                    "twii_ret3d_pct": float((close.iloc[-1] / close.iloc[-4] - 1) * 100),
+                    "twii_ret5d_pct": float((close.iloc[-1] / close.iloc[-6] - 1) * 100),
                 }
             )
     except Exception as exc:
@@ -860,6 +901,7 @@ def build_candidate(
         "atr14": atr14,
         "atr_pct": current["atr_pct"],
         "vol_ratio": current["vol_ratio"],
+        "avg_vol_10d": avg_vol_10d,
         "m_force": current["m_force"],
         "deviation": current["deviation"],
         "close_pos": current["close_pos"],
@@ -902,6 +944,243 @@ def build_candidate(
     row["recommendation_score"] = calc_recommendation_score(row)
     row["recommendable"] = status in {"ACTIONABLE", "WAIT_PULLBACK", "WAIT_RESET"}
     return row, "success"
+
+
+# =========================
+# 8A. V157 Market Discovery enrichment (read-only inputs; no prediction-model mutation)
+# =========================
+def _universe_bar_metrics(ticker: str, df: pd.DataFrame, sector: str) -> Dict[str, Any]:
+    """Compact cross-sectional features from the already-downloaded OHLC bars."""
+    close = pd.to_numeric(df["Close"], errors="coerce").dropna()
+    volume = pd.to_numeric(df["Volume"], errors="coerce").dropna()
+    out: Dict[str, Any] = {"ticker": ticker, "sector": sector or "未分類"}
+    for days in (1, 3, 5):
+        out[f"ret{days}d_pct"] = (close.iloc[-1] / close.iloc[-days - 1] - 1) * 100 if len(close) > days else np.nan
+    prior5 = volume.iloc[-6:-1].mean() if len(volume) >= 6 else np.nan
+    out["volume_accel_pct"] = (volume.iloc[-1] / prior5 - 1) * 100 if prior5 and prior5 > 0 else np.nan
+    out["last_close"] = safe_float(close.iloc[-1]) if len(close) else np.nan
+    out["avg_vol_20d"] = safe_float(volume.tail(20).mean()) if len(volume) >= 20 else np.nan
+    out["ma20"] = safe_float(close.tail(20).mean()) if len(close) >= 20 else np.nan
+    out["ma60"] = safe_float(close.tail(60).mean()) if len(close) >= 60 else np.nan
+    out["avg_dollar_volume_20d"] = out["last_close"] * out["avg_vol_20d"] if np.isfinite(out["last_close"]) and np.isfinite(out["avg_vol_20d"]) else np.nan
+    # Broad guardrail and rank score are deliberately cheap; KNN/Backtest run only after this funnel.
+    trend_ok = (np.isfinite(out["ma20"]) and out["last_close"] >= out["ma20"] * 0.90
+                and np.isfinite(out["ma60"]) and out["last_close"] >= out["ma60"] * 0.82)
+    liquid_ok = np.isfinite(out["avg_vol_20d"]) and out["avg_vol_20d"] >= CFG.min_avg_vol_shares
+    momentum_ok = np.isfinite(out["ret5d_pct"]) and out["ret5d_pct"] >= -18
+    out["fast_filter_pass"] = bool(trend_ok and liquid_ok and momentum_ok)
+    dollar_score = clamp(50 + math.log10(max(out["avg_dollar_volume_20d"], 1) / 100_000_000) * 12, 0, 100) if np.isfinite(out["avg_dollar_volume_20d"]) else 0
+    out["fast_filter_score"] = round(0.50 * clamp(50 + safe_float(out["ret5d_pct"], -50) * 2, 0, 100)
+                                      + 0.20 * clamp(50 + safe_float(out["volume_accel_pct"], 0) * 0.20, 0, 100)
+                                      + 0.30 * dollar_score, 2)
+    return out
+
+
+def fetch_bulk_institutional_flow() -> pd.DataFrame:
+    """One bulk FinMind query, never one request per ticker; unavailable stays NA."""
+    try:
+        from FinMind.data import DataLoader
+        dl = DataLoader()
+        end_date = RUN_DT.date()
+        start_date = (RUN_DT - timedelta(days=35)).date()
+        frame = dl.taiwan_stock_institutional_investors(
+            start_date=start_date.isoformat(), end_date=end_date.isoformat()
+        )
+        if frame is None or frame.empty:
+            return pd.DataFrame()
+        required = {"date", "stock_id", "buy", "sell"}
+        if not required.issubset(frame.columns):
+            logger.warning("FinMind 法人資料欄位不完整；Flow 維持 unavailable")
+            return pd.DataFrame()
+        out = frame.copy()
+        out["date"] = pd.to_datetime(out["date"], errors="coerce")
+        out["net"] = pd.to_numeric(out["buy"], errors="coerce").fillna(0) - pd.to_numeric(out["sell"], errors="coerce").fillna(0)
+        out["code"] = out["stock_id"].astype(str).str.zfill(4)
+        return out.dropna(subset=["date"]).groupby(["code", "date"], as_index=False)["net"].sum()
+    except Exception as exc:
+        logger.info("法人 Flow 未取得，保留明確缺值：%s", type(exc).__name__)
+        return pd.DataFrame()
+
+
+def _flow_features(flow: pd.DataFrame, code: str, avg_volume: float) -> Dict[str, Any]:
+    if flow.empty or not np.isfinite(avg_volume) or avg_volume <= 0:
+        return {"inst_net_3d": np.nan, "inst_net_5d": np.nan, "inst_net_10d": np.nan,
+                "inst_accel_pct": np.nan, "inst_flow_status": "UNAVAILABLE"}
+    part = flow[flow["code"] == str(code).zfill(4)].sort_values("date").tail(10)
+    if part.empty:
+        return {"inst_net_3d": np.nan, "inst_net_5d": np.nan, "inst_net_10d": np.nan,
+                "inst_accel_pct": np.nan, "inst_flow_status": "UNAVAILABLE"}
+    vals = part["net"].astype(float).to_numpy()
+    n3, n5, n10 = float(vals[-3:].sum()), float(vals[-5:].sum()), float(vals.sum())
+    prev3 = float(vals[-6:-3].sum()) if len(vals) >= 6 else np.nan
+    accel = ((n3 - prev3) / avg_volume * 100) if np.isfinite(prev3) else np.nan
+    if n5 > 0 and np.isfinite(prev3) and n3 > prev3:
+        status = "ACCELERATING_BUY"
+    elif n5 > 0 and (not np.isfinite(prev3) or n3 >= prev3):
+        status = "ACCUMULATING"
+    elif n5 > 0:
+        status = "DECELERATING"
+    else:
+        status = "DISTRIBUTION"
+    return {"inst_net_3d": n3, "inst_net_5d": n5, "inst_net_10d": n10,
+            "inst_accel_pct": accel, "inst_flow_status": status}
+
+
+def enrich_market_discovery(
+    candidates: list[Dict[str, Any]], bar_metrics: Dict[str, Dict[str, Any]],
+    market_ctx: Dict[str, Any], flow: pd.DataFrame,
+) -> None:
+    """Attach sector/leader/RS/flow evidence and a transparent shadow score."""
+    groups: Dict[str, list[Dict[str, Any]]] = {}
+    for item in bar_metrics.values():
+        if item["sector"] != "未分類":
+            groups.setdefault(item["sector"], []).append(item)
+    sector_stats: Dict[str, Dict[str, float]] = {}
+    for sector, members in groups.items():
+        sector_stats[sector] = {}
+        for key in ("ret1d_pct", "ret3d_pct", "ret5d_pct", "volume_accel_pct"):
+            vals = [safe_float(x.get(key)) for x in members]
+            vals = [v for v in vals if np.isfinite(v)]
+            sector_stats[sector][key] = float(np.mean(vals)) if vals else np.nan
+        r1 = [safe_float(x.get("ret1d_pct")) for x in members]
+        r1 = [v for v in r1 if np.isfinite(v)]
+        sector_stats[sector]["breadth_pct"] = 100 * sum(v > 0 for v in r1) / len(r1) if r1 else np.nan
+        ranked = sorted(members, key=lambda x: (safe_float(x.get("ret5d_pct"), -999), safe_float(x.get("volume_accel_pct"), -999)), reverse=True)
+        for rank, member in enumerate(ranked, 1):
+            member["leader_rank"] = rank
+            member["sector_size"] = len(ranked)
+
+    market_returns = {d: safe_float(market_ctx.get(f"twii_ret{d}d_pct")) for d in (1, 3, 5)}
+    for row in candidates:
+        ticker = str(row.get("ticker", ""))
+        metric = bar_metrics.get(ticker, {})
+        sector = metric.get("sector", "未分類")
+        sec = sector_stats.get(sector, {})
+        peers = [x for x in groups.get(sector, []) if x.get("ticker") != ticker]
+        avg_vol = safe_float(row.get("avg_vol_10d"), np.nan)
+        flow_features = _flow_features(flow, ticker.split(".")[0], avg_vol)
+        for days in (1, 3, 5):
+            stock_ret = safe_float(metric.get(f"ret{days}d_pct"))
+            peer_returns = [safe_float(x.get(f"ret{days}d_pct")) for x in peers]
+            peer_returns = [v for v in peer_returns if np.isfinite(v)]
+            sector_ret = float(np.mean(peer_returns)) if peer_returns else np.nan
+            market_ret = market_returns[days]
+            row[f"rs_market_{days}d_pct"] = stock_ret - market_ret if np.isfinite(stock_ret) and np.isfinite(market_ret) else np.nan
+            row[f"rs_sector_{days}d_pct"] = stock_ret - sector_ret if np.isfinite(stock_ret) and np.isfinite(sector_ret) else np.nan
+        row.update({
+            "sector": sector,
+            "sector_1d_pct": sec.get("ret1d_pct", np.nan),
+            "sector_3d_pct": sec.get("ret3d_pct", np.nan),
+            "sector_5d_pct": sec.get("ret5d_pct", np.nan),
+            "sector_breadth_pct": sec.get("breadth_pct", np.nan),
+            "sector_volume_accel_pct": sec.get("volume_accel_pct", np.nan),
+            "sector_member_count": len(groups.get(sector, [])),
+            "leader_rank": metric.get("leader_rank", np.nan),
+            "leader_label": ("LEADER" if metric.get("leader_rank") == 1 else "CO_LEADER" if metric.get("leader_rank", 999) <= 3 else "FOLLOWER") if sector != "未分類" else "UNCLASSIFIED",
+            **flow_features,
+        })
+        # Each component is independently exposed on a 0–100 scale; this score is shadow only.
+        stock_edge = clamp(50 + safe_float(row.get("m_force"), 0) * 35 + safe_float(row.get("rs_market_5d_pct"), 0) * 1.2, 0, 100)
+        sector_edge = clamp(50 + safe_float(row.get("sector_5d_pct"), 0) * 2 + (safe_float(row.get("sector_breadth_pct"), 50) - 50) * 0.35, 0, 100) if sector != "未分類" else np.nan
+        leader_edge = clamp(100 - (safe_float(row.get("leader_rank"), 20) - 1) * 12, 0, 100) if sector != "未分類" else np.nan
+        flow_status = row["inst_flow_status"]
+        flow_edge = {"ACCELERATING_BUY": 90, "ACCUMULATING": 72, "DECELERATING": 42, "DISTRIBUTION": 18}.get(flow_status, np.nan)
+        gap = safe_float(row.get("entry_gap_pct"), np.nan)
+        entry_edge = clamp(100 - max(0, gap) * 22 - max(0, 1 - safe_float(row.get("reward_risk"), 0)) * 25, 0, 100)
+        components = {"stock": (stock_edge, 30), "sector": (sector_edge, 20), "leader": (leader_edge, 20), "flow": (flow_edge, 15), "entry": (entry_edge, 15)}
+        available = [(v, w) for v, w in components.values() if np.isfinite(v)]
+        coverage = sum(w for _, w in available)
+        row.update({
+            "stock_edge_score": stock_edge, "sector_edge_score": sector_edge,
+            "leader_edge_score": leader_edge, "institutional_flow_edge_score": flow_edge,
+            "entry_edge_score": entry_edge,
+            "v157_score_coverage_pct": coverage,
+            "v157_total_score": round(sum(v * w for v, w in available) / coverage, 1) if coverage else np.nan,
+            "v157_score_mode": "SHADOW_UNCALIBRATED",
+        })
+
+
+def _atomic_json(path: Path, payload: Dict[str, Any]) -> None:
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    temp.replace(path)
+
+
+def _load_previous_results(output_dir: Path) -> pd.DataFrame:
+    """Read only the prior successful local Colab snapshot, if one exists."""
+    manifest_path = output_dir / "run_manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("status") != "success":
+            return pd.DataFrame()
+        candidates = [output_dir / name for name in manifest.get("artifacts", [])
+                      if str(name).startswith("tino_market_scanner_v156_")
+                      and str(name).endswith(".csv")
+                      and "diagnostics" not in str(name)]
+        return pd.read_csv(candidates[0]) if candidates and candidates[0].exists() else pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def validate_previous_recommendations(previous: pd.DataFrame, histories: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """T+1 close-bar audit. Same-day target/stop collision is marked ambiguous."""
+    if previous.empty or "is_recommended5" not in previous.columns:
+        return pd.DataFrame(columns=["ticker", "selection_date", "validation_status"])
+    chosen = previous[previous["is_recommended5"].astype(str).str.lower().isin({"true", "1"})]
+    rows = []
+    for _, old in chosen.iterrows():
+        ticker = str(old.get("ticker", ""))
+        bars = histories.get(ticker)
+        selection_date = pd.to_datetime(old.get("data_date"), errors="coerce")
+        if bars is None or bars.empty or pd.isna(selection_date):
+            rows.append({"ticker": ticker, "selection_date": str(old.get("data_date", "")), "validation_status": "PENDING_DATA"})
+            continue
+        dates = pd.to_datetime(bars.index).tz_localize(None)
+        future = bars.loc[dates > selection_date.tz_localize(None)]
+        if future.empty:
+            rows.append({"ticker": ticker, "selection_date": str(old.get("data_date", "")), "validation_status": "PENDING_NEXT_BAR"})
+            continue
+        bar = future.iloc[0]
+        entry, target, stop = (safe_float(old.get(k)) for k in ("entry", "t1", "stop_loss"))
+        touched_entry = safe_float(bar.get("Low")) <= entry if np.isfinite(entry) else False
+        hit_target = safe_float(bar.get("High")) >= target if np.isfinite(target) else False
+        hit_stop = safe_float(bar.get("Low")) <= stop if np.isfinite(stop) else False
+        if not touched_entry:
+            status = "NOT_TRIGGERED"
+        elif hit_target and hit_stop:
+            status = "AMBIGUOUS_TARGET_STOP_SAME_BAR"
+        elif hit_stop:
+            status = "STOP_TOUCHED"
+        elif hit_target:
+            status = "T1_TOUCHED"
+        else:
+            status = "ENTRY_TOUCHED_NO_TARGET"
+        entry_to_close = (safe_float(bar.get("Close")) / entry - 1) * 100 if entry > 0 else np.nan
+        rows.append({"ticker": ticker, "selection_date": str(old.get("data_date", "")),
+                     "validation_date": pd.Timestamp(future.index[0]).date().isoformat(),
+                     "entry": entry, "t1": target, "stop_loss": stop,
+                     "next_open": safe_float(bar.get("Open")), "next_high": safe_float(bar.get("High")),
+                     "next_low": safe_float(bar.get("Low")), "next_close": safe_float(bar.get("Close")),
+                     "entry_to_close_pct": entry_to_close, "validation_status": status})
+    return pd.DataFrame(rows)
+
+
+def add_rotation_labels(candidates: list[Dict[str, Any]], previous: pd.DataFrame) -> None:
+    old = {}
+    if not previous.empty and "ticker" in previous.columns:
+        old = {str(r.get("ticker")): r for _, r in previous.iterrows()}
+    for row in candidates:
+        prior = old.get(str(row.get("ticker")))
+        current_rank = safe_float(row.get("leader_rank"), np.nan)
+        prior_rank = safe_float(prior.get("leader_rank"), np.nan) if prior is not None else np.nan
+        if prior is None or not np.isfinite(current_rank) or not np.isfinite(prior_rank):
+            row["leader_rotation"] = "NO_PRIOR_COMPARABLE_SNAPSHOT"
+        elif current_rank < prior_rank:
+            row["leader_rotation"] = "LEADER_GAINING"
+        elif current_rank > prior_rank:
+            row["leader_rotation"] = "LEADER_LOSING"
+        else:
+            row["leader_rotation"] = "LEADER_RANK_STABLE"
 # =========================
 # 9. 報告輸出
 # =========================
@@ -1021,6 +1300,20 @@ def run_self_tests() -> None:
     }
     knn = calc_knn_state(feat, current)
     assert abs(knn["pA"] + knn["pB"] + knn["pC"] - 100.0) < 1e-6
+    funnel_df = pd.DataFrame({
+        "Close": np.linspace(40, 60, 90),
+        "Volume": np.full(90, 2_000_000),
+    }, index=pd.bdate_range("2024-01-01", periods=90))
+    funnel = _universe_bar_metrics("TEST.TW", funnel_df, "半導體")
+    assert funnel["fast_filter_pass"] and funnel["avg_vol_20d"] == 2_000_000
+    flow = pd.DataFrame({"code": ["2330"] * 6, "date": pd.date_range("2024-01-01", periods=6), "net": [10, 10, 10, 10, 20, 30]})
+    assert _flow_features(flow, "2330", 100)["inst_flow_status"] == "ACCELERATING_BUY"
+    previous = pd.DataFrame([{"ticker": "TEST.TW", "data_date": "2024-01-01", "is_recommended5": True,
+                              "entry": 10.0, "t1": 11.0, "stop_loss": 9.0}])
+    collided = {"TEST.TW": pd.DataFrame([{"Open": 10.0, "High": 11.2, "Low": 8.8, "Close": 10.0}],
+                                         index=pd.to_datetime(["2024-01-02"]))}
+    audit = validate_previous_recommendations(previous, collided)
+    assert audit.iloc[0]["validation_status"] == "AMBIGUOUS_TARGET_STOP_SAME_BAR"
     print("✅ Self tests passed")
 # =========================
 # 11. 主流程
@@ -1030,6 +1323,8 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
     if mode not in {"manual", "scheduled"}:
         raise ValueError("mode must be manual or scheduled")
     run_dt = datetime.now(TAIPEI_TZ)
+    out = Path(output_dir or Path.cwd()).expanduser().resolve()
+    previous_results = _load_previous_results(out)
     print("=" * 92)
     print(f"🌌 {CFG.scan_version} 啟動｜mode={mode}")
     print(f"台北時間：{run_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}")
@@ -1053,6 +1348,11 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
     for msg in market_ctx.get("warnings", []):
         print(f"⚠️ {msg}")
     candidates: list[Dict[str, Any]] = []
+    universe_metrics: Dict[str, Dict[str, Any]] = {}
+    historical_frames: Dict[str, pd.DataFrame] = {}
+    previous_symbols = set(previous_results.get("ticker", pd.Series(dtype=str)).astype(str)) if not previous_results.empty else set()
+    deep_frames: Dict[str, pd.DataFrame] = {}
+    institutional_flow = fetch_bulk_institutional_flow()
     start = time.time()
     print(f"\n📥 全市場掃描｜批次 {CFG.chunk_size}｜period={CFG.period}｜adjusted OHLC")
     for i in tqdm(range(0, len(tickers), CFG.chunk_size)):
@@ -1068,16 +1368,20 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
                         stats["yf_fail"] += 1
                         continue
                     stats["yf_fallback_success"] += 1
-                row, status = build_candidate(
-                    ticker=ticker,
-                    name=name_map.get(ticker, ticker),
-                    raw_df=df,
-                    market_ctx=market_ctx,
-                    official=official_snapshot.get(ticker),
-                )
-                stats[status] += 1
-                if status == "success" and row is not None:
-                    candidates.append(row)
+                sector = official_snapshot.get(ticker, {}).get("sector", "未分類")
+                if not df.empty:
+                    metric = _universe_bar_metrics(ticker, df, sector)
+                    universe_metrics[ticker] = metric
+                    if ticker in previous_symbols:
+                        historical_frames[ticker] = df
+                    if metric["fast_filter_pass"]:
+                        deep_frames[ticker] = df
+                        if len(deep_frames) > CFG.active_pool_n:
+                            worst = min(deep_frames, key=lambda code: universe_metrics[code]["fast_filter_score"])
+                            deep_frames.pop(worst, None)
+                        stats["fast_filter_pass"] += 1
+                    else:
+                        stats["fast_filter_reject"] += 1
             except Exception as exc:
                 stats["calc_fail"] += 1
                 logger.debug("%s failed: %s", ticker, exc)
@@ -1086,18 +1390,43 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
     failure_ratio = stats["yf_fail"] / max(1, len(tickers))
     if failure_ratio > CFG.max_download_failure_ratio:
         raise RuntimeError(f"Yahoo 最終下載失敗率 {failure_ratio:.1%} 超過門檻 {CFG.max_download_failure_ratio:.0%}；不發布不完整快照。")
+    active_tickers = sorted(deep_frames, key=lambda code: universe_metrics[code]["fast_filter_score"], reverse=True)
+    stats["active_pool"] = len(active_tickers)
+    stats["deep_scanned"] = 0
+    print(f"\n⚡ Fast Filter：{stats['fast_filter_pass']} 檔通過；Deep Scanner 實際處理 {len(active_tickers)} 檔（上限 {CFG.active_pool_n}），不為補足名額放寬條件。")
+    for ticker in tqdm(active_tickers, desc="Deep Scanner"):
+        try:
+            df = deep_frames[ticker]
+            row, status = build_candidate(
+                ticker=ticker,
+                name=name_map.get(ticker, ticker),
+                raw_df=df,
+                market_ctx=market_ctx,
+                official=official_snapshot.get(ticker),
+            )
+            stats[status] += 1
+            stats["deep_scanned"] += 1
+            if status == "success" and row is not None:
+                candidates.append(row)
+        except Exception as exc:
+            stats["calc_fail"] += 1
+            logger.debug("%s deep-scan failed: %s", ticker, exc)
+    historical_frames.update(deep_frames)
     print("\n" + "=" * 70)
     print("🔍 TINO V156 診斷面板")
     print(f"總標的數：{stats['total']}")
     print(f"Yahoo失敗：{stats['yf_fail']}｜單檔備援成功：{stats['yf_fallback_success']}")
     print(f"歷史不足：{stats['history_fail']}｜流動性不足：{stats['vol_fail']}")
     print(f"資料過舊：{stats['stale_fail']}｜官方價差拒絕：{stats['official_mismatch_fail']}")
-    print(f"計算異常：{stats['calc_fail']}｜條件/Edge不足：{stats['edge_fail']}")
+    print(f"計算異常：{stats['calc_fail']}｜條件/Edge不足：{stats['edge_fail']}｜Fast Filter 排除：{stats['fast_filter_reject']}")
     print(f"成功候選：{stats['success']}｜耗時：{elapsed/60:.1f} 分鐘")
     print("=" * 70)
     df_results = pd.DataFrame(candidates)
     if df_results.empty:
         raise RuntimeError("沒有符合 Truth Guard 的候選；本次不輸出成功快照，保留舊版結果。")
+    enrich_market_discovery(candidates, universe_metrics, market_ctx, institutional_flow)
+    add_rotation_labels(candidates, previous_results)
+    df_results = pd.DataFrame(candidates)
     df_results = (
         df_results.drop_duplicates(subset=["ticker"])
         .sort_values(
@@ -1126,6 +1455,10 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
         "recommendation_score", "setup_edge_pct", "market_edge_pct", "entry_gap_pct",
         "reward_risk", "pA", "pB", "pC", "knn_quality", "trade_n", "win_rate",
         "avg_net_ret", "kelly_pct", "entry", "t1", "t2", "stop_loss", "data_quality",
+        "sector", "leader_rank", "leader_label", "sector_5d_pct", "sector_breadth_pct",
+        "rs_market_5d_pct", "rs_sector_5d_pct", "inst_net_5d", "inst_flow_status",
+        "stock_edge_score", "sector_edge_score", "leader_edge_score",
+        "institutional_flow_edge_score", "entry_edge_score", "v157_total_score", "v157_score_coverage_pct",
     ]
     print("\n🏆 第一階段：Top 10 候選池")
     top_table = top10[display_cols].copy()
@@ -1142,8 +1475,10 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
     except Exception:
         print(rec_table.to_string(index=False))
     print_strategy_report(recommended.head(CFG.top_n_full_detail))
-    out = Path(output_dir or Path.cwd()).expanduser().resolve()
     csv_name, diag_name, meta_name = export_results(df_results, stats, market_ctx, out)
+    validation = validate_previous_recommendations(previous_results, historical_frames)
+    validation_name = f"tino_market_scanner_v156_tplus1_validation_{datetime.now(TAIPEI_TZ).strftime('%Y%m%d_%H%M%S')}.csv"
+    validation.to_csv(out / validation_name, index=False, encoding="utf-8-sig")
     summary = {
         "status": "success",
         "run_time_taipei": datetime.now(TAIPEI_TZ).isoformat(),
@@ -1153,9 +1488,14 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
         "top10_count": len(top10),
         "recommendation_count": len(recommended),
         "recommendations": recommended["ticker"].astype(str).tolist(),
-        "artifacts": [Path(x).name for x in (csv_name, diag_name, meta_name)],
+        "artifacts": [Path(x).name for x in (csv_name, diag_name, meta_name)] + [validation_name],
+        "v157_score_mode": "SHADOW_UNCALIBRATED",
+        "sector_coverage_pct": round(100 * sum(m.get("sector") != "未分類" for m in universe_metrics.values()) / max(1, len(universe_metrics)), 1),
+        "institutional_flow_status": "available" if not institutional_flow.empty else "unavailable",
+        "tplus1_validation_count": len(validation),
+        "tplus1_validation_file": validation_name,
     }
-    (out / "run_manifest.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_json(out / "run_manifest.json", summary)
     print(f"\n✅ 結果：{csv_name}\n✅ 診斷：{diag_name}\n✅ Metadata：{meta_name}")
     print(f"✅ 推薦 {len(recommended)} 檔；清單可少於 5 檔。")
     if download and mode == "manual":
