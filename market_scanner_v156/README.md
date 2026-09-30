@@ -1,6 +1,6 @@
 # TINO V157 Market Discovery Scanner
 
-Colab 是唯一的全市場掃描執行端；掃描成功後寫入已掛載 Google Drive 的 `TINO_V156/manual/`。V1116 的 `AI Market Scanner` 只讀取 Drive 快照。開啟或重新整理網站頁面不會觸發 1900 檔掃描。GitHub Actions 全市場掃描不在此操作流程中。
+Colab 是唯一的全市場掃描執行端；掃描成功後寫入已掛載 Google Drive 的 `TINO_V156/snapshots/manual/`。V1116 的 `AI Market Scanner` 只讀取 Drive 快照。開啟或重新整理網站頁面不會觸發 1900 檔掃描。GitHub Actions 全市場掃描不在此操作流程中。
 
 ## V157 變更
 
@@ -18,7 +18,7 @@ Colab 是唯一的全市場掃描執行端；掃描成功後寫入已掛載 Goog
 
 1. 安裝 Notebook 套件並掛載 Google Drive。
 2. 將新版 `tino_v156_scanner.py` 放到 `MyDrive/TINO_V156/`。
-3. 執行掃描儲存格；輸出寫到 `MyDrive/TINO_V156/manual/`。
+3. 執行掃描儲存格；輸出寫到 `MyDrive/TINO_V156/snapshots/manual/`。
 4. V1116 的 Drive 根資料夾設定需指向 `TINO_V156`，讀取器從其 `manual/` 子資料夾載入最新成功 `run_manifest.json`。
 
 Notebook 的掃描仍需手動執行；Colab 筆記本執行不會讓閒置 Runtime 自動常駐。此版本不啟用 GitHub Actions 全市場掃描。
