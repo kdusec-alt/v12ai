@@ -129,6 +129,10 @@ def _load_colab_manual_snapshot(session: Any, folder_id: str):
         try:
             validation_response = _drive_request(session, f"{_DRIVE_API}/files/{validation_file['id']}", params={"alt": "media"})
             validation = pd.read_csv(io.BytesIO(validation_response.content), encoding="utf-8-sig")
+        except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError):
+            # An empty T+1 validation CSV is expected when there were no prior
+            # recommendations. It must not prevent the valid result CSV loading.
+            validation = pd.DataFrame()
         except Exception:
             validation = pd.DataFrame()
 
