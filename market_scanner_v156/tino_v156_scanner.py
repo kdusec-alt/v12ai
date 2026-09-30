@@ -69,8 +69,6 @@ class Config:
     # 盤中執行時，丟掉可能尚未完成的今日 Daily Bar
     drop_incomplete_daily_bar: bool = True
     run_self_tests: bool = True
-    # V157 score is reported in shadow mode until walk-forward calibration passes.
-    v157_score_active: bool = False
 CFG = Config()
 TAIPEI_TZ = ZoneInfo("Asia/Taipei")
 RUN_DT = datetime.now(TAIPEI_TZ)
