@@ -22,9 +22,35 @@ class LearningReadonlyCompareTests(unittest.TestCase):
         learning._audit_trade_date = self.old_audit_date
 
     @staticmethod
-    def _forecast():
+    def _forecast(price_frame=None):
         ticker = TickerInfo("2337.TW", "2337.TW", "旺宏", "TW", "stock", price_limit_pct=0.10)
-        return SimpleNamespace(ticker=ticker, decision_card={"現價": 109.8})
+        return SimpleNamespace(ticker=ticker, decision_card={"現價": 109.8}, price_frame=price_frame)
+
+    @staticmethod
+    def _pending_prediction():
+        return {
+            "id": "t1-prediction",
+            "ticker": "2337.TW",
+            "target_trade_date": "2026-07-22",
+            "run_date_tw": "2026-07-21",
+            "run_time_tw": "2026-07-21T13:30:00+08:00",
+            "next_close_est": 110.0,
+        }
+
+    @staticmethod
+    def _price_frame(price_date, market_status, close):
+        return SimpleNamespace(
+            price_date=price_date,
+            market_status=market_status,
+            truth=SimpleNamespace(accepted=True, fallback=False, source="official_daily"),
+            recent_closes=[close],
+            recent_highs=[close + 1],
+            recent_lows=[close - 1],
+            open=close,
+            high=close + 1,
+            low=close - 1,
+            last=close,
+        )
 
     def test_confirmed_audit_is_found_by_ticker_and_session_not_latest_prediction_id(self):
         learning._audit_trade_date = lambda market=None: "2026-07-22"
@@ -59,6 +85,35 @@ class LearningReadonlyCompareTests(unittest.TestCase):
         self.assertTrue(result["readonly"])
         self.assertEqual(result["prediction_id"], "older-official")
         self.assertIn("2026-07-22 收盤", result["display"])
+
+    def test_future_or_intraday_price_is_not_misreported_as_t1_actual(self):
+        learning._audit_trade_date = lambda market=None: "2026-07-22"
+        learning.read_audit_log = lambda limit=500: []
+        learning.read_prediction_log = lambda limit=500: [self._pending_prediction()]
+        learning.append_jsonl = lambda *args, **kwargs: self.fail("unverified close attempted a write")
+        forecast = self._forecast(
+            self._price_frame("2026-07-21", "pre_market", 109.8)
+        )
+
+        result = learning.t1_prediction_vs_actual(forecast, 109.8, write=True)
+
+        self.assertEqual(result["status"], "pending_close")
+        self.assertEqual(result["target_trade_date"], "2026-07-22")
+        self.assertIn("未寫入 Audit", result["message"])
+
+    def test_preview_uses_only_verified_close_on_exact_target_date(self):
+        learning._audit_trade_date = lambda market=None: "2026-07-22"
+        learning.read_audit_log = lambda limit=500: []
+        learning.read_prediction_log = lambda limit=500: [self._pending_prediction()]
+        forecast = self._forecast(
+            self._price_frame("2026-07-22", "after_close", 109.8)
+        )
+
+        result = learning.t1_prediction_vs_actual(forecast, 120.0)
+
+        self.assertEqual(result["status"], "preview")
+        self.assertIn("2026-07-22 正式收盤 109.80", result["display"])
+        self.assertNotIn("120.00", result["display"])
 
     def test_unconfirmed_actual_is_never_rendered_as_official_audit(self):
         learning._audit_trade_date = lambda market=None: "2026-07-22"

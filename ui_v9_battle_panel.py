@@ -220,20 +220,33 @@ def render_battle_panel(st, forecast, analysis_payload=None):
     close_reference = is_closed or data_title.startswith("盤後") or data_title.startswith("休市")
     t0_line = f"<br><span class='label'>今日收盤預估：</span>{fmt(p.final_t0)}" if is_intraday else ""
     compare_line = ""
-    if close_reference:
+    # Taiwan pre-market and US post-close occur at different local times.  Show
+    # the same T+1 state for both markets, but let learning.py verify the exact
+    # official target-session close before showing any actual comparison.
+    should_check_t1 = close_reference or data_title.startswith("盤前")
+    if should_check_t1:
         try:
             from learning import t1_prediction_vs_actual, today_prediction_vs_actual
-            cmp = t1_prediction_vs_actual(p, d.get("現價"))
-            text = _strip_compare_prefix(cmp.get("display", ""), "昨測今收：", "昨測今收預覽：")
-            if cmp.get("status") in {"audited", "preview"} and text and "尚無昨日" not in text:
+            cmp = t1_prediction_vs_actual(p)
+            text = _strip_compare_prefix(
+                cmp.get("display", ""),
+                "昨測今收：",
+                "昨測今收預覽：",
+            )
+            if cmp.get("status") in {"audited", "preview", "pending_close"} and text:
                 compare_line = f"<br><span class='label'>昨測今收：</span>{safe(text)}"
             elif is_closed:
                 alt_cmp = today_prediction_vs_actual(p, d.get("現價"))
-                text = _strip_compare_prefix(alt_cmp.get("display", ""), "今日預測VS實際：", "今日預測VS實際預覽：")
+                text = _strip_compare_prefix(
+                    alt_cmp.get("display", ""),
+                    "今日預測VS實際：",
+                    "今日預測VS實際預覽：",
+                )
                 if alt_cmp.get("status") in {"audited", "preview"} and text and "尚無" not in text:
                     compare_line = f"<br><span class='label'>今日預測VS實際：</span>{safe(text)}"
         except Exception as exc:
             compare_line = f"<br><span class='label'>昨測今收：</span>暫無可用比對（{safe(type(exc).__name__)}）"
+
 
     fair = safe(p.radar.get("Fair Value", ""))
     persona_badge = safe(p.radar.get("US Persona", "") or "")

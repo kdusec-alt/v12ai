@@ -979,11 +979,57 @@ def audit_today_prediction_for_forecast(forecast: FinalForecast, actual_close: f
     audit = audit_prediction_row(candidate, actual_close, source=source, target="today")
     audit["status"] = "audited"
     return audit
-def audit_t1_prediction_for_forecast(forecast: FinalForecast, actual_close: float, source: str = "auto_t1_close_compare") -> Dict[str, Any]:
-    """Compare the previous session T1 snapshot with today's official close.
-    This is the V12 T1 Memory Bridge: yesterday forecast -> today close -> audit.
-    It does not mutate model code; it only writes audit memory/profile.
+def _forecast_official_close_snapshot(forecast: FinalForecast, target_date: str) -> Dict[str, Any]:
+    """Return only a trusted regular-session close for the requested market date.
+
+    The UI may show a current/extended-hours quote while the target T1 session
+    has not closed.  Such a quote must never become the actual close in an
+    audit or in the yesterday-vs-today preview.
     """
+    frame = getattr(forecast, "price_frame", None)
+    if frame is None:
+        return {"actual_valid": False, "reason": "official_price_frame_unavailable"}
+
+    price_date = str(getattr(frame, "price_date", "") or "")[:10]
+    market_status = str(getattr(frame, "market_status", "") or "")
+    truth = getattr(frame, "truth", None)
+    closes = [
+        _safe_float(value)
+        for value in (getattr(frame, "recent_closes", None) or [])
+        if _safe_float(value) > 0
+    ]
+    close = closes[-1] if closes else 0.0
+    close_status_ready = market_status in {
+        "closed_reference", "after_close", "close_confirm", "after_hours"
+    }
+    actual_valid = bool(
+        close > 0
+        and price_date == str(target_date or "")[:10]
+        and close_status_ready
+        and truth is not None
+        and bool(getattr(truth, "accepted", False))
+        and not bool(getattr(truth, "fallback", False))
+    )
+    reason = (
+        ""
+        if actual_valid
+        else "target_session_close_not_verified"
+    )
+    return {
+        "actual_close": close,
+        "actual_open": _safe_float(getattr(frame, "open", 0.0)),
+        "actual_high": _safe_float((getattr(frame, "recent_highs", None) or [getattr(frame, "high", 0.0)])[-1]),
+        "actual_low": _safe_float((getattr(frame, "recent_lows", None) or [getattr(frame, "low", 0.0)])[-1]),
+        "price_date": price_date,
+        "market_status": market_status,
+        "source": str(getattr(truth, "source", "") or ""),
+        "actual_valid": actual_valid,
+        "reason": reason,
+    }
+
+
+def audit_t1_prediction_for_forecast(forecast: FinalForecast, actual_close: float, source: str = "auto_t1_close_compare") -> Dict[str, Any]:
+    """Compare and persist T1 only after the exact target session has a trusted close."""
     key = forecast.ticker.resolved_symbol
     today = _audit_trade_date(forecast.ticker.market)
     candidate = _latest_t1_candidate(key, today, 1200)
@@ -995,7 +1041,24 @@ def audit_t1_prediction_for_forecast(forecast: FinalForecast, actual_close: floa
             "actual_close": actual_close,
             "message": "尚無昨日 T1 預測快照，無法做昨測今收。",
         }
-    audit = audit_prediction_row(candidate, actual_close, source=source, target="next")
+    snapshot = _forecast_official_close_snapshot(forecast, today)
+    if not snapshot.get("actual_valid"):
+        return {
+            "status": "pending_close",
+            "ticker": key,
+            "target_trade_date": today,
+            "actual_price_date": snapshot.get("price_date"),
+            "message": "目標交易日正式收盤尚未確認，未寫入 Audit。",
+        }
+    # Always use the validated regular-session close, never the caller's
+    # possibly intraday or extended-hours quote.
+    audit = audit_prediction_row(
+        candidate,
+        _safe_float(snapshot.get("actual_close")),
+        source=source,
+        target="next",
+        actual_snapshot=snapshot,
+    )
     audit["status"] = "audited"
     return audit
 def _format_close_audit_display(audit: Dict[str, Any], label: str) -> Dict[str, Any]:
@@ -1013,36 +1076,73 @@ def _format_close_audit_display(audit: Dict[str, Any], label: str) -> Dict[str, 
         audit["display"] = f"今日預測VS實際：預估 {pred:.2f}｜實際 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜{direction}"
     return audit
 def t1_prediction_vs_actual(forecast: FinalForecast, actual_close: Optional[float] = None, write: bool = False) -> Dict[str, Any]:
-    """UI-ready 昨測今收. Default is preview/read-only; write only from two-click audit."""
+    """UI-ready T+1 comparison; only use the target session's verified close."""
     key = forecast.ticker.resolved_symbol
-    if actual_close is None:
-        actual_close = _safe_float((forecast.decision_card or {}).get("現價"))
     if write:
-        audit = audit_t1_prediction_for_forecast(forecast, _safe_float(actual_close), source="frontend_t1_close_compare")
+        audit = audit_t1_prediction_for_forecast(
+            forecast,
+            _safe_float(actual_close),
+            source="frontend_t1_close_compare",
+        )
         if audit.get("status") == "audited":
             return _format_close_audit_display(audit, "昨測今收")
-        audit["display"] = "昨測今收：尚無昨日 T1 預測快照"
+        audit["display"] = (
+            f"昨測今收預覽：{audit.get('message') or '尚無昨日 T1 預測快照'}"
+        )
         return audit
+
     target_date = _audit_trade_date(forecast.ticker.market)
-    # Read a completed official audit by ticker/session before looking up the
-    # newest prediction id.  Event revisions and same-session reruns can have a
-    # different id from the snapshot that Auto Audit confirmed.
+    # Prefer the completed official audit for this ticker/session, even when
+    # a later same-day event revision has a different prediction id.
     confirmed = _latest_confirmed_t1_audit(key, target_date, 1600)
     if confirmed:
         confirmed["status"] = "audited"
         confirmed["readonly"] = True
         return _format_close_audit_display(confirmed, "昨測今收")
+
     candidate = _latest_t1_candidate(key, target_date, 1600)
     if not candidate:
-        return {"status": "no_t1_prediction", "ticker": key, "display": "昨測今收：尚無昨日 T1 預測快照"}
+        return {
+            "status": "no_t1_prediction",
+            "ticker": key,
+            "display": "昨測今收：尚無昨日 T1 預測快照",
+        }
+
     old = _latest_audit_for_prediction(str(candidate.get("id") or ""), "next")
-    if old:
-        old = dict(old); old["status"] = "audited"; return _format_close_audit_display(old, "昨測今收")
+    if old and _confirmed_t1_audit_row(old, key, target_date):
+        old = dict(old)
+        old["status"] = "audited"
+        return _format_close_audit_display(old, "昨測今收")
+
     pred = _safe_float(candidate.get("next_close_est"))
-    actual = _safe_float(actual_close)
+    snapshot = _forecast_official_close_snapshot(forecast, target_date)
+    if not snapshot.get("actual_valid"):
+        actual_date = str(snapshot.get("price_date") or "尚無正式日K")
+        return {
+            "status": "pending_close",
+            "ticker": key,
+            "target_trade_date": target_date,
+            "actual_price_date": snapshot.get("price_date"),
+            "display": (
+                f"昨測今收預覽：{candidate.get('run_date_tw')} 預估 {pred:.2f}｜"
+                f"目標日 {target_date} 正式收盤待確認（目前日K {actual_date}）；"
+                "未把盤前／盤中／盤後報價當成實際收盤"
+            ),
+        }
+
+    actual = _safe_float(snapshot.get("actual_close"))
     err = actual - pred if pred else 0.0
     err_pct = ((actual - pred) / pred * 100.0) if pred else 0.0
-    return {"status": "preview", "ticker": key, "display": f"昨測今收預覽：{candidate.get('run_date_tw')} 預估 {pred:.2f}｜目前/收盤 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜T1預測快照已寫入；正式收盤稽核待完成"}
+    return {
+        "status": "preview",
+        "ticker": key,
+        "target_trade_date": target_date,
+        "display": (
+            f"昨測今收預覽：{candidate.get('run_date_tw')} 預估 {pred:.2f}｜"
+            f"{target_date} 正式收盤 {actual:.2f}｜誤差 {err:+.2f} / {err_pct:+.2f}%｜"
+            "正式 Audit 尚待自動稽核"
+        ),
+    }
 def today_prediction_vs_actual(forecast: FinalForecast, actual_close: Optional[float] = None, write: bool = False) -> Dict[str, Any]:
     """UI-ready 今日預測VS實際. Default is preview/read-only; write only from two-click audit."""
     key = forecast.ticker.resolved_symbol
