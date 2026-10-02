@@ -252,7 +252,15 @@ def _us_short_context(symbol: str, info: Dict[str, object], last: float, low: fl
         cost_low = max(0.01, low * 0.666)
         cost_high = max(cost_low, last - atr * 0.10)
         trigger = high + atr * 0.65
+    # Optional bounded FINRA evidence; never substitute daily transactions for
+    # the published short-interest position or the model's price inputs.
+    try:
+        from us_short_pressure import fetch_us_short_pressure
+        pressure = fetch_us_short_pressure(symbol)
+    except Exception:
+        pressure = {"accepted": False, "trend": "UNAVAILABLE", "last_3": [], "last_7": []}
     return {
+        'pressure': pressure,
         'accepted': sf is not None,
         'short_float': round(float(sf),2) if sf is not None else None,
         'shares_short': int(shares_short) if shares_short else None,
