@@ -120,10 +120,13 @@ def fetch_us_short_pressure(symbol: str, now: datetime | None = None) -> dict:
     if os.environ.get("TINO_OFFLINE_TEST") == "1" or not re.fullmatch(r"[A-Z][A-Z0-9.]{0,9}", symbol.upper()):
         return empty
     dates = _candidate_days(now)
-    bucket = int(now.timestamp() // 600)
+    stamp = now.timestamp()
     # Bounded I/O; failed FINRA requests never hold an individual stock query
     # for an unbounded time or affect a price/learning write.
     with ThreadPoolExecutor(max_workers=5) as pool:
-        blobs = list(pool.map(lambda day: _download_file(day, bucket), dates))
+        blobs = list(pool.map(
+            lambda day: _download_file(day, int(stamp // (600 if day == dates[0] else 43200))),
+            dates,
+        ))
     rows = [parse_daily_file(blob, symbol, day) for day, blob in zip(dates, blobs) if blob]
     return summarize([row for row in rows if row], now)
