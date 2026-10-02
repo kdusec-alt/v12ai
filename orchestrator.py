@@ -928,7 +928,7 @@ def _us_short_line(price: PriceFrame, raw: RawForecast) -> str:
     avg7=pressure.get('avg_7_pct')
     line=f"近3日 FINRA 場外短賣成交占比：{three}｜均值 {pressure['avg_3_pct']:.1f}%｜{trend}"
     if len(last7) >= 5:
-        line+=f"\n近7筆：{seven}" + (f"｜7筆均值 {avg7:.1f}%" if avg7 is not None else "")
+        line+=f"\n近7個可得交易日：{seven}" + (f"｜7日均值 {avg7:.1f}%" if avg7 is not None else "")
     # A rising transaction ratio alone cannot establish a growing open short.
     if pressure.get('trend')=="RISING_ACTIVITY" and price.last < price.vwap:
         line+="\n買點觀察：成交壓力升高且低於 VWAP，等待站回 VWAP 與價格止穩。"
