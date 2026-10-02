@@ -59,6 +59,8 @@ jobs:
         run: python -m unittest -v test_us_catalyst_router_v1104.py
       - name: Run target-session T1 audit tests
         run: python -m unittest -v test_learning_readonly_compare.py
+      - name: Run US short pressure truth and freshness tests
+        run: python -m unittest -v test_us_short_pressure.py
       - name: Run event and low-entry tests
         run: |
           python -m unittest -v \

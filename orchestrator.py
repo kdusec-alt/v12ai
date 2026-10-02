@@ -915,7 +915,24 @@ def _us_short_line(price: PriceFrame, raw: RawForecast) -> str:
     sf=sh.get('short_float')
     sf_txt=f"Short Float：{float(sf):.2f}%" if sf is not None else 'Short Float：公開來源未同步'
     lo=sh.get('cost_low', price.low); hi=sh.get('cost_high', price.high+price.atr14); trig=sh.get('trigger', raw.raw_no_chase)
-    return f"{float(lo):.2f}～{float(hi):.2f}｜回補 {float(trig):.2f}｜{sf_txt}"
+    base=f"價格推估區 {float(lo):.2f}～{float(hi):.2f}｜回補觀察 {float(trig):.2f}｜{sf_txt}"
+    pressure=sh.get('pressure') or {}
+    if not pressure.get('accepted'):
+        return base + "\n近3日短賣成交：資料未齊或尚未發布（不作空單增減判定）"
+    last3=pressure.get('last_3') or []
+    last7=pressure.get('last_7') or []
+    three=" → ".join(f"{item['date'][5:]} {item['ratio_pct']:.1f}%" for item in last3)
+    seven=" / ".join(f"{item['date'][5:]} {item['ratio_pct']:.0f}%" for item in last7)
+    trend={"RISING_ACTIVITY":"短賣成交占比連升", "EASING_ACTIVITY":"短賣成交占比連降"}.get(
+        pressure.get('trend'), "短賣成交占比震盪")
+    avg7=pressure.get('avg_7_pct')
+    line=f"近3日 FINRA 場外短賣成交占比：{three}｜均值 {pressure['avg_3_pct']:.1f}%｜{trend}"
+    if len(last7) >= 5:
+        line+=f"\n近7個可得交易日：{seven}" + (f"｜7日均值 {avg7:.1f}%" if avg7 is not None else "")
+    # A rising transaction ratio alone cannot establish a growing open short.
+    if pressure.get('trend')=="RISING_ACTIVITY" and price.last < price.vwap:
+        line+="\n買點觀察：成交壓力升高且低於 VWAP，等待站回 VWAP 與價格止穩。"
+    return base+"\n"+line+"\n資料：FINRA 場外成交；不是未回補空單或真實空方成本。"
 def _us_inst_dashboard(price: PriceFrame) -> str:
     return "外資　NA\n投信　NA\n自營　NA\n來源：US"
 def _us_margin_dashboard(price: PriceFrame) -> str:
