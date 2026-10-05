@@ -494,6 +494,31 @@ def render_market_scanner(st_module=st) -> None:
 
     quotes = st_module.session_state.get("v156_live_quotes", {})
 
+    if quotes:
+        quote_rows = []
+        for _, row in top10.iterrows():
+            symbol = str(row.get("ticker", ""))
+            quote = quotes.get(symbol, {})
+            try:
+                scan_price = float(row.get("last_p"))
+                scan_price = scan_price if math.isfinite(scan_price) and scan_price > 0 else None
+            except (TypeError, ValueError):
+                scan_price = None
+            current = quote.get("last")
+            change = round((current / scan_price - 1) * 100, 2) if isinstance(current, (int, float)) and scan_price else None
+            quote_rows.append({
+                "股票": symbol,
+                "名稱": _row_value(row, "name", ""),
+                "掃描價": scan_price,
+                "本次取得價格": current,
+                "相對掃描價 %": change,
+                "行情狀態": str(quote.get("label") or "未取得"),
+                "報價時間": str(quote.get("raw_time") or "—"),
+            })
+        st_module.markdown("### 📈 Top 10 行情更新結果")
+        st_module.dataframe(pd.DataFrame(quote_rows), use_container_width=True, hide_index=True)
+        st_module.caption(f"本次取得 {sum(q.get('last') is not None for q in quotes.values())}/{len(quote_rows)} 檔；買賣價參考不等於成交價，請查看每檔行情狀態。")
+
     summary_cols = st_module.columns(3)
     summary_cols[0].metric("合格推薦", f"{len(recommended)} 檔", "最多 5 檔")
     summary_cols[1].metric("觀察候選", f"{len(top10)} 檔", "依 Scanner 評分排序")
