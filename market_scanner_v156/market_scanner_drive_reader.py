@@ -491,9 +491,6 @@ def render_market_scanner(st_module=st) -> None:
 
     quotes = st_module.session_state.get("v156_live_quotes", {})
 
-    if quotes:
-        st_module.caption(f"本次取得 {sum(q.get('last') is not None for q in quotes.values())}/{len(top10)} 檔行情；各檔價格與報價時間顯示在卡牌內。")
-
     summary_cols = st_module.columns(3)
     summary_cols[0].metric("合格推薦", f"{len(recommended)} 檔", "最多 5 檔")
     summary_cols[1].metric("觀察候選", f"{len(top10)} 檔", "依 Scanner 評分排序")
@@ -502,9 +499,48 @@ def render_market_scanner(st_module=st) -> None:
         actionable_count = int(top10["execution_status"].astype(str).str.upper().eq("ACTIONABLE").sum())
     summary_cols[2].metric("目前可執行", f"{actionable_count} 檔", "依執行狀態")
 
-    st_module.caption("行情更新只查詢目前 Top10，僅更新卡牌顯示；Scanner 排名、Entry/T1/T2/Stop 與快照不會因此改寫。行情取得失敗時保留掃描快照價並標示狀態。")
-    _render_card_section(st_module, "### ✅ 合格推薦", recommended, recommended=True, quotes=quotes)
-    _render_card_section(st_module, "### 🏁 Top 10 觀察卡", top10, quotes=quotes)
+    st_module.markdown("### 📈 Top 10 行情更新結果")
+    def price_level(row: pd.Series, field: str) -> float | None:
+        try:
+            value = float(row.get(field))
+            return value if math.isfinite(value) and value > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    table_rows = []
+    for _, row in top10.iterrows():
+        symbol = str(row.get("ticker", ""))
+        quote = quotes.get(symbol, {})
+        current = quote.get("last")
+        try:
+            scan_price = float(row.get("last_p"))
+            if not math.isfinite(scan_price) or scan_price <= 0:
+                scan_price = None
+        except (TypeError, ValueError):
+            scan_price = None
+        change_pct = (
+            round((float(current) / scan_price - 1) * 100, 2)
+            if isinstance(current, (int, float)) and math.isfinite(float(current)) and scan_price
+            else None
+        )
+        table_rows.append({
+            "股票": symbol,
+            "名稱": _row_value(row, "name", ""),
+            "掃描價": scan_price,
+            "本次取得價格": current,
+            "相對掃描價 %": change_pct,
+            "AI 建議進場價": price_level(row, "entry"),
+            "T1": price_level(row, "t1"),
+            "T2": price_level(row, "t2"),
+            "Stop": price_level(row, "stop_loss"),
+            "推薦狀態": _row_value(row, "execution_status"),
+            "行情狀態": str(quote.get("label") or "尚未更新行情"),
+            "報價時間": str(quote.get("raw_time") or "—"),
+        })
+    st_module.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+    if quotes:
+        st_module.caption(f"本次取得 {sum(q.get('last') is not None for q in quotes.values())}/{len(top10)} 檔行情。")
+    st_module.caption("按鍵只查目前 Top10；買賣盤參考價不等於成交價，舊日報價會標示日期較舊。進場價與 T1/T2/Stop 來自掃描快照，更新行情不會改寫這些價位；回測未通過的候選不應視為合格推薦。")
 
     if not validation.empty:
         st_module.markdown("### 🔁 前次推薦隔日驗證")
