@@ -260,18 +260,6 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False, quote
         f'<div class="v156-mini"><span>{label}</span><b>{value}</b></div>'
         for label, value in edge_items
     )
-    discovery_items = [
-        ("Stock", _row_number(row, "stock_edge_score", 0)),
-        ("Sector", _row_number(row, "sector_edge_score", 0)),
-        ("Leader", _row_number(row, "leader_edge_score", 0)),
-        ("Flow", _row_number(row, "institutional_flow_edge_score", 0)),
-        ("Entry", _row_number(row, "entry_edge_score", 0)),
-    ]
-    discovery_html = "".join(
-        f'<div class="v156-mini"><span>{label}</span><b>{value}</b></div>'
-        for label, value in discovery_items
-    )
-    discovery_score = html.escape(_row_number(row, "v157_total_score", 1))
     sector_line = html.escape(
         f"族群 {_row_value(row, 'sector')}｜龍頭 {_row_value(row, 'leader_label')} #{_row_value(row, 'leader_rank')}｜"
         f"RS族群 {_row_number(row, 'rs_sector_5d_pct', 2, '%')}｜法人 {_row_value(row, 'inst_flow_status')}"
@@ -299,7 +287,7 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False, quote
     price = html.escape(_row_number(row, "last_p", 2))
     quote = quote or {}
     live_price = quote.get("last")
-    live_time = html.escape(str(quote.get("raw_time") or ""))
+    live_time = html.escape(str(quote.get("raw_time") or "報價時間未提供"))
     live_label_raw = str(quote.get("label") or "尚未更新行情")
     try:
         quote_time = datetime.fromisoformat(str(quote.get("fetched_at")))
@@ -309,11 +297,12 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False, quote
         if live_price is not None:
             live_label_raw += "｜更新時間未知"
     live_label = html.escape(live_label_raw)
-    live_text = f"最新 {float(live_price):,.2f}｜{live_label} {live_time}" if isinstance(live_price, (int, float)) else live_label
-    live_text = html.escape(live_text)
+    has_quote = isinstance(live_price, (int, float)) and math.isfinite(float(live_price))
+    quote_price_display = f"{float(live_price):,.2f}" if has_quote else "—"
+    quote_heading = "本次取得價格" if has_quote else "目前股價尚未取得"
     delta = ""
     snapshot_change = ""
-    if isinstance(live_price, (int, float)) and math.isfinite(float(live_price)):
+    if has_quote:
         try:
             snapshot_price = float(row.get("last_p"))
             if math.isfinite(snapshot_price) and snapshot_price > 0:
@@ -321,7 +310,7 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False, quote
                 snapshot_change = f"｜相對掃描價 {change_pct:+.2f}%"
         except (TypeError, ValueError):
             pass
-    if isinstance(live_price, (int, float)) and float(row.get("entry") or 0) > 0:
+    if has_quote and float(row.get("entry") or 0) > 0:
         gap = (float(live_price) / float(row.get("entry")) - 1) * 100
         delta = f"｜距 Entry {gap:+.2f}%"
     trades = html.escape(_row_number(row, "trade_n", 0))
@@ -332,13 +321,17 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False, quote
         <div><div class="v156-eyebrow">#{rank:02d}　{ticker}　·　{data_date}</div>
           <div class="v156-title">{title}</div>
           <div class="v156-subtitle">{tag}　·　掃描快照價 {price}</div>
-          <div class="v156-subtitle">{sector_line}</div>
-          <div class="v156-subtitle">{live_text}{html.escape(snapshot_change)}{html.escape(delta)}</div></div>
+          <div class="v156-subtitle">{sector_line}</div></div>
         <div class="v156-score"><b>{score}</b><span>評分</span></div>
+      </div>
+      <div class="v156-quote">
+        <div class="v156-quote-label">{quote_heading}</div>
+        <div class="v156-quote-price">{quote_price_display}</div>
+        <div class="v156-quote-detail">{live_label}｜{live_time}</div>
+        <div class="v156-quote-detail">掃描價 {price}{html.escape(snapshot_change)}{html.escape(delta)}</div>
       </div>
       <div class="v156-badges"><span class="v156-status {status_class}">{html.escape(status_label)}</span>{recommended_badge}</div>
       <div class="v156-section-label">訊號 Edge</div><div class="v156-mini-grid">{edge_html}</div>
-      <div class="v156-section-label">V157 可解釋總分 {discovery_score}（未校準，不改推薦排序）</div><div class="v156-mini-grid">{discovery_html}</div>
       <div class="v156-data-row"><span>預測機率</span><div class="v156-probs">{prob_html}</div></div>
       <div class="v156-data-row v156-backtest"><span>歷史交易 {trades} 筆</span><b>勝率 {win_rate}</b></div>
       <div class="v156-section-label">價格規劃</div><div class="v156-level-grid">{levels_html}</div>
@@ -361,6 +354,10 @@ def _render_card_section(st_module, title: str, frame: pd.DataFrame, *, recommen
         .v156-subtitle{font-size:.82rem;color:#aebbd0;margin-top:4px}
         .v156-score{min-width:62px;text-align:center;border-radius:14px;padding:8px 10px;background:rgba(88,134,255,.14);border:1px solid rgba(111,153,255,.28)}
         .v156-score b{display:block;font-size:1.2rem;color:#c6d8ff}.v156-score span{font-size:.68rem;color:#9bb0d4}
+        .v156-quote{margin-top:14px;padding:14px 16px;border-radius:14px;background:rgba(33,95,162,.18);border:1px solid rgba(103,178,255,.38)}
+        .v156-quote-label{font-size:.78rem;color:#bcd8fb;font-weight:700}
+        .v156-quote-price{font-size:2rem;line-height:1.2;font-weight:850;color:#fff;margin:3px 0 8px}
+        .v156-quote-detail{font-size:.79rem;color:#cee1fa;line-height:1.55;overflow-wrap:anywhere}
         .v156-badges{display:flex;gap:7px;margin:12px 0 14px;flex-wrap:wrap}
         .v156-status,.v156-rec{display:inline-block;border-radius:999px;padding:4px 10px;font-size:.75rem;font-weight:750}
         .v156-status.actionable{background:rgba(31,190,130,.16);color:#78e3b7}.v156-status.wait{background:rgba(244,180,55,.15);color:#ffd276}.v156-status.rejected{background:rgba(244,92,105,.15);color:#ff9aa4}.v156-status.neutral{background:rgba(153,170,195,.15);color:#c1cede}
@@ -495,29 +492,7 @@ def render_market_scanner(st_module=st) -> None:
     quotes = st_module.session_state.get("v156_live_quotes", {})
 
     if quotes:
-        quote_rows = []
-        for _, row in top10.iterrows():
-            symbol = str(row.get("ticker", ""))
-            quote = quotes.get(symbol, {})
-            try:
-                scan_price = float(row.get("last_p"))
-                scan_price = scan_price if math.isfinite(scan_price) and scan_price > 0 else None
-            except (TypeError, ValueError):
-                scan_price = None
-            current = quote.get("last")
-            change = round((current / scan_price - 1) * 100, 2) if isinstance(current, (int, float)) and scan_price else None
-            quote_rows.append({
-                "股票": symbol,
-                "名稱": _row_value(row, "name", ""),
-                "掃描價": scan_price,
-                "本次取得價格": current,
-                "相對掃描價 %": change,
-                "行情狀態": str(quote.get("label") or "未取得"),
-                "報價時間": str(quote.get("raw_time") or "—"),
-            })
-        st_module.markdown("### 📈 Top 10 行情更新結果")
-        st_module.dataframe(pd.DataFrame(quote_rows), use_container_width=True, hide_index=True)
-        st_module.caption(f"本次取得 {sum(q.get('last') is not None for q in quotes.values())}/{len(quote_rows)} 檔；買賣價參考不等於成交價，請查看每檔行情狀態。")
+        st_module.caption(f"本次取得 {sum(q.get('last') is not None for q in quotes.values())}/{len(top10)} 檔行情；各檔價格與報價時間顯示在卡牌內。")
 
     summary_cols = st_module.columns(3)
     summary_cols[0].metric("合格推薦", f"{len(recommended)} 檔", "最多 5 檔")
