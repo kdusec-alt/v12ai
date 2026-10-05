@@ -312,6 +312,15 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False, quote
     live_text = f"最新 {float(live_price):,.2f}｜{live_label} {live_time}" if isinstance(live_price, (int, float)) else live_label
     live_text = html.escape(live_text)
     delta = ""
+    snapshot_change = ""
+    if isinstance(live_price, (int, float)) and math.isfinite(float(live_price)):
+        try:
+            snapshot_price = float(row.get("last_p"))
+            if math.isfinite(snapshot_price) and snapshot_price > 0:
+                change_pct = (float(live_price) / snapshot_price - 1) * 100
+                snapshot_change = f"｜相對掃描價 {change_pct:+.2f}%"
+        except (TypeError, ValueError):
+            pass
     if isinstance(live_price, (int, float)) and float(row.get("entry") or 0) > 0:
         gap = (float(live_price) / float(row.get("entry")) - 1) * 100
         delta = f"｜距 Entry {gap:+.2f}%"
@@ -324,7 +333,7 @@ def _scanner_card(row: pd.Series, rank: int, *, recommended: bool = False, quote
           <div class="v156-title">{title}</div>
           <div class="v156-subtitle">{tag}　·　掃描快照價 {price}</div>
           <div class="v156-subtitle">{sector_line}</div>
-          <div class="v156-subtitle">{live_text}{html.escape(delta)}</div></div>
+          <div class="v156-subtitle">{live_text}{html.escape(snapshot_change)}{html.escape(delta)}</div></div>
         <div class="v156-score"><b>{score}</b><span>評分</span></div>
       </div>
       <div class="v156-badges"><span class="v156-status {status_class}">{html.escape(status_label)}</span>{recommended_badge}</div>
