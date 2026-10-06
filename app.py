@@ -935,8 +935,8 @@ def _render_forecast(forecast):
     if workspace == "深度報告":
         render_deep_report(st, forecast)
     elif workspace == "完整雙欄":
-        with st.expander("完整深度報告", expanded=False):
-            render_deep_report(st, forecast)
+        # render_deep_report owns its expander; Streamlit disallows nested expanders.
+        render_deep_report(st, forecast)
     mark_runtime_stage("render_deep_done", symbol=symbol)
 
 
