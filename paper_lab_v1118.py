@@ -193,8 +193,8 @@ def render_paper_lab(st, symbol):
     remote = remote_status()
     st.caption("紀錄保存：" + ("已設定遠端備份，實際同步依系統狀態" if remote.get("configured") else "目前為本機紀錄，尚未確認遠端持久備份"))
     capture = _dict(st.session_state.get("last_paper_capture"))
-    if capture.get("status") in {"prediction_skipped", "skipped", "error"}:
-        st.caption("本次樣本未保存：" + str(capture.get("reason") or capture.get("status")))
+    if capture:
+        st.caption("本次保存狀態：" + str(capture.get("status") or "unknown") + ("｜" + str(capture.get("reason")) if capture.get("reason") else ""))
     closed = [r for r in outcomes if r.get("status") == "CLOSED"]
     cols = st.columns(3)
     cols[0].metric("已記錄判斷", len(seeds))
