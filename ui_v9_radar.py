@@ -159,4 +159,4 @@ def render_radar(st, forecast, comfortable=False) -> None:
         body .v11054-two-line,body .truth{font-size:13px;line-height:1.75;padding:12px;margin-top:8px}
         body .role-badge{font-size:10px;padding:3px 6px}
         </style></head>""")
-    html_block(html, height=820 if comfortable else 642, scrolling=bool(comfortable))
+    html_block(html, height=620 if comfortable else 460, scrolling=True)

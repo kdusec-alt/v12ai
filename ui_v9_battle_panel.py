@@ -471,5 +471,5 @@ def render_battle_panel(st, forecast, analysis_payload=None, comfortable=False):
         body .panel .tm{font-size:22px;line-height:1.6}
         body .panel .evidence-full{max-height:none}
         </style></head>""")
-    html_block(html, height=820 if comfortable else 642, scrolling=bool(comfortable))
+    html_block(html, height=620 if comfortable else 460, scrolling=True)
     return analysis_row

@@ -67,6 +67,8 @@ LEGACY_FILE_NAMES = {
 # Without these settings the system remains local-only, but still has .bak
 # backups and shrink guard inside the current runtime.
 _MEMORY_FILES = [
+    "paper_lab/experiments.jsonl",
+    "paper_lab/outcomes.jsonl",
     "prediction_log.jsonl",
     "audit_log.jsonl",
     "ticker_profiles.json",
@@ -1940,3 +1942,4 @@ def storage_status(path: str | Path = DEFAULT_LEDGER_PATH) -> Dict[str, Any]:
         "ledger_recent_predictions": len((ledger.get("recent_predictions") or []) if isinstance(ledger, dict) else []),
         "ledger_recent_audits": len((ledger.get("recent_audits") or []) if isinstance(ledger, dict) else []),
     }
+

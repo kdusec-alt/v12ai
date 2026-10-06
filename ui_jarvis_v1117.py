@@ -30,6 +30,20 @@ STYLE = """<style>
 @keyframes j-orbit{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.j-orb:before,.j-orb:after{animation:none}}
 @media(max-width:760px){.j-command{grid-template-columns:1fr;padding:20px;gap:12px}.j-command>.j-orb{display:none}.j-levels{grid-template-columns:repeat(2,minmax(0,1fr))}.j-standby{margin-top:10px;padding:20px 16px}.j-standby .j-orb{width:125px;height:125px}.j-name{font-size:22px}.j-level{padding:13px}.j-level strong{font-size:22px}}
+/* Compact console: full details remain in the original panels below. */
+.j-standby{max-width:none;display:grid;grid-template-columns:90px 1fr;align-items:center;text-align:left;gap:4px 18px;margin:8px 0;padding:16px 24px;border-radius:18px}
+.j-standby .j-orb{grid-column:1;grid-row:1/5;width:80px;height:80px;margin:0}
+.j-standby .j-core{width:52px;height:52px;font-size:14px}
+.j-standby .j-eyebrow,.j-standby .j-state,.j-standby h1,.j-standby p{grid-column:2}
+.j-standby h1{font-size:24px;margin:3px 0}.j-standby .j-state{width:fit-content;padding:3px 10px}
+.j-command{grid-template-columns:1fr 70px 1.8fr;gap:16px;padding:12px 18px;margin:8px 0;border-radius:16px}
+.j-command .j-orb{width:68px;height:68px}.j-command .j-core{width:43px;height:43px;font-size:12px}
+.j-name{font-size:20px;margin-bottom:4px}.j-price{font-size:30px}.j-meta{margin-top:4px}.j-verdict{font-size:20px;margin:4px 0}.j-risk{margin-top:4px}
+.j-levels{gap:8px;margin:8px 0}.j-level{padding:9px 12px}.j-level strong{font-size:20px;margin:3px 0}.j-level small{display:none}
+.j-note{padding:6px 12px;margin:6px 0;font-size:13px}.j-section{padding:7px 0 4px}
+[data-testid="stRadio"] label p{color:#d8edf4!important;font-size:14px!important}
+[data-testid="stTextInput"] input::placeholder{color:#91acbd!important;opacity:1!important}
+@media(max-width:760px){.j-command{grid-template-columns:1fr}.j-standby{padding:12px;grid-template-columns:64px 1fr;gap:8px}.j-standby .j-orb{width:60px;height:60px}.j-standby h1{font-size:20px}.j-standby .j-eyebrow{letter-spacing:1px;font-size:12px}.j-standby p{font-size:13px}}
 </style>"""
 
 
@@ -123,9 +137,9 @@ def render_command(st, forecast, payload):
     st.markdown('<div class="j-shell j-section"><span>分析工作區</span><span>完整資訊 · 隨時切換</span></div>', unsafe_allow_html=True)
 
 
-WORKSPACES = ("交易計畫", "籌碼與事件", "深度報告", "完整雙欄")
+WORKSPACES = ("交易計畫", "籌碼與事件", "模擬與財報學習", "深度報告", "完整雙欄")
 
 
 def render_workspace_picker(st):
-    return st.radio("分析工作區", WORKSPACES, horizontal=True,
-                    label_visibility="collapsed", key="jarvis_workspace_v1117")
+    return st.radio("分析工作區", WORKSPACES, index=4, horizontal=True,
+                    label_visibility="collapsed", key="jarvis_workspace_v1118")

@@ -54,7 +54,7 @@ def _render_admin_trace(trace: str) -> None:
 _boot_print("script_enter", python=os.sys.version.split()[0])
 
 # Visible build marker for confirming which integrated release is running.
-APP_BUILD_VERSION = "V1117"
+APP_BUILD_VERSION = "V1118"
 
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
@@ -816,6 +816,11 @@ def _admin_maintenance_fragment_body() -> None:
         if phase % 2 == 0:
             report = run_admin_auto_audit_cycle(st, max_tickers_per_market=2)
             try:
+                from paper_lab_v1118 import reconcile_local
+                reconcile_local()
+            except Exception as exc:
+                _log_exception("paper_lab_reconcile_failed_safe", exc)
+            try:
                 _health = _compact_learning_health_v1081(600)
                 if isinstance(_health, dict):
                     st.session_state["learning_integrity_v1081"] = {
@@ -920,8 +925,18 @@ def _render_forecast(forecast):
     mark_runtime_stage("render_radar_done", symbol=symbol)
 
     mark_runtime_stage("render_deep_start", symbol=symbol)
-    if workspace in {"深度報告", "完整雙欄"}:
+    if workspace == "模擬與財報學習":
+        try:
+            from paper_lab_v1118 import render_paper_lab
+            render_paper_lab(st, symbol)
+        except Exception as exc:
+            _log_exception("paper_lab_ui_failed_safe", exc)
+            st.warning("模擬研究紀錄暫時無法載入。")
+    if workspace == "深度報告":
         render_deep_report(st, forecast)
+    elif workspace == "完整雙欄":
+        with st.expander("完整深度報告", expanded=False):
+            render_deep_report(st, forecast)
     mark_runtime_stage("render_deep_done", symbol=symbol)
 
 
@@ -1054,17 +1069,16 @@ def main():
         return
 
     _boot_print("render_input_start")
+    # Search stays above the standby core and every analysis result.
+    symbol, analyze, clear = render_input(st)
+    standby_slot = st.empty()
     if st.session_state.forecast is None:
         try:
             from ui_jarvis_v1117 import render_standby
-            render_standby(st)
+            with standby_slot.container():
+                render_standby(st)
         except Exception as exc:
             _log_exception("jarvis_standby_failed_safe", exc)
-        _, input_column, _ = st.columns([0.10, 0.80, 0.10])
-        with input_column:
-            symbol, analyze, clear = render_input(st)
-    else:
-        symbol, analyze, clear = render_input(st)
     _boot_print("render_input_done")
 
     if clear:
@@ -1101,6 +1115,7 @@ def main():
         st.session_state.pop("event_reassessment_notice_severity", None)
     should_run = bool((analyze and symbol) or auto_ready or watch_ready or event_ready)
     if should_run:
+        standby_slot.empty()
         try:
             with st.status("分析中：價格 / 當下新聞 / 法人 / 資券 / 模型", expanded=False):
                 if not symbol:
@@ -1155,6 +1170,12 @@ def main():
                                 "status": "degraded",
                                 "reason": f"{type(_research_exc).__name__}: {_research_exc}",
                             }
+                        try:
+                            from paper_lab_v1118 import capture_query, reconcile_local
+                            capture_query(logged_row, st.session_state.forecast)
+                            reconcile_local()
+                        except Exception as exc:
+                            _log_exception("paper_lab_capture_failed_safe", exc)
                 st.session_state["event_news_baseline"] = list(
                     getattr(st.session_state.forecast, "news_items", []) or []
                 )

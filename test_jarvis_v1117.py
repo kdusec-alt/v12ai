@@ -107,6 +107,7 @@ class UIContractTest(unittest.TestCase):
             def radio(self, *args, **kwargs): return self.selection
             def columns(self, *args, **kwargs): return Context(), Context()
             def container(self): return Context()
+            def expander(self, *args, **kwargs): return Context()
         st = ST()
         calls = []
         def battle(st, f, analysis_payload=None): calls.append("battle")
