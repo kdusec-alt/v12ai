@@ -1151,6 +1151,7 @@ def main():
                             revision_meta=event_revision_meta if event_ready else None,
                         )
                         st.session_state.last_logged_prediction_sig = sig
+                        st.session_state["last_paper_capture"] = {"status": "prediction_skipped", "reason": str(logged_row.get("reason") or "") if isinstance(logged_row, dict) else "invalid_prediction_row"} if not isinstance(logged_row, dict) or logged_row.get("skipped") else {"status": "awaiting_capture"}
                         if isinstance(logged_row, dict) and not bool(logged_row.get("skipped")):
                             st.session_state["last_logged_prediction_id"] = str(logged_row.get("id") or "")
                         mark_runtime_stage("prediction_log_done", symbol=symbol)
@@ -1172,9 +1173,10 @@ def main():
                             }
                         try:
                             from paper_lab_v1118 import capture_query, reconcile_local
-                            capture_query(logged_row, st.session_state.forecast)
+                            st.session_state["last_paper_capture"] = capture_query(logged_row, st.session_state.forecast)
                             reconcile_local()
                         except Exception as exc:
+                            st.session_state["last_paper_capture"] = {"status": "error", "reason": type(exc).__name__}
                             _log_exception("paper_lab_capture_failed_safe", exc)
                 st.session_state["event_news_baseline"] = list(
                     getattr(st.session_state.forecast, "news_items", []) or []
