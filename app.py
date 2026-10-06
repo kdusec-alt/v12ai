@@ -1133,6 +1133,9 @@ def main():
 
                 st.session_state.symbol = symbol
                 st.session_state.input_was_cleared = False
+                # The retired sidebar control can leave a stale False in old
+                # Streamlit sessions. Forward research is enabled for analyses.
+                st.session_state["learning_log_enabled"] = True
                 st.session_state.forecast = run_analysis(symbol, macro, live)
                 mark_runtime_stage("forecast_session_state_set", symbol=symbol)
                 st.session_state["last_paper_capture"] = {
