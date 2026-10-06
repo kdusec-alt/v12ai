@@ -90,7 +90,7 @@ def _radar_default(label: str, forecast) -> str:
     return defaults.get(label, "")
 
 
-def render_radar(st, forecast) -> None:
+def render_radar(st, forecast, comfortable=False) -> None:
     radar = forecast.radar or {}
     abc = _strip_duplicate_label("ABC 多空情境", _clean_main(radar.get("ABC 多空情境", "ABC 情境觀察")))
     bsi = _strip_duplicate_label("BSI 借券空方", _clean_main(radar.get("BSI 借券空方", "BSI / Short 觀察")))
@@ -152,4 +152,11 @@ def render_radar(st, forecast) -> None:
       <div class='truth'>資料源：{safe(_clean_main(radar.get('資料源')))}｜資料覆蓋率 {safe(radar.get('Coverage') or '--')}｜決策證據一致度 {safe(radar.get('Direction Confidence') or radar.get('Confidence'))}</div>
     </div></body></html>
     """
-    html_block(html, height=642, scrolling=False)
+    if comfortable:
+        html = html.replace("</head>", """<style>
+        body .battle-label{font-size:13px;line-height:1.65;margin-top:10px}
+        body .v11051-abc-compact,body .v11051-bsi-compact,
+        body .v11054-two-line,body .truth{font-size:13px;line-height:1.75;padding:12px;margin-top:8px}
+        body .role-badge{font-size:10px;padding:3px 6px}
+        </style></head>""")
+    html_block(html, height=820 if comfortable else 642, scrolling=bool(comfortable))

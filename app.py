@@ -54,7 +54,7 @@ def _render_admin_trace(trace: str) -> None:
 _boot_print("script_enter", python=os.sys.version.split()[0])
 
 # Visible build marker for confirming which integrated release is running.
-APP_BUILD_VERSION = "V1116"
+APP_BUILD_VERSION = "V1117"
 
 # RC24.2 Post-Render Crash Guard
 # Streamlit render path must not leave delayed workers or perform layered memory mirrors.
@@ -66,7 +66,7 @@ os.environ.setdefault("TINO_V13_CLOSE_RECHECK", "1")
 os.environ.setdefault("TINO_EVENT_REASSESSMENT", "1")
 os.environ.setdefault("TINO_EVENT_POLL_INTERVAL", "5m")
 
-st.set_page_config(page_title="系統化分析", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="TINO｜AI 分析指揮台", layout="wide", initial_sidebar_state="collapsed")
 _boot_print("page_config_done", streamlit=getattr(st, "__version__", "unknown"))
 
 
@@ -875,27 +875,53 @@ def _render_forecast(forecast):
     """Render the integrated per-ticker decision and its supporting panels."""
     symbol = getattr(getattr(forecast, "ticker", None), "resolved_symbol", "")
     analysis_payload = build_stock_analysis_payload(forecast)
-    left, right = st.columns([1.03, 0.97], gap="small")
+    # UI reads the shared immutable decision; switching workspaces never runs analysis.
+    workspace = "完整雙欄"
+    try:
+        from ui_jarvis_v1117 import render_command, render_workspace_picker
+        render_command(st, forecast, analysis_payload)
+        workspace = render_workspace_picker(st)
+    except Exception as exc:
+        _log_exception("jarvis_ui_failed_safe", exc)
+    if workspace == "完整雙欄":
+        left, right = st.columns([1.03, 0.97], gap="small")
+    else:
+        left = right = st.container()
     mark_runtime_stage("render_battle_start", symbol=symbol)
-    with left:
-        try:
-            supports_shared_payload = "analysis_payload" in inspect.signature(render_battle_panel).parameters
-        except (TypeError, ValueError):
-            supports_shared_payload = False
-        if supports_shared_payload:
-            render_battle_panel(st, forecast, analysis_payload=analysis_payload)
-        else:
-            # Compatibility with a cached pre-V1113 panel during Cloud sync.
-            render_battle_panel(st, forecast)
+    if workspace in {"交易計畫", "完整雙欄"}:
+        with left:
+            try:
+                panel_parameters = inspect.signature(render_battle_panel).parameters
+                supports_shared_payload = "analysis_payload" in panel_parameters
+            except (TypeError, ValueError):
+                panel_parameters = {}
+                supports_shared_payload = False
+            if supports_shared_payload:
+                panel_options = {"analysis_payload": analysis_payload}
+                if "comfortable" in panel_parameters:
+                    panel_options["comfortable"] = workspace != "完整雙欄"
+                render_battle_panel(st, forecast, **panel_options)
+            else:
+                # Compatibility with a cached pre-V1113 panel during Cloud sync.
+                render_battle_panel(st, forecast)
     mark_runtime_stage("render_battle_done", symbol=symbol)
 
     mark_runtime_stage("render_radar_start", symbol=symbol)
-    with right:
-        render_radar(st, forecast)
+    if workspace in {"籌碼與事件", "完整雙欄"}:
+        with right:
+            try:
+                comfortable_radar = "comfortable" in inspect.signature(render_radar).parameters
+            except (TypeError, ValueError):
+                comfortable_radar = False
+            if comfortable_radar:
+                render_radar(st, forecast, comfortable=workspace != "完整雙欄")
+            else:
+                render_radar(st, forecast)
     mark_runtime_stage("render_radar_done", symbol=symbol)
 
     mark_runtime_stage("render_deep_start", symbol=symbol)
-    render_deep_report(st, forecast)
+    if workspace in {"深度報告", "完整雙欄"}:
+        render_deep_report(st, forecast)
     mark_runtime_stage("render_deep_done", symbol=symbol)
 
 
@@ -942,7 +968,7 @@ def _render_main_nav():
     with n6:
         st.markdown(
             f"<div class='tino-app-version-wrap'><span class='tino-app-version'>"
-            f"TINO {APP_BUILD_VERSION}｜證據融合＋近20日買點</span></div>",
+            f"TINO {APP_BUILD_VERSION}｜AI 分析指揮台</span></div>",
             unsafe_allow_html=True,
         )
     return st.session_state.get("main_view", "analysis")
@@ -1028,7 +1054,17 @@ def main():
         return
 
     _boot_print("render_input_start")
-    symbol, analyze, clear = render_input(st)
+    if st.session_state.forecast is None:
+        try:
+            from ui_jarvis_v1117 import render_standby
+            render_standby(st)
+        except Exception as exc:
+            _log_exception("jarvis_standby_failed_safe", exc)
+        _, input_column, _ = st.columns([0.10, 0.80, 0.10])
+        with input_column:
+            symbol, analyze, clear = render_input(st)
+    else:
+        symbol, analyze, clear = render_input(st)
     _boot_print("render_input_done")
 
     if clear:
@@ -1154,12 +1190,7 @@ def main():
         gc.collect()
         mark_runtime_stage("render_gc_done", symbol=getattr(getattr(forecast, "ticker", None), "resolved_symbol", ""))
     else:
-        st.markdown("""
-        <div class="bootbox">
-        系統已啟動。請輸入股票 / ETF 後按「🚀 個股分析」。<br>
-        Watch Center 可放自選股，只跑輕量股價快照；點卡片「分析」會切回本頁並啟動完整 TINO。
-        </div>
-        """, unsafe_allow_html=True)
+        st.caption("輸入股票後按「🚀 個股分析」。自選股請使用上方「📊 即時股價」。")
 
     if debug:
         st.caption("Debug：主畫面不顯示工程字串；錯誤只在此區或 Admin Console 顯示。")

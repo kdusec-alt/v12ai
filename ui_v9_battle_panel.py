@@ -207,7 +207,7 @@ def build_stock_analysis_payload(forecast):
     }
 
 
-def render_battle_panel(st, forecast, analysis_payload=None):
+def render_battle_panel(st, forecast, analysis_payload=None, comfortable=False):
     if forecast.stopped:
         st.error(forecast.stop_reason)
         return
@@ -455,5 +455,21 @@ def render_battle_panel(st, forecast, analysis_payload=None):
       <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>
     </div></body></html>
     """
-    html_block(html, height=642, scrolling=False)
+    if comfortable:
+        html = html.replace("</head>", """<style>
+        body .panel{padding:18px;border-radius:18px}
+        body .panel .head{padding-bottom:14px}
+        body .panel .info,body .panel .fvleft,body .panel .entrysummary,
+        body .panel .thesis,body .panel .risk,body .panel .price-command,
+        body .panel .reasoning-line,body .panel .evidence-summary,
+        body .panel .near20,body .panel .evidence-full,body .panel .ts,
+        body .panel .priceitem{font-size:13px;line-height:1.65;white-space:normal;overflow:visible;text-overflow:clip}
+        body .panel .decision,body .panel .entrylamp,body .panel .info{padding:12px;margin-top:12px}
+        body .panel .ptime,body .panel .fvnote,body .panel .fvleft b{font-size:11px;line-height:1.6}
+        body .panel .action-now,body .panel .dt,body .panel .entrytop .state{font-size:14px;line-height:1.65}
+        body .panel .reasoning-price{font-size:17px;line-height:1.65;white-space:normal}
+        body .panel .tm{font-size:22px;line-height:1.6}
+        body .panel .evidence-full{max-height:none}
+        </style></head>""")
+    html_block(html, height=820 if comfortable else 642, scrolling=bool(comfortable))
     return analysis_row
