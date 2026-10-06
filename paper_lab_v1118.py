@@ -192,6 +192,9 @@ def render_paper_lab(st, symbol):
     st.caption("前瞻 T+1 單位模擬：正式 BUY 後於下一交易日開盤模擬一股；含示意費率與滑價。空手、取消與虧損都保留。")
     remote = remote_status()
     st.caption("紀錄保存：" + ("已設定遠端備份，實際同步依系統狀態" if remote.get("configured") else "目前為本機紀錄，尚未確認遠端持久備份"))
+    capture = _dict(st.session_state.get("last_paper_capture"))
+    if capture.get("status") in {"prediction_skipped", "skipped", "error"}:
+        st.caption("本次樣本未保存：" + str(capture.get("reason") or capture.get("status")))
     closed = [r for r in outcomes if r.get("status") == "CLOSED"]
     cols = st.columns(3)
     cols[0].metric("已記錄判斷", len(seeds))
