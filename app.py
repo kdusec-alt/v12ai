@@ -1135,6 +1135,12 @@ def main():
                 st.session_state.input_was_cleared = False
                 st.session_state.forecast = run_analysis(symbol, macro, live)
                 mark_runtime_stage("forecast_session_state_set", symbol=symbol)
+                st.session_state["last_paper_capture"] = {
+                    "status": "not_eligible",
+                    "reason": ("預測紀錄未啟用" if not st.session_state.get("learning_log_enabled", True)
+                               else "價格或分析品質未通過正式樣本門檻" if getattr(st.session_state.forecast, "stopped", False)
+                               else "正式預測簽章未產生"),
+                }
                 # RC3.3: invalid/stopped price forecasts must not enter Learning memory.
                 # The sidebar checkbox controls whether a formal snapshot is written.
                 if (
