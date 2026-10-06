@@ -124,6 +124,12 @@ class UIContractTest(unittest.TestCase):
             namespace["_render_forecast"](fixture()[0])
             self.assertEqual(calls, panels)
 
+    def test_full_report_not_nested_in_expander(self):
+        source = Path(__file__).with_name("app.py").read_text()
+        segment = source[source.index('elif workspace == "完整雙欄":', source.index('def _render_forecast')):source.index('mark_runtime_stage("render_deep_done"')]
+        self.assertNotIn('with st.expander(', segment)
+        self.assertIn('render_deep_report(st, forecast)', segment)
+
 
 if __name__ == "__main__":
     unittest.main()
