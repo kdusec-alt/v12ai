@@ -197,12 +197,13 @@ def render_paper_lab(st, symbol):
     cols[0].metric("已記錄判斷", len(seeds))
     cols[1].metric("完成模擬", len(closed))
     cols[2].metric("平均淨報酬", f'{sum(r["net_return_pct"] for r in closed)/len(closed):+.2f}%' if closed else "待驗證")
+    labels = {"PENDING": "等待下一交易日", "OBSERVE": "空手觀察", "OBSERVED": "空手已驗證", "CLOSED": "已模擬出場", "CANCELLED": "跳空取消", "UNVERIFIED": "成交無法驗證", "EXCLUDED": "時點不符已排除"}
     if not seeds:
         st.info("尚無前瞻樣本。下一次個股分析且預測紀錄已啟用時，自動保存；不回填舊訊號。")
     else:
         completed = {r["experiment_id"]: r for r in outcomes}
         st.dataframe([{"觀測日期": s["observed_at"], "目標交易日": s["target_trade_date"], "正式判斷": s["formal_action"],
-                       "模擬狀態": completed.get(s["experiment_id"], s)["status"],
+                       "模擬狀態": labels.get(completed.get(s["experiment_id"], s)["status"], "待確認"),
                        "成交價": completed.get(s["experiment_id"], {}).get("entry_price"),
                        "出場價": completed.get(s["experiment_id"], {}).get("exit_price"),
                        "淨報酬%": completed.get(s["experiment_id"], {}).get("net_return_pct"),
