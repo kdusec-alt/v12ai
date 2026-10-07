@@ -39,6 +39,22 @@ def _research(prediction):
     return {}
 
 
+def before_target_open(prediction):
+    p = _dict(prediction)
+    try:
+        market = str(p.get("market") or "").upper()
+        zone = ZoneInfo("America/New_York" if market == "US" else "Asia/Taipei")
+        opening = time(9, 30) if market == "US" else time(9, 0)
+        observed = datetime.fromisoformat(str(p.get("observed_at") or p.get("run_time_tw") or ""))
+        if observed.tzinfo is None:
+            return False
+        target = date.fromisoformat(str(p.get("target_trade_date") or ""))
+        session = str(p.get("signal_date") or _dict(p.get("public_decision_snapshot")).get("session_date") or "")[:10]
+        return observed.astimezone(zone) < datetime.combine(target, opening, tzinfo=zone) and session < target.isoformat()
+    except (TypeError, ValueError):
+        return False
+
+
 def build_experiment(prediction, fundamental=None, research=None):
     """Consume the logged formal BUY only; a displayed conditional zone is not BUY."""
     p = _dict(prediction)
@@ -49,7 +65,7 @@ def build_experiment(prediction, fundamental=None, research=None):
     stop = number(plan.get("invalidation_price"))
     target = number(p.get("next_high_est"))
     price = number(p.get("anchor_close"))
-    ready = (snap.get("action_code") == "BUY" and stop is not None and target is not None
+    ready = (before_target_open(p) and snap.get("action_code") == "BUY" and stop is not None and target is not None
              and price is not None and 0 < stop < price < target)
     identity = "|".join((VERSION, str(p.get("market")), str(p.get("ticker")), str(p.get("target_trade_date"))))
     # First observation per symbol/session: repeated searches cannot multiply trials.
@@ -88,21 +104,7 @@ def settle_experiment(exp, audit):
         or str(a.get("target_trade_date") or "")[:10] != exp.get("target_trade_date")
         or str(a.get("actual_price_date") or "")[:10] != exp.get("target_trade_date")):
         return None
-    # Compare in the exchange's timezone. A US premarket decision at 14:36
-    # Taiwan time can still precede the 09:30 New York opening on the same date.
-    try:
-        market = str(exp.get("market") or "").upper()
-        zone = ZoneInfo("America/New_York" if market == "US" else "Asia/Taipei")
-        opening = time(9, 30) if market == "US" else time(9, 0)
-        observed = datetime.fromisoformat(str(exp.get("observed_at") or ""))
-        if observed.tzinfo is None:
-            raise ValueError("missing observation timezone")
-        target = date.fromisoformat(str(exp.get("target_trade_date") or ""))
-        target_open = datetime.combine(target, opening, tzinfo=zone)
-        in_time = observed.astimezone(zone) < target_open and str(exp.get("signal_date") or "")[:10] < target.isoformat()
-    except (TypeError, ValueError):
-        in_time = False
-    if not in_time:
+    if not before_target_open(exp):
         return {"experiment_id": exp["experiment_id"], "status": "EXCLUDED", "reason": "判斷未早於目標市場開盤，或缺少可驗證時區"}
     o, h, l, c = [number(a.get("actual_" + k)) for k in ("open", "high", "low", "close")]
     if any(v is None or v <= 0 for v in (o, h, l, c)) or not l <= min(o, c) <= max(o, c) <= h:
@@ -198,10 +200,22 @@ def learning_summary(rows):
 
 def render_paper_lab(st, symbol):
     from memory_store import read_jsonl
+    from memory_store import MEMORY_DIR
     from tino_persistent_store import remote_status
     seeds_path, outcomes_path = _paths()
     seeds = [s for s in read_jsonl(seeds_path, 2000) if s.get("ticker") == symbol]
     outcomes = [r for r in read_jsonl(outcomes_path, 4000) if r.get("ticker") == symbol]
+    runs = read_jsonl(Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl", 10)
+    st.markdown("**自主尋標研究**")
+    if runs:
+        latest = runs[-1]
+        st.markdown(f"最近掃描：{latest.get('run_day', '日期未知')}｜合格候選 {latest.get('candidates', 0)}｜正式判斷記錄 {latest.get('recorded', 0)}｜模擬 BUY {latest.get('paper_buy', 0)}")
+        if latest.get("reason"):
+            st.info(str(latest["reason"]))
+        if latest.get("details"):
+            st.dataframe([{"股票": x.get("ticker"), "掃描分數": x.get("scanner_score"), "正式動作": x.get("formal_action", "未通過"), "結果": x.get("result"), "原因": x.get("reason", "")} for x in latest["details"]], use_container_width=True, hide_index=True)
+    else:
+        st.info("自主尋標排程尚無完成紀錄。手動查詢的樣本與自主掃描分開計數。")
     st.markdown("前瞻 T+1 單位模擬：正式 BUY 後於下一交易日開盤模擬一股；含示意費率與滑價。空手、取消與虧損都保留。")
     remote = remote_status()
     st.markdown("紀錄保存：" + ("已設定遠端備份，實際同步依系統狀態" if remote.get("configured") else "目前為本機紀錄，尚未確認遠端持久備份"))
