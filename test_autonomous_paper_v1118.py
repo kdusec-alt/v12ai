@@ -40,7 +40,7 @@ class AutonomousPaperContracts(unittest.TestCase):
             row={'id':'p1','ticker':'MU','market':'US','asset_type':'stock','run_time_tw':'2026-10-06T16:00:00+08:00','target_trade_date':'2026-10-07','anchor_close':100,'next_high_est':110,'public_decision_snapshot':{'action_code':'BLOCK','session_date':'2026-10-06','entry':{'invalidation_price':95}}}
             report=worker.run_cycle(folder,now=datetime.fromtimestamp(path.stat().st_mtime,timezone.utc),
                                     analyze=lambda _:SimpleNamespace(stopped=False),log=lambda _:row,
-                                    capture=lambda *_:{'status':'recorded','experiment_status':'OBSERVE'},settle=lambda:{'settled':0})
+                                    capture=lambda *_,**kwargs:{'status':'recorded','experiment_status':'OBSERVE'},settle=lambda:{'settled':0})
             self.assertEqual((report['recorded'],report['paper_buy']), (1,0))
 
     def test_approved_formal_buy_creates_one_paper_position(self):
@@ -52,7 +52,7 @@ class AutonomousPaperContracts(unittest.TestCase):
             row={'id':'p1','ticker':'MU','market':'US','asset_type':'stock','run_time_tw':'2026-10-06T16:00:00+08:00','target_trade_date':'2026-10-07','anchor_close':100,'next_high_est':110,'public_decision_snapshot':{'action_code':'BUY','session_date':'2026-10-06','entry':{'invalidation_price':95}}}
             report=worker.run_cycle(folder,now=datetime.fromtimestamp(path.stat().st_mtime,timezone.utc),
                                     analyze=lambda _:SimpleNamespace(stopped=False),log=lambda _:row,
-                                    capture=lambda *_:{'status':'recorded','experiment_status':'PENDING'},settle=lambda:{'settled':0})
+                                    capture=lambda *_,**kwargs:{'status':'recorded','experiment_status':'PENDING'},settle=lambda:{'settled':0})
             self.assertEqual((report['recorded'],report['paper_buy']), (1,1))
 
 
