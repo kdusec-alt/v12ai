@@ -944,7 +944,7 @@ def _set_main_view(view: str) -> None:
     """Switch pages and release the heavy forecast before table-heavy views."""
     target = str(view or "analysis")
     st.session_state["main_view"] = target
-    if target in {"watch", "learning", "research", "scanner"}:
+    if target in {"watch", "paper", "learning", "research", "scanner"}:
         st.session_state["forecast"] = None
         st.session_state["last_error"] = ""
         gc.collect()
@@ -959,9 +959,9 @@ def _render_main_nav():
 
     st.markdown("<div class='tino-nav-spacer'></div>", unsafe_allow_html=True)
     if is_admin:
-        n1, n2, n3, n4, n5, n6 = st.columns([0.14, 0.14, 0.14, 0.17, 0.18, 0.23], gap="small")
+        n1, n2, n_paper, n3, n4, n5, n6 = st.columns([0.12, 0.12, 0.17, 0.12, 0.16, 0.17, 0.14], gap="small")
     else:
-        n1, n2, n6 = st.columns([0.18, 0.18, 0.64], gap="small")
+        n1, n2, n_paper, n6 = st.columns([0.18, 0.18, 0.27, 0.37], gap="small")
         n3 = n4 = n5 = None
 
     with n1:
@@ -970,6 +970,9 @@ def _render_main_nav():
     with n2:
         st.button("📊 即時股價", use_container_width=True, key="nav_watch",
                   on_click=_set_main_view, args=("watch",))
+    with n_paper:
+        st.button("🤖 自主模擬紀錄", use_container_width=True, key="nav_paper",
+                  on_click=_set_main_view, args=("paper",))
     if is_admin and n3 is not None and n4 is not None:
         with n3:
             st.button("🧠 預測學習", use_container_width=True, key="nav_learning",
@@ -1027,6 +1030,14 @@ def main():
     if main_view == "watch":
         render_watch_center(st)
         _admin_maintenance_fragment()
+        return
+    if main_view == "paper":
+        try:
+            from paper_lab_v1118 import render_autonomous_dashboard
+            render_autonomous_dashboard(st)
+        except Exception as exc:
+            _log_exception("autonomous_paper_dashboard_failed_safe", exc)
+            st.warning("自主模擬紀錄暫時無法載入，請稍後重試。")
         return
     if main_view == "learning":
         # RC4.7 Learning Core isolation: a malformed historical memory row or
