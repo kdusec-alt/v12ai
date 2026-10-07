@@ -1,0 +1,14 @@
+{"experiment_id": "2a823c566ac74755d1391fb6", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "ec6ba1eb3de31f5a118d4487", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "73e70addaab9d068fdcce1e4", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "6bacb37dae94984a80a4d996", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "02921bccc6692b449b8c380e", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "0fd67fd48003073648fe529b", "prediction_id": "e90b7455590714b2", "ticker": "2308.TW", "date": "2026-10-07", "actual_source": "TWSE_MIS_Realtime", "underlying_return_pct": -1.7284, "fundamental": {}, "research": {"phenotype_id": "PH-FDE38859092DDA86BE", "selected_candidate_id": "V13_G1_BALANCED", "shadow_direction": "UP", "shadow_bias": 0.0, "run_time_tw": "2026-10-06T17:58:18+08:00"}, "settled_at": "2026-10-07T06:11:27.236743+00:00", "status": "OBSERVED", "reason": "正式決策未買進，保留空手結果"}
+{"experiment_id": "49fd1fa2b6e12c99faba2a69", "prediction_id": "7a8b4e7336942669", "ticker": "5483.TWO", "date": "2026-10-07", "actual_source": "TPEX_MIS_Realtime", "underlying_return_pct": 4.6729, "fundamental": {}, "research": {"phenotype_id": "PH-D964CB5CD12D20B52C", "selected_candidate_id": "V13_G1_BALANCED", "shadow_direction": "NEUTRAL", "shadow_bias": 0.0, "run_time_tw": "2026-10-06T19:37:50+08:00"}, "settled_at": "2026-10-07T06:15:37.554019+00:00", "status": "OBSERVED", "reason": "正式決策未買進，保留空手結果"}
+{"experiment_id": "d92ecb505a4aba248d22544b", "prediction_id": "d0ef0c84682e9a00", "ticker": "2330.TW", "date": "2026-10-07", "actual_source": "TWSE_MIS_Realtime", "underlying_return_pct": 0.7797, "fundamental": {}, "research": {"phenotype_id": "PH-83D44C8125A1A122AF", "selected_candidate_id": "V13_G1_BALANCED", "shadow_direction": "NEUTRAL", "shadow_bias": 0.0, "run_time_tw": "2026-10-06T22:25:00+08:00"}, "settled_at": "2026-10-07T06:15:37.554424+00:00", "status": "OBSERVED", "reason": "正式決策未買進，保留空手結果"}
+{"experiment_id": "f68a26e5a9c0d381b352374b", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "e4b7ab41867b1f9cd106df39", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "4e58844dc0769198653e270e", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "5cfc2a7a5eba54c21d2e69e7", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "27f3a33e5cce1920d2bdc34d", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "e5e398ad1734daa72ee0df2a", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
