@@ -74,10 +74,11 @@ class PaperContracts(unittest.TestCase):
         import memory_store
         with tempfile.TemporaryDirectory() as folder, patch.object(memory_store,'MEMORY_DIR',Path(folder)),patch.object(memory_store,'_post_memory_write'),patch.object(memory_store,'read_audit_log',return_value=[audit()]),patch.object(lab,'_research',return_value={}):
             f=SimpleNamespace(price_frame=SimpleNamespace(context={}))
-            self.assertEqual(lab.capture_query(prediction(),f)['status'],'recorded')
+            self.assertEqual(lab.capture_query(prediction(),f,origin='autonomous')['status'],'recorded')
             duplicate=lab.capture_query(prediction(),f)
             self.assertEqual(duplicate['status'],'duplicate')
             self.assertEqual(duplicate['experiment_status'],'PENDING')
+            self.assertEqual(memory_store.read_jsonl(Path(folder)/'paper_lab'/'experiments.jsonl')[0]['origin'],'autonomous')
             self.assertEqual(lab.reconcile_local()['settled'],1)
             self.assertEqual(lab.reconcile_local()['settled'],0)
     def test_search_precedes_standby(self):
