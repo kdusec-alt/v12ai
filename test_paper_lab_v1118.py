@@ -36,6 +36,8 @@ class PaperContracts(unittest.TestCase):
         for observed in ('2026-10-07T22:30:00+08:00','2026-10-07T14:36:39'):
             exp['observed_at']=observed
             self.assertEqual(lab.settle_experiment(exp,audit())['status'],'EXCLUDED')
+        p=prediction();p['run_time_tw']='2026-10-07T22:30:00+08:00'
+        self.assertEqual(lab.build_experiment(p)['status'],'OBSERVE')
     def test_wrong_or_unverified_audit_rejected(self):
         exp=lab.build_experiment(prediction())
         for k,v in [('prediction_id','wrong'),('ticker','NVDA'),('target','today'),('actual_valid',False),('actual_price_date','2026-10-08'),('target_trade_date','2026-10-08')]:
