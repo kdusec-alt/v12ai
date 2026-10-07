@@ -128,6 +128,11 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
         report["settlement"] = settle()
     except Exception as exc:
         report["settlement"] = {"status": "deferred", "reason": type(exc).__name__}
+    try:
+        from paper_portfolio_v1118 import record_verified_trades
+        report["portfolio"] = record_verified_trades()
+    except Exception as exc:
+        report["portfolio"] = {"status": "deferred", "reason": type(exc).__name__}
     append_jsonl(report_path, report)
     return report
 
@@ -144,7 +149,8 @@ def main():
     report = run_cycle(args.snapshot_dir)
     print(report)
     for path in (PREDICTION_LOG, AUDIT_LOG, Path(MEMORY_DIR)/"paper_lab"/"experiments.jsonl",
-                 Path(MEMORY_DIR)/"paper_lab"/"outcomes.jsonl", Path(MEMORY_DIR)/"paper_lab"/"scan_runs.jsonl"):
+                 Path(MEMORY_DIR)/"paper_lab"/"outcomes.jsonl", Path(MEMORY_DIR)/"paper_lab"/"scan_runs.jsonl",
+                 Path(MEMORY_DIR)/"paper_lab"/"portfolio_events.jsonl"):
         if path.exists():
             ok, error = _sync_file_to_remote(path, shrink_guard=True)
             if not ok:
