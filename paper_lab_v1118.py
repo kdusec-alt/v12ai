@@ -4,11 +4,12 @@ No broker API, extra quote downloads or historical signal reconstruction.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 import hashlib
 import math
 from pathlib import Path
 import threading
+from zoneinfo import ZoneInfo
 
 VERSION = "V1118_T1_UNIT_OPEN_V1"
 _LOCK = threading.RLock()
@@ -87,10 +88,22 @@ def settle_experiment(exp, audit):
         or str(a.get("target_trade_date") or "")[:10] != exp.get("target_trade_date")
         or str(a.get("actual_price_date") or "")[:10] != exp.get("target_trade_date")):
         return None
-    observed = str(exp.get("observed_at") or "")[:10]
-    # Observation on target day cannot use that day's opening OHLC retroactively.
-    if not observed or exp["target_trade_date"] <= max(observed, exp.get("signal_date") or ""):
-        return {"experiment_id": exp["experiment_id"], "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+    # Compare in the exchange's timezone. A US premarket decision at 14:36
+    # Taiwan time can still precede the 09:30 New York opening on the same date.
+    try:
+        market = str(exp.get("market") or "").upper()
+        zone = ZoneInfo("America/New_York" if market == "US" else "Asia/Taipei")
+        opening = time(9, 30) if market == "US" else time(9, 0)
+        observed = datetime.fromisoformat(str(exp.get("observed_at") or ""))
+        if observed.tzinfo is None:
+            raise ValueError("missing observation timezone")
+        target = date.fromisoformat(str(exp.get("target_trade_date") or ""))
+        target_open = datetime.combine(target, opening, tzinfo=zone)
+        in_time = observed.astimezone(zone) < target_open and str(exp.get("signal_date") or "")[:10] < target.isoformat()
+    except (TypeError, ValueError):
+        in_time = False
+    if not in_time:
+        return {"experiment_id": exp["experiment_id"], "status": "EXCLUDED", "reason": "判斷未早於目標市場開盤，或缺少可驗證時區"}
     o, h, l, c = [number(a.get("actual_" + k)) for k in ("open", "high", "low", "close")]
     if any(v is None or v <= 0 for v in (o, h, l, c)) or not l <= min(o, c) <= max(o, c) <= h:
         return None
@@ -189,12 +202,13 @@ def render_paper_lab(st, symbol):
     seeds_path, outcomes_path = _paths()
     seeds = [s for s in read_jsonl(seeds_path, 2000) if s.get("ticker") == symbol]
     outcomes = [r for r in read_jsonl(outcomes_path, 4000) if r.get("ticker") == symbol]
-    st.caption("前瞻 T+1 單位模擬：正式 BUY 後於下一交易日開盤模擬一股；含示意費率與滑價。空手、取消與虧損都保留。")
+    st.markdown("前瞻 T+1 單位模擬：正式 BUY 後於下一交易日開盤模擬一股；含示意費率與滑價。空手、取消與虧損都保留。")
     remote = remote_status()
-    st.caption("紀錄保存：" + ("已設定遠端備份，實際同步依系統狀態" if remote.get("configured") else "目前為本機紀錄，尚未確認遠端持久備份"))
+    st.markdown("紀錄保存：" + ("已設定遠端備份，實際同步依系統狀態" if remote.get("configured") else "目前為本機紀錄，尚未確認遠端持久備份"))
     capture = _dict(st.session_state.get("last_paper_capture"))
     if capture:
-        st.caption("本次保存狀態：" + str(capture.get("status") or "unknown") + ("｜" + str(capture.get("reason")) if capture.get("reason") else ""))
+        status_label = {"recorded": "已記錄", "duplicate": "已有相同市場日紀錄", "prediction_skipped": "正式預測未通過", "skipped": "未建立樣本", "error": "保存失敗", "not_eligible": "未通過正式樣本門檻"}.get(capture.get("status"), "待確認")
+        st.markdown("本次保存狀態：**" + status_label + "**" + ("｜" + str(capture.get("reason")) if capture.get("reason") else ""))
     closed = [r for r in outcomes if r.get("status") == "CLOSED"]
     cols = st.columns(3)
     cols[0].metric("已記錄判斷", len(seeds))
@@ -205,6 +219,8 @@ def render_paper_lab(st, symbol):
         st.info("尚無前瞻樣本。下一次個股分析且預測紀錄已啟用時，自動保存；不回填舊訊號。")
     else:
         completed = {r["experiment_id"]: r for r in outcomes}
+        if not closed:
+            st.info("已保存判斷，尚無已驗證的正式 BUY 模擬出場。空手判斷只記錄觀察結果，不會產生交易報酬。")
         st.dataframe([{"觀測日期": s["observed_at"], "目標交易日": s["target_trade_date"], "正式判斷": s["formal_action"],
                        "模擬狀態": labels.get(completed.get(s["experiment_id"], s)["status"], "待確認"),
                        "成交價": completed.get(s["experiment_id"], {}).get("entry_price"),
@@ -217,5 +233,5 @@ def render_paper_lab(st, symbol):
     if summary:
         st.dataframe(summary, use_container_width=True, hide_index=True)
     else:
-        st.caption("等待已確認收盤結果與有效財報／Lab 樣本，尚無可用統計。")
-    st.caption("研究只產生對照統計，未自動更改正式模型。Lab 須有同一筆預測的既存訊號；無訊號時保留缺值。現階段依查詢與既有審計更新，網頁關閉時尚無獨立常駐模擬排程。")
+        st.markdown("等待已確認收盤結果與有效財報／Lab 樣本，尚無可用統計。")
+    st.markdown("研究只產生對照統計，未自動更改正式模型。Lab 須有同一筆預測的既存訊號；無訊號時保留缺值。現階段依查詢與既有審計更新，網頁關閉時尚無獨立常駐模擬排程。")
