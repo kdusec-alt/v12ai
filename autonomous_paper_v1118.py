@@ -87,9 +87,7 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                             item["formal_action"] = str((row.get("public_decision_snapshot") or {}).get("action_code") or "BLOCK")
                             if item["result"] in {"recorded", "duplicate"}:
                                 report["recorded"] += 1
-                            from paper_lab_v1118 import build_experiment
-                            experiment = build_experiment(row)
-                            if experiment and experiment["status"] == "PENDING" and item["result"] in {"recorded", "duplicate"}:
+                            if outcome.get("experiment_status") == "PENDING" and item["result"] in {"recorded", "duplicate"}:
                                 report["paper_buy"] += 1
                 except Exception as exc:
                     item["result"] = "error"
