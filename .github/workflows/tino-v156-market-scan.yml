@@ -45,4 +45,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           TINO_GITHUB_REPO: ${{ github.repository }}
           TINO_GITHUB_BRANCH: tino-memory
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TINO_AI_RESEARCH_MODEL: gpt-5-mini
         run: python autonomous_paper_v1118.py --snapshot-dir ./scanner_output
