@@ -43,5 +43,17 @@ class AutonomousPaperContracts(unittest.TestCase):
                                     capture=lambda *_:{'status':'recorded'},settle=lambda:{'settled':0})
             self.assertEqual((report['recorded'],report['paper_buy']), (1,0))
 
+    def test_approved_formal_buy_creates_one_paper_position(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(memory_store,'MEMORY_DIR',Path(folder)), patch.object(memory_store,'_post_memory_write'):
+            path=Path(folder)/'tino_market_scanner_v156_20261007.csv'
+            with path.open('w',newline='') as file:
+                writer=csv.DictWriter(file,fieldnames=['ticker','is_recommended5','execution_status','recommendation_score'])
+                writer.writeheader();writer.writerow({'ticker':'MU','is_recommended5':'True','execution_status':'ACTIONABLE','recommendation_score':'90'})
+            row={'id':'p1','ticker':'MU','market':'US','asset_type':'stock','run_time_tw':'2026-10-06T16:00:00+08:00','target_trade_date':'2026-10-07','anchor_close':100,'next_high_est':110,'public_decision_snapshot':{'action_code':'BUY','session_date':'2026-10-06','entry':{'invalidation_price':95}}}
+            report=worker.run_cycle(folder,now=datetime.fromtimestamp(path.stat().st_mtime,timezone.utc),
+                                    analyze=lambda _:SimpleNamespace(stopped=False),log=lambda _:row,
+                                    capture=lambda *_:{'status':'recorded'},settle=lambda:{'settled':0})
+            self.assertEqual((report['recorded'],report['paper_buy']), (1,1))
+
 
 if __name__=='__main__': unittest.main()
