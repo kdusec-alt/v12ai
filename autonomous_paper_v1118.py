@@ -19,36 +19,44 @@ def result_csv(folder):
     return paths[0] if paths else None
 
 
-def select_candidates(rows, limit=5):
-    """Only the scanner's approved recommendations may enter the formal model."""
+def select_candidates(rows, limit=12):
+    """Build a diverse research shortlist; the AI and formal model may abstain."""
     approved = []
     for row in rows:
         ticker = str(row.get("ticker") or "").strip().upper()
         if not ticker or ticker in {r["ticker"] for r in approved}:
             continue
-        if str(row.get("is_recommended5") or "").strip().lower() not in {"true", "1"}:
-            continue
-        if str(row.get("execution_status") or "").strip().upper() != "ACTIONABLE":
+        if str(row.get("execution_status") or "").strip().upper() not in {"ACTIONABLE", "WAIT_PULLBACK", "WAIT_RESET"}:
             continue
         try:
             score = float(row.get("recommendation_score") or 0)
         except (ValueError, TypeError):
             score = 0
-        approved.append({"ticker": ticker, "score": score})
-    return sorted(approved, key=lambda r: r["score"], reverse=True)[:limit]
+        approved.append({**row, "ticker": ticker, "score": score})
+    ranked = sorted(approved, key=lambda r: r["score"], reverse=True)
+    # One issuer per sector in the first pass; then fill remaining places.
+    shortlist, sectors = [], set()
+    for row in ranked:
+        sector = str(row.get("sector") or "").strip()
+        if sector and sector not in sectors:
+            shortlist.append(row); sectors.add(sector)
+    shortlist.extend(r for r in ranked if r not in shortlist)
+    return shortlist[:limit]
 
 
-def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None, now=None):
+def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None, research=None, now=None):
     from memory_store import MEMORY_DIR, append_jsonl, read_jsonl
 
     now = now or datetime.now(timezone.utc)
     csv_path = result_csv(snapshot_dir)
     report_path = Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl"
     run_day = now.astimezone(__import__("zoneinfo").ZoneInfo("Asia/Taipei")).date().isoformat()
-    if any(r.get("run_day") == run_day and r.get("source") for r in read_jsonl(report_path, 100)):
+    if any(r.get("run_day") == run_day and r.get("source")
+           and (r.get("ai_status") == "completed" or r.get("shortlist") == 0)
+           for r in read_jsonl(report_path, 100)):
         return {"status": "duplicate", "run_day": run_day}
     report = {"run_day": run_day, "run_at": now.isoformat(), "source": csv_path.name if csv_path else "",
-              "status": "skipped", "candidates": 0, "recorded": 0, "paper_buy": 0, "details": []}
+              "status": "skipped", "shortlist": 0, "candidates": 0, "recorded": 0, "paper_buy": 0, "details": []}
     if csv_path is None:
         report["reason"] = "找不到完成的 Scanner 結果"
     elif datetime.fromtimestamp(csv_path.stat().st_mtime, timezone.utc).date() < now.date():
@@ -56,10 +64,26 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
     else:
         with csv_path.open(encoding="utf-8-sig", newline="") as handle:
             candidates = select_candidates(csv.DictReader(handle))
-        report["candidates"] = len(candidates)
+        report["shortlist"] = len(candidates)
         if not candidates:
-            report["reason"] = "本輪無同時通過 Scanner 推薦與可執行門檻的標的"
+            report["reason"] = "本輪掃描沒有資料品質可供研究的候選"
         else:
+            if research is None:
+                from ai_research_v1118 import research_candidates
+                research = research_candidates
+            try:
+                research_result = research(candidates)
+            except Exception as exc:
+                research_result = {"status": "error", "reason": type(exc).__name__, "decisions": []}
+            report["ai_status"] = research_result.get("status")
+            report["market_view"] = research_result.get("market_view", "")
+            report["research_decisions"] = research_result.get("decisions", [])
+            selected = {d["ticker"]: d for d in report["research_decisions"] if d.get("verdict") == "PAPER_REVIEW"}
+            candidates = [r for r in candidates if r["ticker"] in selected and str(r.get("execution_status") or "").upper() == "ACTIONABLE"][:5]
+            report["candidates"] = len(candidates)
+            if not candidates:
+                report["reason"] = "AI 研究未提名可執行標的" if report["ai_status"] == "completed" else "AI 研究模型尚未設定或暫時無法使用"
+        if candidates and report["candidates"]:
             if analyze is None:
                 from data_sources import fetch_news, fetch_price
                 from orchestrator import orchestrate
@@ -72,7 +96,7 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
             report["status"] = "completed"
             for candidate in candidates:
                 symbol = candidate["ticker"]
-                item = {"ticker": symbol, "scanner_score": candidate["score"]}
+                item = {"ticker": symbol, "scanner_score": candidate["score"], "research": selected[symbol]}
                 try:
                     forecast = analyze(symbol)
                     if forecast is None or bool(getattr(forecast, "stopped", False)):
