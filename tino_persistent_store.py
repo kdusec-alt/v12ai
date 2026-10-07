@@ -69,6 +69,7 @@ LEGACY_FILE_NAMES = {
 _MEMORY_FILES = [
     "paper_lab/experiments.jsonl",
     "paper_lab/outcomes.jsonl",
+    "paper_lab/scan_runs.jsonl",
     "prediction_log.jsonl",
     "audit_log.jsonl",
     "ticker_profiles.json",
@@ -1942,4 +1943,3 @@ def storage_status(path: str | Path = DEFAULT_LEDGER_PATH) -> Dict[str, Any]:
         "ledger_recent_predictions": len((ledger.get("recent_predictions") or []) if isinstance(ledger, dict) else []),
         "ledger_recent_audits": len((ledger.get("recent_audits") or []) if isinstance(ledger, dict) else []),
     }
-
