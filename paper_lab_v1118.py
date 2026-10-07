@@ -248,4 +248,4 @@ def render_paper_lab(st, symbol):
         st.dataframe(summary, use_container_width=True, hide_index=True)
     else:
         st.markdown("等待已確認收盤結果與有效財報／Lab 樣本，尚無可用統計。")
-    st.markdown("研究只產生對照統計，未自動更改正式模型。Lab 須有同一筆預測的既存訊號；無訊號時保留缺值。現階段依查詢與既有審計更新，網頁關閉時尚無獨立常駐模擬排程。")
+    st.markdown("研究只產生對照統計，未自動更改正式模型。Lab 須有同一筆預測的既存訊號；無訊號時保留缺值。自主掃描由獨立排程執行，實際候選、模擬與結算以上方完成紀錄為準。")
