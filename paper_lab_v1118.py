@@ -158,12 +158,46 @@ def capture_query(prediction, forecast, origin="manual"):
 def render_autonomous_dashboard(st):
     """Public read-only ledger; does not run scans or access a broker."""
     from memory_store import MEMORY_DIR, read_jsonl
+    from paper_portfolio_v1118 import snapshot, set_capital, _path as portfolio_path
     root = Path(MEMORY_DIR) / "paper_lab"
     runs = read_jsonl(root / "scan_runs.jsonl", 100)
     seeds = [r for r in read_jsonl(root / "experiments.jsonl", 2000) if r.get("origin") == "autonomous"]
     outcomes = {r.get("experiment_id"): r for r in read_jsonl(root / "outcomes.jsonl", 4000)}
     st.markdown("## 🤖 V1118 自主模擬研究")
     st.markdown("每日市場掃描 → AI 比較論點與風險 → 正式模型否決／確認 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
+    portfolio = snapshot()
+    st.markdown("**虛擬資金池｜已驗證 T+1 模擬成交**")
+    funds = st.columns(2)
+    for col, currency, label in ((funds[0], "TWD", "台幣"), (funds[1], "USD", "美元")):
+        col.metric(f"{label}模擬現金", f"{portfolio['cash'][currency]:,.2f}",
+                   f"累計損益 {portfolio['cash'][currency]-portfolio['initial'][currency]:+,.2f}")
+        col.caption(f"配置本金 {portfolio['initial'][currency]:,.2f} {currency}")
+    if st.session_state.get("admin_authenticated", False):
+        with st.expander("調整虛擬本金（管理員）"):
+            with st.form("paper_capital_form"):
+                twd = st.number_input("台幣配置本金", min_value=1.0, value=float(portfolio["initial"]["TWD"]), step=10000.0)
+                usd = st.number_input("美元配置本金", min_value=1.0, value=float(portfolio["initial"]["USD"]), step=1000.0)
+                submitted = st.form_submit_button("儲存資金設定")
+            if submitted:
+                try:
+                    if float(twd) != portfolio["initial"]["TWD"]:
+                        set_capital("TWD", twd)
+                    if float(usd) != portfolio["initial"]["USD"]:
+                        set_capital("USD", usd)
+                    from tino_persistent_store import _sync_file_to_remote
+                    ok, error = _sync_file_to_remote(portfolio_path(), shrink_guard=True)
+                    if not ok:
+                        st.error("本機已更新，但遠端同步失敗：" + str(error))
+                    else:
+                        st.success("資金配置已儲存；既有模擬交易不會重算。")
+                except Exception as exc:
+                    st.error("設定未完成：" + str(exc))
+    if portfolio["trades"]:
+        st.dataframe([{"日期": x.get("date"), "標的": x.get("ticker"), "幣別": x.get("currency"),
+                       "股數": x.get("quantity"), "買進": x.get("entry_price"), "賣出": x.get("exit_price"),
+                       "本筆淨損益": x.get("profit")} for x in portfolio["trades"][-30:]],
+                     use_container_width=True, hide_index=True)
+    st.caption("每筆最多使用該幣別配置本金 10%；只計入已驗證的自主 T+1 模擬成交。待驗證訊號不扣款。無匯率換算、不接券商。")
     if not runs:
         st.info("排程尚無完成紀錄。首輪完成後，這裡會顯示找到的標的、淘汰原因與模擬結果。")
         return
