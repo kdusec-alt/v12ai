@@ -163,18 +163,24 @@ def render_autonomous_dashboard(st):
     seeds = [r for r in read_jsonl(root / "experiments.jsonl", 2000) if r.get("origin") == "autonomous"]
     outcomes = {r.get("experiment_id"): r for r in read_jsonl(root / "outcomes.jsonl", 4000)}
     st.markdown("## 🤖 V1118 自主模擬研究")
-    st.markdown("每日市場掃描 → 合格候選 → 正式分析 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
+    st.markdown("每日市場掃描 → AI 比較論點與風險 → 正式模型否決／確認 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
     if not runs:
         st.info("排程尚無完成紀錄。首輪完成後，這裡會顯示找到的標的、淘汰原因與模擬結果。")
         return
     latest = runs[-1]
-    st.markdown(f"最近一輪：**{latest.get('run_day') or '日期未知'}**｜狀態 **{latest.get('status') or '未知'}**｜來源 {latest.get('source') or '無快照'}")
+    st.markdown(f"最近一輪：**{latest.get('run_day') or '日期未知'}**｜狀態 **{latest.get('status') or '未知'}**｜AI 研究 **{latest.get('ai_status') or '未執行'}**｜來源 {latest.get('source') or '無快照'}")
     cols = st.columns(3)
-    cols[0].metric("本輪合格候選", latest.get("candidates", 0))
+    cols[0].metric("AI 提名研究", latest.get("candidates", 0))
     cols[1].metric("本輪模擬買進訊號", latest.get("paper_buy", 0))
     cols[2].metric("累計已模擬出場", sum(1 for s in seeds if outcomes.get(s.get("experiment_id"), {}).get("status") == "CLOSED"))
     if latest.get("reason"):
         st.info(str(latest["reason"]))
+    if latest.get("market_view"):
+        st.markdown("**本輪市場看法**｜" + str(latest["market_view"]))
+    decisions = latest.get("research_decisions") or []
+    if decisions:
+        st.markdown("**AI 候選比較與否決紀錄**")
+        st.dataframe([{"標的": d.get("ticker"), "研究判斷": d.get("verdict"), "信心": d.get("confidence"), "投資論點": d.get("thesis"), "反方情境": d.get("bear_case"), "失效條件": d.get("risk_trigger"), "待補證據": d.get("missing_evidence")} for d in decisions], use_container_width=True, hide_index=True)
     details = latest.get("details") or []
     if details:
         st.markdown("**本輪自主選股與正式判斷**")
@@ -243,7 +249,7 @@ def render_paper_lab(st, symbol):
     st.markdown("**自主尋標研究**")
     if runs:
         latest = runs[-1]
-        st.markdown(f"最近掃描：{latest.get('run_day', '日期未知')}｜合格候選 {latest.get('candidates', 0)}｜正式判斷記錄 {latest.get('recorded', 0)}｜模擬 BUY {latest.get('paper_buy', 0)}")
+        st.markdown(f"最近掃描：{latest.get('run_day', '日期未知')}｜AI 研究 {latest.get('ai_status', '未執行')}｜提名 {latest.get('candidates', 0)}｜正式判斷記錄 {latest.get('recorded', 0)}｜模擬 BUY {latest.get('paper_buy', 0)}")
         if latest.get("reason"):
             st.info(str(latest["reason"]))
         if latest.get("details"):
