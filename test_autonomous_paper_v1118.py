@@ -11,14 +11,14 @@ import memory_store
 
 
 class AutonomousPaperContracts(unittest.TestCase):
-    def test_candidate_gate_and_ranking(self):
+    def test_research_shortlist_includes_watch_but_excludes_rejected(self):
         rows = [
             {'ticker':'A','is_recommended5':'True','execution_status':'ACTIONABLE','recommendation_score':'80'},
             {'ticker':'B','is_recommended5':'False','execution_status':'ACTIONABLE','recommendation_score':'99'},
             {'ticker':'C','is_recommended5':'True','execution_status':'WAIT_PULLBACK','recommendation_score':'99'},
             {'ticker':'D','is_recommended5':'True','execution_status':'ACTIONABLE','recommendation_score':'90'},
         ]
-        self.assertEqual([r['ticker'] for r in worker.select_candidates(rows)], ['D','A'])
+        self.assertEqual(set(r['ticker'] for r in worker.select_candidates(rows)), {'A','B','C','D'})
 
     def test_empty_scanner_keeps_cash_and_records_run(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(memory_store,'MEMORY_DIR',Path(folder)), patch.object(memory_store,'_post_memory_write'):
@@ -27,7 +27,7 @@ class AutonomousPaperContracts(unittest.TestCase):
                 writer=csv.DictWriter(file,fieldnames=['ticker','is_recommended5','execution_status'])
                 writer.writeheader();writer.writerow({'ticker':'A','is_recommended5':'False','execution_status':'ACTIONABLE'})
             now=datetime.fromtimestamp(path.stat().st_mtime,timezone.utc)
-            first=worker.run_cycle(folder,now=now,settle=lambda:{'settled':0})
+            first=worker.run_cycle(folder,now=now,settle=lambda:{'settled':0},research=lambda _: {'status':'completed','decisions':[]})
             self.assertEqual((first['candidates'],first['paper_buy']), (0,0))
             self.assertEqual(worker.run_cycle(folder,now=now)['status'],'duplicate')
 
@@ -40,7 +40,8 @@ class AutonomousPaperContracts(unittest.TestCase):
             row={'id':'p1','ticker':'MU','market':'US','asset_type':'stock','run_time_tw':'2026-10-06T16:00:00+08:00','target_trade_date':'2026-10-07','anchor_close':100,'next_high_est':110,'public_decision_snapshot':{'action_code':'BLOCK','session_date':'2026-10-06','entry':{'invalidation_price':95}}}
             report=worker.run_cycle(folder,now=datetime.fromtimestamp(path.stat().st_mtime,timezone.utc),
                                     analyze=lambda _:SimpleNamespace(stopped=False),log=lambda _:row,
-                                    capture=lambda *_,**kwargs:{'status':'recorded','experiment_status':'OBSERVE'},settle=lambda:{'settled':0})
+                                    capture=lambda *_,**kwargs:{'status':'recorded','experiment_status':'OBSERVE'},settle=lambda:{'settled':0},
+                                    research=lambda _: {'status':'completed','decisions':[{'ticker':'MU','verdict':'PAPER_REVIEW','confidence':80}]})
             self.assertEqual((report['recorded'],report['paper_buy']), (1,0))
 
     def test_approved_formal_buy_creates_one_paper_position(self):
@@ -52,7 +53,8 @@ class AutonomousPaperContracts(unittest.TestCase):
             row={'id':'p1','ticker':'MU','market':'US','asset_type':'stock','run_time_tw':'2026-10-06T16:00:00+08:00','target_trade_date':'2026-10-07','anchor_close':100,'next_high_est':110,'public_decision_snapshot':{'action_code':'BUY','session_date':'2026-10-06','entry':{'invalidation_price':95}}}
             report=worker.run_cycle(folder,now=datetime.fromtimestamp(path.stat().st_mtime,timezone.utc),
                                     analyze=lambda _:SimpleNamespace(stopped=False),log=lambda _:row,
-                                    capture=lambda *_,**kwargs:{'status':'recorded','experiment_status':'PENDING'},settle=lambda:{'settled':0})
+                                    capture=lambda *_,**kwargs:{'status':'recorded','experiment_status':'PENDING'},settle=lambda:{'settled':0},
+                                    research=lambda _: {'status':'completed','decisions':[{'ticker':'MU','verdict':'PAPER_REVIEW','confidence':80}]})
             self.assertEqual((report['recorded'],report['paper_buy']), (1,1))
 
 
