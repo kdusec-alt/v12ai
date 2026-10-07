@@ -147,10 +147,11 @@ def capture_query(prediction, forecast):
         return {"status": "skipped"}
     path, _ = _paths()
     with _LOCK:
-        if any(r.get("experiment_id") == row["experiment_id"] for r in read_jsonl(path, 2000)):
-            return {"status": "duplicate"}
+        existing = next((r for r in read_jsonl(path, 2000) if r.get("experiment_id") == row["experiment_id"]), None)
+        if existing:
+            return {"status": "duplicate", "experiment_status": existing.get("status")}
         append_jsonl(path, row)
-    return {"status": "recorded", "experiment_id": row["experiment_id"]}
+    return {"status": "recorded", "experiment_id": row["experiment_id"], "experiment_status": row["status"]}
 
 
 def reconcile_local():
