@@ -82,7 +82,7 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                         if not isinstance(row, dict) or row.get("skipped"):
                             item["result"] = "正式預測未通過"
                         else:
-                            outcome = capture(row, forecast)
+                            outcome = capture(row, forecast, origin="autonomous")
                             item["result"] = str(outcome.get("status") or "unknown")
                             item["formal_action"] = str((row.get("public_decision_snapshot") or {}).get("action_code") or "BLOCK")
                             if item["result"] in {"recorded", "duplicate"}:
