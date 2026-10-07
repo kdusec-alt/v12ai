@@ -138,13 +138,14 @@ def _paths():
     return root / "experiments.jsonl", root / "outcomes.jsonl"
 
 
-def capture_query(prediction, forecast):
+def capture_query(prediction, forecast, origin="manual"):
     from memory_store import read_jsonl, append_jsonl
     frame = getattr(forecast, "price_frame", None)
     context = _dict(getattr(frame, "context", None))
     row = build_experiment(prediction, context.get("fundamental"), _research(_dict(prediction)))
     if row is None:
         return {"status": "skipped"}
+    row["origin"] = "autonomous" if origin == "autonomous" else "manual"
     path, _ = _paths()
     with _LOCK:
         existing = next((r for r in read_jsonl(path, 2000) if r.get("experiment_id") == row["experiment_id"]), None)
@@ -152,6 +153,38 @@ def capture_query(prediction, forecast):
             return {"status": "duplicate", "experiment_status": existing.get("status")}
         append_jsonl(path, row)
     return {"status": "recorded", "experiment_id": row["experiment_id"], "experiment_status": row["status"]}
+
+
+def render_autonomous_dashboard(st):
+    """Public read-only ledger; does not run scans or access a broker."""
+    from memory_store import MEMORY_DIR, read_jsonl
+    root = Path(MEMORY_DIR) / "paper_lab"
+    runs = read_jsonl(root / "scan_runs.jsonl", 100)
+    seeds = [r for r in read_jsonl(root / "experiments.jsonl", 2000) if r.get("origin") == "autonomous"]
+    outcomes = {r.get("experiment_id"): r for r in read_jsonl(root / "outcomes.jsonl", 4000)}
+    st.markdown("## 🤖 V1118 自主模擬研究")
+    st.markdown("每日市場掃描 → 合格候選 → 正式分析 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
+    if not runs:
+        st.info("排程尚無完成紀錄。首輪完成後，這裡會顯示找到的標的、淘汰原因與模擬結果。")
+        return
+    latest = runs[-1]
+    st.markdown(f"最近一輪：**{latest.get('run_day') or '日期未知'}**｜狀態 **{latest.get('status') or '未知'}**｜來源 {latest.get('source') or '無快照'}")
+    cols = st.columns(3)
+    cols[0].metric("本輪合格候選", latest.get("candidates", 0))
+    cols[1].metric("本輪模擬買進訊號", latest.get("paper_buy", 0))
+    cols[2].metric("累計已模擬出場", sum(1 for s in seeds if outcomes.get(s.get("experiment_id"), {}).get("status") == "CLOSED"))
+    if latest.get("reason"):
+        st.info(str(latest["reason"]))
+    details = latest.get("details") or []
+    if details:
+        st.markdown("**本輪自主選股與正式判斷**")
+        st.dataframe([{"標的": r.get("ticker"), "掃描分數": r.get("scanner_score"), "正式判斷": r.get("formal_action", "未通過"), "結果": r.get("result"), "原因": r.get("reason", "")} for r in details], use_container_width=True, hide_index=True)
+    if seeds:
+        st.markdown("**自主模擬部位與驗證**")
+        st.dataframe([{"標的": s.get("ticker"), "判斷時間": s.get("observed_at"), "目標交易日": s.get("target_trade_date"), "正式動作": s.get("formal_action"), "模擬狀態": outcomes.get(s.get("experiment_id"), {}).get("status") or s.get("status"), "進場價": outcomes.get(s.get("experiment_id"), {}).get("entry_price"), "出場價": outcomes.get(s.get("experiment_id"), {}).get("exit_price"), "淨報酬%": outcomes.get(s.get("experiment_id"), {}).get("net_return_pct")} for s in seeds[-50:]], use_container_width=True, hide_index=True)
+    else:
+        st.markdown("尚無自主模擬部位；本輪若沒有合格標的或正式 BUY，維持空手。")
+    st.caption("手動查詢紀錄不計入上方自主模擬部位；結算需有目標交易日的有效正式 OHLC。")
 
 
 def reconcile_local():
