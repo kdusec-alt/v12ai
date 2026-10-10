@@ -12,6 +12,7 @@
 # !pip install -q -U yfinance FinMind numpy pandas==2.2.2 requests tqdm
 from __future__ import annotations
 import json
+import importlib.util
 import logging
 import math
 import random
@@ -1322,6 +1323,9 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
     """Run a full TW market scan. `scheduled` is non-interactive for an external scheduler."""
     if mode not in {"manual", "scheduled"}:
         raise ValueError("mode must be manual or scheduled")
+    missing = [name for name in ("scipy", "sklearn") if importlib.util.find_spec(name) is None]
+    if missing:
+        raise RuntimeError(f"掃描依賴套件缺失：{', '.join(missing)}；停止大量下載。")
     run_dt = datetime.now(TAIPEI_TZ)
     out = Path(output_dir or Path.cwd()).expanduser().resolve()
     previous_results = _load_previous_results(out)
@@ -1386,6 +1390,11 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
                 stats["calc_fail"] += 1
                 logger.debug("%s failed: %s", ticker, exc)
         time.sleep(random.uniform(CFG.sleep_min, CFG.sleep_max))
+        checked = min(i + len(chunk), len(tickers))
+        if checked >= CFG.chunk_size * 2 and stats["yf_fail"] / checked >= 0.80:
+            raise RuntimeError(
+                f"前 {checked} 檔已有 {stats['yf_fail']} 檔下載失敗；提前停止，請檢查資料源與依賴套件。"
+            )
     elapsed = time.time() - start
     failure_ratio = stats["yf_fail"] / max(1, len(tickers))
     if failure_ratio > CFG.max_download_failure_ratio:
