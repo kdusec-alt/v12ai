@@ -3,6 +3,7 @@ pandas
 requests
 yfinance
 scipy>=1.11,<2
+scikit-learn>=1.4,<2
 tqdm
 google-api-python-client
 google-auth
