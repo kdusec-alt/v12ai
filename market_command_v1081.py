@@ -9,6 +9,7 @@ market confirmation by itself.
 """
 from __future__ import annotations
 
+from datetime import date, datetime
 import math
 import re
 from typing import Any, Mapping, Sequence
@@ -195,6 +196,27 @@ def assess_market_command(
     price_confirmed = falling >= 2 or (vix is not None and vix >= 25 and vix_eligible)
     same_session_confirmed = bool(price_confirmed and cross_asset_same_session)
     score += event_score if same_session_confirmed and event_verified else min(6.0, event_score)
+    # Broad, coherent weakness must not become green merely because each
+    # percentage move is individually too small for the weighted score.
+    if falling >= 4 and len(observed) >= 4:
+        deep_declines = sum(1 for key, _ in fields if key in observed and (_num(data.get(key)) or 0) <= -2.0)
+        score = max(score, 48.0 if deep_declines >= 2 else 28.0)
+
+    # Oil is context evidence, never a same-session equity vote or proof that
+    # a headline caused a move. Ignore old readings after a long market break.
+    oil_moves = []
+    for key in ("wti", "brent"):
+        change = _num(data.get(key))
+        stamp = str((data.get("as_of") or {}).get(key) or "")[:10]
+        try:
+            fresh = 0 <= (date.today() - date.fromisoformat(stamp)).days <= 4
+        except ValueError:
+            fresh = False
+        if fresh and change is not None:
+            facts.append(f"{key.upper()} {change:+.2f}%（背景）")
+            oil_moves.append(change)
+    if oil_moves and max(abs(x) for x in oil_moves) >= 5.0 and falling >= 2:
+        score = max(score, 28.0)
 
     radar_count = sum(1 for value in (radar or {}).values() if str(value or "").strip())
     coverage = min(88, 28 + len(set(observed)) * 9 + min(12, radar_count))
@@ -203,6 +225,17 @@ def assess_market_command(
         and vix_change < 0 and vix_eligible
     )
     code, label, action = _state(min(100.0, score), rebound, family)
+    current_headlines = any(
+        "daily_headline" in str(_item_value(item, "tag") or "").lower()
+        and timestamp_is_model_eligible(item)
+        and "news_wait" not in str(_item_value(item, "tag") or "").lower()
+        for item in (news or [])
+    )
+    if code == "NORMAL" and not current_headlines:
+        code, label, action = (
+            "WAIT_NEWS", "⚪ 市場新聞待確認",
+            "市場價格訊號暫穩；新聞來源未取得可用即時標題，暫不宣稱事件風險可控",
+        )
     if len(set(observed)) < 2:
         code, label, action = (
             "WAIT_CONFIRM", "⚪ 同時段資料不足／等待確認",
@@ -238,6 +271,7 @@ def assess_market_command(
         "facts": facts[:6],
         "event_reason": event_reason,
         "event_verified": event_verified,
+        "current_headlines": current_headlines,
         "price_confirmed": price_confirmed,
         "same_session_confirmed": same_session_confirmed,
         "session_guard_active": guard_active,
