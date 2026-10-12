@@ -179,6 +179,8 @@ def _fetch_cached(fifteen_minute_bucket: int) -> Dict[str, object]:
         "smh": None,
         "mu": None,
         "tsm_adr": None,
+        "wti": None,
+        "brent": None,
         "tx_night": None,
         "as_of": {},
         "symbols": {},
@@ -196,8 +198,10 @@ def _fetch_cached(fifteen_minute_bucket: int) -> Dict[str, object]:
             "smh": -1.05,
             "mu": -1.80,
             "tsm_adr": -0.70,
+            "wti": 0.0,
+            "brent": 0.0,
             "tx_night": -0.55,
-            "as_of": {k: today for k in ("sox", "nq", "qqq", "vix", "vix_change", "smh", "mu", "tsm_adr", "tx_night")},
+            "as_of": {k: today for k in ("sox", "nq", "qqq", "vix", "vix_change", "smh", "mu", "tsm_adr", "wti", "brent", "tx_night")},
             "symbols": {"tx_night": "TAIFEX:TX night"},
         })
         return out
@@ -214,6 +218,8 @@ def _fetch_cached(fifteen_minute_bucket: int) -> Dict[str, object]:
             ("smh", "SMH"),
             ("mu", "MU"),
             ("tsm_adr", "TSM"),
+            ("wti", "CL=F"),
+            ("brent", "BZ=F"),
         )
         for key, symbol in maps:
             try:
@@ -277,7 +283,8 @@ def fetch_market_proxy_context(reference_date: str = "") -> Dict[str, object]:
             "reference_date": ref.isoformat(),
             "sox": None, "nq": None, "qqq": None, "vix": None,
             "vix_change": None, "smh": None, "mu": None,
-            "tsm_adr": None, "tx_night": None, "as_of": {}, "symbols": {},
+            "tsm_adr": None, "wti": None, "brent": None,
+            "tx_night": None, "as_of": {}, "symbols": {},
         }
 
     raw = _fetch_cached(int(time.time() // 300))
