@@ -799,7 +799,8 @@ _DAILY_HEADLINE_QUERIES = [
     # Each route is always queried once.  Do not stop after the first busy macro
     # feed, otherwise a major Hormuz / Taiwan Strait event can be starved.
     "US stock market Fed CPI PPI PCE ISM NFP Treasury yields",
-    "US Iran Israel war Strait of Hormuz blockade oil Treasury yields Middle East Red Sea Houthi",
+    "WTI Brent crude oil price OPEC supply disruption latest",
+    "US Iran Israel war Strait of Hormuz blockade Middle East Red Sea Houthi",
     "Trump tariff China semiconductor export control Taiwan Strait rare earth critical minerals AI supply chain",
 ]
 
@@ -1055,8 +1056,8 @@ def _us_news_time_label(pub: str) -> str:
 def _us_news_recent_enough(pub: str, bucket: str) -> bool:
     dt = _parse_google_pub_date(pub)
     if not dt:
-        # Keep undated Google rows only as low-confidence references.
-        return True
+        # Undated headlines cannot establish current market conditions.
+        return False
     now = datetime.now(ZoneInfo("UTC"))
     # RC24 rule: only 2026-current recent news; old 2024/2025 articles must not influence prediction.
     if dt.year < max(2026, now.year):
@@ -1064,7 +1065,7 @@ def _us_news_recent_enough(pub: str, bucket: str) -> bool:
     age = _us_news_age_days(pub)
     if age is None:
         return True
-    max_age = 14 if bucket == "daily" else 60 if bucket in {"company", "industry"} else 30
+    max_age = 4 if bucket == "daily" else 60 if bucket in {"company", "industry"} else 30
     return age <= max_age
 
 
@@ -1170,7 +1171,7 @@ def _google_news_us(query: str, bucket: str, limit: int = 4) -> List[NewsItem]:
     # Add the active year + time operators so Google News avoids stale archives.
     current_year = max(2026, datetime.now(ZoneInfo("UTC")).year)
     if bucket == "daily":
-        q = f"({query}) {current_year} after:{current_year}-01-01 when:14d"
+        q = f"({query}) {current_year} after:{current_year}-01-01 when:4d"
     else:
         q = f"({query}) {current_year} after:{current_year}-01-01 when:60d"
     url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"})
