@@ -198,9 +198,14 @@ def assess_market_command(
     score += event_score if same_session_confirmed and event_verified else min(6.0, event_score)
     # Broad, coherent weakness must not become green merely because each
     # percentage move is individually too small for the weighted score.
+    deep_declines = sum(1 for key, _ in fields if key in observed and (_num(data.get(key)) or 0) <= -2.0)
     if falling >= 4 and len(observed) >= 4:
-        deep_declines = sum(1 for key, _ in fields if key in observed and (_num(data.get(key)) or 0) <= -2.0)
         score = max(score, 48.0 if deep_declines >= 2 else 28.0)
+    elif family == "TW" and len(observed) >= 3 and falling == len(observed) and deep_declines >= 1:
+        # TW context can contain only ADR, SOX and Nasdaq while the cash
+        # session is closed. Their aligned weakness warrants caution, but
+        # does not prove a same-session Taiwan sell-off.
+        score = max(score, 28.0)
 
     # Oil is context evidence, never a same-session equity vote or proof that
     # a headline caused a move. Ignore old readings after a long market break.
