@@ -1230,6 +1230,7 @@ def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
         return out
 
     out: List[NewsItem] = []
+    daily_anchors: List[NewsItem] = []
     seen: set[str] = set()
 
     def _add(item: NewsItem) -> bool:
@@ -1243,11 +1244,12 @@ def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
     # Daily market weather applies to all US tickers. Fetch first and reserve slots
     # so a busy ticker will not starve global Macro/Policy headlines.
     for query in _DAILY_HEADLINE_QUERIES:
-        # Two rows per route keeps latency/bandwidth bounded while guaranteeing
-        # Macro, Geo and Policy each receive a reserved search attempt.
+        # Keep one distinct headline per route, including the oil route.
+        anchor_added = False
         for item in _google_news_us(query, "daily", limit=2):
-            if _us_news_relevant_to_ticker(ticker, item, "daily"):
-                _add(item)
+            if _us_news_relevant_to_ticker(ticker, item, "daily") and _add(item) and not anchor_added:
+                daily_anchors.append(item)
+                anchor_added = True
 
     for query, bucket, limit in _us_news_profile_queries(ticker):
         for item in _google_news_us(query, bucket, limit=limit):
@@ -1264,7 +1266,12 @@ def fetch_us_news(ticker: TickerInfo, force_refresh: bool = False) -> List[NewsI
         source_priority = 3 if "source_tier1" in tag else 2 if "source_tier2" in tag else 1
         return bucket_priority, source_priority, abs(float(item.score)), str(item.time)
 
-    out = sorted(out, key=_priority, reverse=True)[:14]
+    daily = [item for item in out if "daily_headline" in str(item.tag or "").lower()]
+    company = [item for item in out if item not in daily]
+    extras = sorted([item for item in daily if item not in daily_anchors], key=_priority, reverse=True)
+    reserved_daily = (daily_anchors + extras)[:6]
+    # Company catalysts lead the display, but cannot evict every market event.
+    out = sorted(company, key=_priority, reverse=True)[:14 - len(reserved_daily)] + reserved_daily
 
     # Guarantee the evidence layer is never empty, but make fallback neutral and explicit.
     if not out:
