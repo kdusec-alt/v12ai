@@ -268,7 +268,7 @@ def assess_market_command(
         "confidence_semantics": "data_coverage_only",
         "action": action,
         "thesis": thesis,
-        "facts": facts[:6],
+        "facts": facts[:8],
         "event_reason": event_reason,
         "event_verified": event_verified,
         "current_headlines": current_headlines,
