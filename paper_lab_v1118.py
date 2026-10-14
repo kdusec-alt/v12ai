@@ -286,7 +286,9 @@ def render_autonomous_dashboard(st):
         st.warning("尚未取得自主掃描完成紀錄，無法確認排程已產生可用快照；請檢查 Actions 掃描、雲端發布與紀錄同步。沒有紀錄不代表已模擬下單。")
         return
     latest = runs[-1]
-    st.markdown(f"最近一輪：**{latest.get('run_day') or '日期未知'}**｜狀態 **{latest.get('status') or '未知'}**｜AI 研究 **{latest.get('ai_status') or '未執行'}**｜來源 {latest.get('source') or '無快照'}")
+    scan_failed = latest.get("scanner_status") == "failure"
+    run_label = "掃描失敗，未使用快照" if scan_failed else {"completed": "已完成研究", "skipped": "略過"}.get(latest.get("status"), "待確認")
+    st.markdown(f"最近一輪：**{latest.get('run_day') or '日期未知'}**｜狀態 **{run_label}**｜AI 研究 **{latest.get('ai_status') or '未執行'}**｜來源 {latest.get('source') or '無快照'}")
     cols = st.columns(3)
     cols[0].metric("AI 提名研究", latest.get("candidates", 0))
     cols[1].metric("本輪模擬買進訊號", latest.get("paper_buy", 0))
