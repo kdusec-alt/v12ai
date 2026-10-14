@@ -19,7 +19,7 @@ Safety contract
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time
 import hashlib
 import math
 import os
@@ -83,6 +83,22 @@ def _market(value: Any) -> str:
     return text if text in {"TW", "US"} else ""
 
 
+def _before_target_open(row: Mapping[str, Any]) -> bool:
+    try:
+        market = _market(row.get("market"))
+        if not market:
+            return False
+        observed = datetime.fromisoformat(str(row.get("prediction_run_time_tw") or ""))
+        if observed.tzinfo is None:
+            return False
+        target = date.fromisoformat(str(row.get("target_trade_date") or "")[:10])
+        zone = ZoneInfo("America/New_York" if market == "US" else "Asia/Taipei")
+        opening = time(9, 30) if market == "US" else time(9, 0)
+        return observed.astimezone(zone) < datetime.combine(target, opening, tzinfo=zone)
+    except (TypeError, ValueError):
+        return False
+
+
 def _empty_doc() -> Dict[str, Any]:
     return {
         "schema": SCHEMA,
@@ -135,6 +151,8 @@ def _canonical_audits(rows: Iterable[Mapping[str, Any]], market: str) -> List[Di
         if str(row.get("price_sample_quality") or "").lower() != "verified":
             continue
         if row.get("actual_valid") is not True:
+            continue
+        if not _before_target_open(row):
             continue
         if str(row.get("actual_direction") or "").upper() not in {"UP", "DOWN"}:
             continue
@@ -503,3 +521,4 @@ def get_learning_weight_state(market: str) -> Dict[str, Any]:
 def learned_family_multiplier(market: str, family: str) -> float:
     state = get_learning_weight_state(market)
     return _clamp(_num((state.get("multipliers") or {}).get(str(family)), 1.0), ABS_MIN, ABS_MAX)
+
