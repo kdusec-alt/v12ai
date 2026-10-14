@@ -9,6 +9,7 @@ def audit(day, ticker, actual="UP"):
         "market": "TW", "ticker": ticker, "target": "next", "target_trade_date": day,
         "actual_price_date": day, "actual_valid": True, "price_sample_quality": "verified",
         "actual_close": 101, "anchor_close": 100, "actual_direction": actual,
+        "prediction_run_time_tw": f"{(date.fromisoformat(day) - timedelta(days=1)).isoformat()}T16:00:00+08:00",
         "audit_time_tw": f"{day}T16:00:00+08:00", "audit_id": f"{day}:{ticker}",
         "direction_family_contributions": {"trend": 4.0 if actual == "UP" else -4.0},
         "family_attribution": {"trend": {"aligned": True, "impact_weight": 0.5}},
@@ -22,6 +23,12 @@ class LearningWeightGateTest(unittest.TestCase):
         invalid = {**audit("2026-10-12", "C"), "actual_valid": "true"}
         rows = engine._canonical_audits([good, wrong, invalid], "TW")
         self.assertEqual([row["ticker"] for row in rows], ["A"])
+
+    def test_after_open_or_unknown_timezone_cannot_train(self):
+        good = audit("2026-10-12", "A")
+        late = {**audit("2026-10-12", "B"), "prediction_run_time_tw": "2026-10-12T09:01:00+08:00"}
+        naive = {**audit("2026-10-12", "C"), "prediction_run_time_tw": "2026-10-11T16:00:00"}
+        self.assertEqual([row["ticker"] for row in engine._canonical_audits([good, late, naive], "TW")], ["A"])
 
     def test_same_session_never_crosses_train_validation(self):
         start = date(2026, 9, 1)
