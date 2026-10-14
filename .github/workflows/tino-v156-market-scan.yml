@@ -30,9 +30,13 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            market_scanner_v156/requirements.txt
       - name: Install scanner and analysis dependencies
         run: python -m pip install -r requirements.txt -r market_scanner_v156/requirements.txt
+      - name: Verify scanner imports before market requests
+        run: python -c 'import sklearn, scipy, yfinance; print("Scanner dependencies ready")'
       - name: Run V156 market discovery
         run: python market_scanner_v156/tino_v156_scanner.py --mode scheduled --output-dir ./scanner_output
       - name: Publish completed snapshot to Google Drive
