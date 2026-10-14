@@ -155,7 +155,7 @@ def capture_query(prediction, forecast, origin="manual"):
     return {"status": "recorded", "experiment_id": row["experiment_id"], "experiment_status": row["status"]}
 
 
-def prediction_audit_scorecard(predictions, audits, symbol=None):
+def prediction_audit_scorecard(predictions, audits, symbol=None, as_of=None):
     """Read-only, one verified T+1 outcome per market/ticker/target session.
 
     Reference-limited or undated actuals stay outside the accuracy denominator.
@@ -168,7 +168,7 @@ def prediction_audit_scorecard(predictions, audits, symbol=None):
         return "|".join(str(row.get(field) or "") for field in ("market", "ticker", "target_trade_date"))
 
     predicted = {
-        sample_id(row) for row in predictions
+        sample_id(row): row for row in predictions
         if isinstance(row, dict) and row.get("ticker") and row.get("target_trade_date")
         and (not key or str(row.get("ticker") or "").upper() == key)
     }
@@ -194,7 +194,23 @@ def prediction_audit_scorecard(predictions, audits, symbol=None):
     directions = [r["direction_hit"] for r in verified if isinstance(r.get("direction_hit"), bool)]
     ranges = [r["close_in_predicted_range"] for r in verified if isinstance(r.get("close_in_predicted_range"), bool)]
     recent = sorted(verified, key=lambda r: str(r.get("audit_time_tw") or ""), reverse=True)[:20]
-    return {"samples": len(verified), "pending": len(predicted - set(by_sample)), "limited": limited,
+    unresolved = [row for identity, row in predicted.items() if identity not in by_sample]
+    clock = as_of or datetime.now(timezone.utc)
+    waiting, overdue = 0, 0
+    for row in unresolved:
+        try:
+            market_tz = ZoneInfo("America/New_York" if str(row.get("market") or "").upper() == "US" else "Asia/Taipei")
+            current_day = clock.astimezone(market_tz).date()
+            target_day = date.fromisoformat(str(row["target_trade_date"])[:10])
+        except (ValueError, TypeError, KeyError):
+            overdue += 1
+            continue
+        if target_day >= current_day:
+            waiting += 1
+        else:
+            overdue += 1
+    return {"samples": len(verified), "pending": len(unresolved), "waiting": waiting,
+            "overdue": overdue, "limited": limited,
             "mae_pct": round(sum(errors) / len(errors), 2) if errors else None,
             "direction_pct": round(100 * sum(directions) / len(directions), 1) if directions else None,
             "direction_n": len(directions),
@@ -210,7 +226,7 @@ def render_audit_scorecard(st, predictions, audits, symbol=None):
     cols[1].metric("平均收盤誤差", f'{result["mae_pct"]:.2f}%' if result["mae_pct"] is not None else "樣本不足")
     cols[2].metric("漲跌方向", f'{result["direction_pct"]:.1f}%' if result["direction_pct"] is not None else "樣本不足")
     cols[3].metric("收盤落入預測區間", f'{result["range_pct"]:.1f}%' if result["range_pct"] is not None else "樣本不足")
-    st.caption(f'方向樣本 {result["direction_n"]}｜區間樣本 {result["range_n"]}｜待核對 {result["pending"]}｜參考或來源未達正式門檻 {result["limited"]}。每個標的與目標交易日只計一次；預測準確度不是模擬交易報酬。')
+    st.caption(f'方向樣本 {result["direction_n"]}｜區間樣本 {result["range_n"]}｜等待目標收盤 {result["waiting"]}｜逾期未取得有效收盤 {result["overdue"]}｜參考或來源未達正式門檻 {result["limited"]}。每個標的與目標交易日只計一次；預測準確度不是模擬交易報酬。')
     if result["recent"]:
         with st.expander("查看最近正式稽核"):
             st.dataframe([{"標的": r.get("ticker"), "目標日": r.get("target_trade_date"),
