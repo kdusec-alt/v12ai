@@ -123,6 +123,9 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                     item["reason"] = type(exc).__name__
                 report["details"].append(item)
     # Reconcile prior decisions even when today's scanner recommends nobody.
+    # A failed scan should not trigger extra quote requests during recovery.
+    if scanner_status != "success":
+        settle = lambda: {"status": "deferred", "reason": "scanner_failed"}
     try:
         if settle is None:
             from learning import auto_audit_queried_predictions
