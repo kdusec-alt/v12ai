@@ -154,7 +154,10 @@ def main():
     from memory_store import MEMORY_DIR, PREDICTION_LOG, AUDIT_LOG
     if not remote_status().get("configured"):
         raise SystemExit("V1118 requires persistent memory before unattended paper research")
-    ensure_memory_initialized_bootsafe()
+    bootstrap = ensure_memory_initialized_bootsafe()
+    restore_status = (bootstrap.get("remote_restore") or {}).get("status")
+    if restore_status not in {"PASS", "EMPTY_REMOTE"}:
+        raise SystemExit(f"V1118 remote memory restore incomplete: {restore_status}")
     report = run_cycle(args.snapshot_dir, scanner_status=args.scanner_status)
     print(report)
     for path in (PREDICTION_LOG, AUDIT_LOG, Path(MEMORY_DIR)/"paper_lab"/"experiments.jsonl",
