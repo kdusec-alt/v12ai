@@ -28,6 +28,7 @@ class PaperContracts(unittest.TestCase):
         good={'target':'next','market':'TW','ticker':'6770.TW','official_sample_key':'s1',
               'target_trade_date':'2026-10-14','actual_price_date':'2026-10-14',
               'actual_valid':True,'predicted_close':100,'actual_close':102,'anchor_close':99,
+              'prediction_run_time_tw':'2026-10-13T16:00:00+08:00',
               'price_sample_quality':'verified','direction_hit':True,'close_in_predicted_range':False}
         duplicate={**good,'audit_time_tw':'2026-10-14T18:00:00+08:00'}
         wrong_date={**good,'official_sample_key':'s2','actual_price_date':'2026-10-13'}
@@ -42,6 +43,7 @@ class PaperContracts(unittest.TestCase):
             rows.append({'target':'next','market':market,'ticker':market,'target_trade_date':'2026-10-14',
                          'actual_price_date':'2026-10-14','actual_valid':True,'predicted_close':100,
                          'actual_close':102,'anchor_close':99,'price_sample_quality':'verified',
+                         'prediction_run_time_tw':'2026-10-13T16:00:00+08:00',
                          'prediction_session_mode':session,'predicted_direction':direction,'direction_hit':hit})
         groups=lab.prediction_audit_scorecard([],rows)['breakdown']
         self.assertEqual({(r['市場'],r['預測時段'],r['預測方向']) for r in groups},
@@ -53,6 +55,14 @@ class PaperContracts(unittest.TestCase):
              'actual_close':110,'anchor_close':100,'price_sample_quality':'reference_limited'}
         report=lab.prediction_audit_scorecard([], [row])
         self.assertEqual((report['samples'],report['limited'],report['mae_pct']), (0,1,None))
+
+    def test_scorecard_excludes_after_open_and_missing_timezone(self):
+        row={'target':'next','market':'TW','ticker':'A','target_trade_date':'2026-10-14',
+             'actual_price_date':'2026-10-14','actual_valid':True,'predicted_close':100,
+             'actual_close':102,'anchor_close':99,'price_sample_quality':'verified'}
+        for stamp in ('2026-10-14T09:01:00+08:00', '2026-10-13T16:00:00'):
+            report=lab.prediction_audit_scorecard([], [{**row,'prediction_run_time_tw':stamp}])
+            self.assertEqual((report['samples'],report['limited']), (0,1))
 
     def test_unresolved_targets_separate_waiting_from_overdue_by_market_clock(self):
         rows=[{'market':'TW','ticker':'6770.TW','target_trade_date':'2026-10-13'},
