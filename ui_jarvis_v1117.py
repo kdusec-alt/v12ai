@@ -121,11 +121,11 @@ def command_html(forecast, payload):
         '<div class="j-price">' + _price(last) + '<small>' + _text(getattr(ticker, "currency", None), "") + '</small></div>'
         '<div class="j-meta">' + _text(status) + ' · ' + _text(date) + '<br>來源：' + _text(source) +
         ('<br>' + _text(card.get("價格時間")) if card.get("價格時間") else '') + '</div></div>' + _orb() + '<div>'
-        '<div class="j-eyebrow">AI DECISION · 信心 ' + _text(confidence) + '</div>'
+        '<div class="j-eyebrow">AI DECISION · 證據一致 ' + _text(confidence) + '</div>'
         '<div class="j-verdict">' + _text(verdict) + '</div><div class="j-thesis">' + _text(thesis) + '</div>'
         '<div class="j-risk">主要風險：' + _text(risk) + '</div></div></section>'
         '<div class="j-shell j-levels">' + levels + '</div>'
-        '<div class="j-shell j-note">隔日預測收盤 ' + _price(getattr(forecast, "final_t1", None)) +
+        '<div class="j-shell j-note">下一交易日模型參考收盤 ' + _price(getattr(forecast, "final_t1", None)) +
         ' ｜ 隔日高點 ' + _price(getattr(forecast, "final_t1_high", None)) +
         ' ｜ 隔日低點 ' + _price(getattr(forecast, "final_t1_low", None)) +
         '<br>' + _text(brief.get("staged_entry") or plan.get("display_line") or "進場條件尚待確認") + '</div>'
