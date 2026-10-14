@@ -16,9 +16,11 @@ class AutonomousPaperContracts(unittest.TestCase):
             path = Path(folder) / 'tino_market_scanner_v156_partial.csv'
             path.write_text('ticker,execution_status,recommendation_score\nMU,ACTIONABLE,99\n')
             report = worker.run_cycle(folder, scanner_status='failure',
-                                      settle=lambda: {'settled': 0}, research=lambda _: self.fail('partial scan researched'))
+                                      settle=lambda: self.fail('failed scan fetched settlements'),
+                                      research=lambda _: self.fail('partial scan researched'))
             self.assertEqual((report['status'], report['shortlist'], report['source']), ('skipped', 0, ''))
             self.assertEqual(report['scanner_status'], 'failure')
+            self.assertEqual(report['settlement']['status'], 'deferred')
             self.assertIn('不完整', report['reason'])
 
     def test_research_shortlist_includes_watch_but_excludes_rejected(self):
