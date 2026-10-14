@@ -72,6 +72,12 @@ class UIContractTest(unittest.TestCase):
             f.price_frame.last = value
             self.assertIn('<div class="j-price">—', ui.command_html(f, p))
 
+    def test_premarket_defense_is_not_immediate_stop(self):
+        f, p = fixture()
+        f.decision_card["資料標題"] = "盤前參考資料"
+        output = ui.command_html(f, p)
+        self.assertIn("等待正式盤價格驗證，非立即停損指令", output)
+
     def test_stopped_forecast_has_no_entry(self):
         f, p = fixture()
         f.stopped = True
