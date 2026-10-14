@@ -387,12 +387,14 @@ def render_battle_panel(st, forecast, analysis_payload=None, comfortable=False):
     near20_detail = "；".join(str(item) for item in list(near20.get("drivers") or [])[:4])
     near20_calibration = str(near20.get("calibration_status") or "尚未校準")
     near20_full = safe(f"{near20_detail}｜{near20_calibration}" if near20_detail else near20_calibration)
-    staged_entry_line = safe(decision_brief.get("staged_entry") or "等待價格結構完成")
+    staged_entry_line = safe(decision_brief.get("staged_entry") or "目前沒有可執行的分批進場計畫")
+    show_staged_entry = bool(decision_brief.get("candidate_mode")) and "沒有可執行" not in str(decision_brief.get("staged_entry") or "")
+    staged_entry_html = f"<div class='price-command'>條件成立後的分批｜{staged_entry_line}</div>" if show_staged_entry else ""
     html = f"""
     <!doctype html><html><head><meta charset='utf-8'>
     <style>
     *{{box-sizing:border-box}}body{{margin:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei',Arial,sans-serif;color:#edf7ff}}
-    .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:612px;max-height:634px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow-x:hidden;overflow-y:auto;scrollbar-width:thin}}
+    .panel{{background:linear-gradient(180deg,#041321 0%,#02080d 100%);border-left:5px solid #37e6ff;min-height:390px;max-height:634px;padding:4px 8px 5px;border-right:1px solid rgba(55,230,255,.16);overflow-x:hidden;overflow-y:auto;scrollbar-width:thin}}
     .head{{border-bottom:1px solid rgba(55,230,255,.22);padding-bottom:5px;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,318px);gap:8px;align-items:start}}
     h1{{margin:0;color:#fff;font-size:20px;font-weight:900;letter-spacing:.01em}}.streak{{margin-top:1px;color:{'#6dffb1' if header_streak_positive else '#ff6f8e'};font-weight:800;font-size:11px}}
     .fvleft{{border:1px solid rgba(45,212,191,.28);background:linear-gradient(135deg,rgba(6,78,59,.18),rgba(2,18,30,.55));border-radius:11px;padding:5px 8px;color:#ecfeff;font-size:10.3px;line-height:1.12;font-weight:650}}
@@ -439,20 +441,16 @@ def render_battle_panel(st, forecast, analysis_payload=None, comfortable=False):
     </style></head><body><div class='panel'>
       <div class='head'><div><h1>{safe(t.resolved_symbol)}｜{safe(t.name)}</h1><div class='streak'>{safe(header_trend)}</div>{persona_html}</div><div class='fvleft'><b>技術情境價格帶 / TECHNICAL RANGE</b>{fair}<span class='fvnote'>現價 ± ATR 技術情境｜不是基本面估值</span></div></div>
       <div class='info'><span class='label'>{safe(d.get('資料標題','資料狀態'))}</span><br>開盤：{fmt(d.get('開盤'))}｜現價：{fmt(d.get('現價'))}｜{safe(d.get('漲跌標籤','漲跌'))}：{fmt(d.get('漲跌'))} / {fmt(d.get('漲跌幅'))}%<br>{safe(d.get('價格範圍標籤','今日'))}高：{fmt(d.get('最高'))}｜{safe(d.get('價格範圍標籤','今日'))}低：{fmt(d.get('最低'))}｜{safe(d.get('VWAP位置', p.tags[1] if len(p.tags)>1 else ''))}<span class='ptime'>{safe(d.get('價格時間',''))}</span>{t0_line}{compare_line}</div>
-      <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} AI交易決策</span>{entry_score_html}<span class='state'>{entry_label}</span></div><div class='entrysummary'>{entry_summary}</div></div>
+      <div class='entrylamp {entry_color}'><div class='entrytop'><span class='name'>{entry_icon} 目前決策</span><span class='state'>{entry_label}</span></div></div>
       <div class='decision'>
-        <div class='dt'>AI執行計畫｜AI策略判斷｜信心 {intelligence_confidence}｜{'條件單' if decision_brief.get('candidate_mode') else decision_title}</div>
-        <div class='thesis'>結論｜{intelligence_thesis}</div>
-        <div class='action-now'>目前動作｜{current_action_text}</div>
-        <div class='reasoning-price'><b>模型價位</b>{executive_price_line}</div>
-        <div class='near20' title='{near20_full}'>{near20_line}</div>
-        <div class='price-command'>進場與分批｜{staged_entry_line}</div>
-        <div class='risk'>失效／主要風險｜{intelligence_risk}</div>
-        <div class='evidence-summary' title='{safe(evidence_summary_raw)}'><b>決策依據</b>{evidence_summary}</div>
-        <details class='evidence-details'><summary>展開完整 AI 證據</summary><div class='evidence-full'><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>近20日回測觀察：</b>{safe(near20.get('reason') or '尚無可用估算')}；{near20_full}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
+        <div class='thesis'>判斷｜{intelligence_thesis}</div>
+        <div class='action-now'>{current_action_text}</div>
+        <div class='risk'>風險／失效｜{intelligence_risk}</div>
+        {staged_entry_html}
         <div class='pricebar'>{price_tiles_html}</div>
+        <details class='evidence-details'><summary>查看依據與歷史買點（信心 {intelligence_confidence}）</summary><div class='evidence-full'><b>決策依據：</b>{evidence_summary}<br><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>近20日觀察：</b>{near20_line}；{near20_full}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
       </div>
-      <div class='t1'><div class='tl'>下一交易日參考預測</div><div class='tm'>下一交易日收盤預估：{fmt(p.final_t1)}</div><div class='ts'>下一交易日路徑上緣：{fmt(p.final_t1_high)}｜下一交易日風險低點：{fmt(p.final_t1_low)}</div></div>
+      <div class='t1'><div class='tl'>下一交易日價格情境 · 非進場訊號</div><div class='tm'>收盤模型值：{fmt(p.final_t1)}</div><div class='ts'>模型上緣：{fmt(p.final_t1_high)}｜風險低點：{fmt(p.final_t1_low)}</div></div>
     </div></body></html>
     """
     if comfortable:
