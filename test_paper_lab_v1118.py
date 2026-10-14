@@ -1,4 +1,5 @@
 import copy
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -40,6 +41,13 @@ class PaperContracts(unittest.TestCase):
              'actual_close':110,'anchor_close':100,'price_sample_quality':'reference_limited'}
         report=lab.prediction_audit_scorecard([], [row])
         self.assertEqual((report['samples'],report['limited'],report['mae_pct']), (0,1,None))
+
+    def test_unresolved_targets_separate_waiting_from_overdue_by_market_clock(self):
+        rows=[{'market':'TW','ticker':'6770.TW','target_trade_date':'2026-10-13'},
+              {'market':'TW','ticker':'6770.TW','target_trade_date':'2026-10-14'},
+              {'market':'US','ticker':'MU','target_trade_date':'2026-10-13'}]
+        result=lab.prediction_audit_scorecard(rows, [], as_of=datetime(2026,10,14,1,0,tzinfo=timezone.utc))
+        self.assertEqual((result['pending'],result['waiting'],result['overdue']), (3,2,1))
 
     def test_inputs_unchanged(self):
         p,a=prediction(),audit(); before=copy.deepcopy((p,a));lab.settle_experiment(lab.build_experiment(p),a);self.assertEqual((p,a),before)
