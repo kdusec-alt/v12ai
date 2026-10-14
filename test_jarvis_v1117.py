@@ -85,7 +85,7 @@ class UIContractTest(unittest.TestCase):
     def test_no_fake_target_or_simulated_fills(self):
         f, p = fixture()
         output = ui.command_html(f, p)
-        self.assertIn("隔日預測收盤", output)
+        self.assertIn("下一交易日模型參考收盤", output)
         self.assertNotIn("模擬成交", output)
         self.assertNotIn("T2", output)
 
