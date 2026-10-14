@@ -224,9 +224,11 @@ def render_audit_scorecard(st, predictions, audits, symbol=None):
     cols = st.columns(4)
     cols[0].metric("有效 T+1 樣本", result["samples"])
     cols[1].metric("平均收盤誤差", f'{result["mae_pct"]:.2f}%' if result["mae_pct"] is not None else "樣本不足")
-    cols[2].metric("漲跌方向", f'{result["direction_pct"]:.1f}%' if result["direction_pct"] is not None else "樣本不足")
+    cols[2].metric("三向判斷正確率", f'{result["direction_pct"]:.1f}%' if result["direction_pct"] is not None else "樣本不足")
     cols[3].metric("收盤落入預測區間", f'{result["range_pct"]:.1f}%' if result["range_pct"] is not None else "樣本不足")
     st.caption(f'方向樣本 {result["direction_n"]}｜區間樣本 {result["range_n"]}｜等待目標收盤 {result["waiting"]}｜逾期未取得有效收盤 {result["overdue"]}｜參考或來源未達正式門檻 {result["limited"]}。每個標的與目標交易日只計一次；預測準確度不是模擬交易報酬。')
+    if result["overdue"]:
+        st.warning(f'有 {result["overdue"]} 筆預測已過目標日，仍缺有效正式收盤；稽核覆蓋不足，暫勿將上述統計視為完整模型成績。')
     if result["recent"]:
         with st.expander("查看最近正式稽核"):
             st.dataframe([{"標的": r.get("ticker"), "目標日": r.get("target_trade_date"),
@@ -281,7 +283,7 @@ def render_autonomous_dashboard(st):
                      use_container_width=True, hide_index=True)
     st.caption("每筆最多使用該幣別配置本金 10%；只計入已驗證的自主 T+1 模擬成交。待驗證訊號不扣款。無匯率換算、不接券商。")
     if not runs:
-        st.info("排程尚無完成紀錄。首輪完成後，這裡會顯示找到的標的、淘汰原因與模擬結果。")
+        st.warning("尚未取得自主掃描完成紀錄，無法確認排程已產生可用快照；請檢查 Actions 掃描、雲端發布與紀錄同步。沒有紀錄不代表已模擬下單。")
         return
     latest = runs[-1]
     st.markdown(f"最近一輪：**{latest.get('run_day') or '日期未知'}**｜狀態 **{latest.get('status') or '未知'}**｜AI 研究 **{latest.get('ai_status') or '未執行'}**｜來源 {latest.get('source') or '無快照'}")
