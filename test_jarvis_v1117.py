@@ -38,6 +38,8 @@ class UIContractTest(unittest.TestCase):
         output = ui.command_html(f, p)
         self.assertIn("<strong>暫不進場</strong>", output)
         self.assertNotIn("66.6", output)
+        self.assertIn("個股證據一致", output)
+        self.assertIn("非預測命中率", output)
 
     def test_non_executable_zone_is_not_shown_as_buy_price(self):
         f, p = fixture()
