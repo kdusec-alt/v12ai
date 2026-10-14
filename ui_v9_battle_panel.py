@@ -299,10 +299,18 @@ def render_battle_panel(st, forecast, analysis_payload=None, comfortable=False):
     raw_price_tiles = _entry_map_tiles(display_plan, legacy_price_tiles)
     if bool(decision_brief.get("candidate_mode")):
         raw_price_tiles = [
-            {"label": "低接", "value": decision_brief.get("entry_zone"), "title": decision_brief.get("entry_instruction")},
-            {"label": "確認", "value": decision_brief.get("confirmation"), "title": decision_brief.get("confirmation_instruction")},
-            {"label": "加碼", "value": decision_brief.get("breakout"), "title": decision_brief.get("breakout_instruction")},
-            {"label": "失效", "value": f"{decision_brief.get('invalidation')}跌破", "title": decision_brief.get("invalidation_instruction")},
+            {"label": "首筆候選", "value": decision_brief.get("entry_zone"), "title": "止穩及量能確認後，才評估第一筆"},
+            {"label": "轉強確認", "value": decision_brief.get("confirmation") if decision_brief.get("confirmation") != "--" else "未形成", "title": "站回價位且條件確認後，才評估第二筆"},
+            {"label": "突破加碼", "value": decision_brief.get("breakout") if decision_brief.get("breakout") != "--" else "未形成", "title": "已持倉且放量突破後，才評估加碼"},
+            {"label": "失效防守", "value": f"{decision_brief.get('invalidation')}跌破", "title": decision_brief.get("invalidation_instruction")},
+        ]
+    else:
+        raw_price_tiles = [
+            raw_price_tiles[0],
+            {"label": "首筆候選", "value": "暫不進場", "title": "尚未取得買進資格；觀察區不是掛單價"},
+            {"label": "轉強確認", "value": "未形成", "title": "尚無可執行的轉強價位"},
+            {"label": "突破加碼", "value": "未形成", "title": "尚無可執行的加碼價位"},
+            {"label": "失效防守", "value": decision_brief.get("invalidation") or "--", "title": "跌破取消候選；持股依原風控"},
         ]
     price_tiles_html = "".join(
         "<div class='priceitem' title='"
