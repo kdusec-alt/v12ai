@@ -38,6 +38,7 @@ jobs:
       - name: Verify scanner imports before market requests
         run: python -c 'import sklearn, scipy, yfinance; print("Scanner dependencies ready")'
       - name: Run V156 market discovery
+        id: discovery
         run: python market_scanner_v156/tino_v156_scanner.py --mode scheduled --output-dir ./scanner_output
       - name: Publish completed snapshot to Google Drive
         env:
@@ -45,10 +46,12 @@ jobs:
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
         run: python market_scanner_v156/drive_publish.py ./scanner_output
       - name: Run V1118 autonomous paper decisions
+        if: ${{ always() && steps.discovery.outcome != 'skipped' }}
         env:
+          SCANNER_STATUS: ${{ steps.discovery.outcome }}
           GITHUB_TOKEN: ${{ github.token }}
           TINO_GITHUB_REPO: ${{ github.repository }}
           TINO_GITHUB_BRANCH: tino-memory
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TINO_AI_RESEARCH_MODEL: gpt-5-mini
-        run: python autonomous_paper_v1118.py --snapshot-dir ./scanner_output
+        run: python autonomous_paper_v1118.py --snapshot-dir ./scanner_output --scanner-status "$SCANNER_STATUS"
