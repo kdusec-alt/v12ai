@@ -53,7 +53,10 @@ def main():
     from memory_store import MEMORY_DIR, AUDIT_LOG, TICKER_PROFILE, LEARNING_WEIGHTS
     if not remote_status().get("configured"):
         raise SystemExit("Scheduled audit requires persistent memory")
-    ensure_memory_initialized_bootsafe()
+    bootstrap = ensure_memory_initialized_bootsafe()
+    restore_status = (bootstrap.get("remote_restore") or {}).get("status")
+    if restore_status not in {"PASS", "EMPTY_REMOTE"}:
+        raise SystemExit(f"Audit remote memory restore incomplete: {restore_status}")
     report = run_close_audit(args.market)
     print({k: v for k, v in report.items() if k != "errors"})
     for path in (AUDIT_LOG, TICKER_PROFILE, LEARNING_WEIGHTS,
