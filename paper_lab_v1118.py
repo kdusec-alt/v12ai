@@ -244,11 +244,29 @@ def render_autonomous_dashboard(st):
     from paper_portfolio_v1118 import snapshot, set_capital, _path as portfolio_path
     root = Path(MEMORY_DIR) / "paper_lab"
     runs = read_jsonl(root / "scan_runs.jsonl", 100)
+    close_audits = read_jsonl(root / "audit_runs.jsonl", 20)
     seeds = [r for r in read_jsonl(root / "experiments.jsonl", 2000) if r.get("origin") == "autonomous"]
     outcomes = {r.get("experiment_id"): r for r in read_jsonl(root / "outcomes.jsonl", 4000)}
     st.markdown("## 🤖 V1118 自主模擬研究")
     st.markdown("每日市場掃描 → AI 比較論點與風險 → 正式模型否決／確認 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
     render_audit_scorecard(st, read_prediction_log(2000), read_audit_log(2000))
+    try:
+        from learning_weight_engine import get_learning_weight_state
+        states = [get_learning_weight_state(market) for market in ("TW", "US")]
+        st.caption("自主權重｜" + "｜".join(
+            f'{state["market"]}：' + ("已通過驗證並啟用" if state["applied"] else "未啟用／等待重新驗證")
+            for state in states
+        ))
+    except Exception:
+        st.caption("自主權重狀態無法確認；正式判斷依原始模型。")
+    if close_audits:
+        last_by_market = {row.get("market"): row for row in close_audits if row.get("market") in {"TW", "US"}}
+        st.caption("收盤稽核排程｜" + "｜".join(
+            f'{market} {row.get("run_at", "")[:16]} UTC：{row.get("status", "待確認")}，核對 {row.get("audited_t1", 0)} 筆'
+            for market, row in sorted(last_by_market.items())
+        ))
+    else:
+        st.caption("收盤稽核排程尚無完成紀錄；逾期樣本不會自動視為已核對。")
     portfolio = snapshot()
     st.markdown("**虛擬資金池｜已驗證 T+1 模擬成交**")
     funds = st.columns(2)
