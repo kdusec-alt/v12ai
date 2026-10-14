@@ -155,9 +155,74 @@ def capture_query(prediction, forecast, origin="manual"):
     return {"status": "recorded", "experiment_id": row["experiment_id"], "experiment_status": row["status"]}
 
 
+def prediction_audit_scorecard(predictions, audits, symbol=None):
+    """Read-only, one verified T+1 outcome per market/ticker/target session.
+
+    Reference-limited or undated actuals stay outside the accuracy denominator.
+    This never interprets forecast accuracy as simulated trading performance.
+    """
+    key = str(symbol or "").upper()
+    def sample_id(row):
+        if row.get("official_sample_key"):
+            return str(row["official_sample_key"])
+        return "|".join(str(row.get(field) or "") for field in ("market", "ticker", "target_trade_date"))
+
+    predicted = {
+        sample_id(row) for row in predictions
+        if isinstance(row, dict) and row.get("ticker") and row.get("target_trade_date")
+        and (not key or str(row.get("ticker") or "").upper() == key)
+    }
+    by_sample = {}
+    for row in audits:
+        if not isinstance(row, dict) or row.get("target") != "next":
+            continue
+        if key and str(row.get("ticker") or "").upper() != key:
+            continue
+        target = str(row.get("target_trade_date") or "")[:10]
+        if (row.get("actual_valid") is not True or not target
+                or str(row.get("actual_price_date") or "")[:10] != target):
+            continue
+        if any(number(row.get(field)) is None or number(row.get(field)) <= 0
+               for field in ("predicted_close", "actual_close", "anchor_close")):
+            continue
+        identity = sample_id(row)
+        if identity not in by_sample or str(row.get("audit_time_tw") or "") > str(by_sample[identity].get("audit_time_tw") or ""):
+            by_sample[identity] = row
+    verified = [row for row in by_sample.values() if row.get("price_sample_quality") == "verified"]
+    limited = len(by_sample) - len(verified)
+    errors = [abs((float(r["actual_close"]) - float(r["predicted_close"])) / float(r["predicted_close"])) * 100 for r in verified]
+    directions = [r["direction_hit"] for r in verified if isinstance(r.get("direction_hit"), bool)]
+    ranges = [r["close_in_predicted_range"] for r in verified if isinstance(r.get("close_in_predicted_range"), bool)]
+    recent = sorted(verified, key=lambda r: str(r.get("audit_time_tw") or ""), reverse=True)[:20]
+    return {"samples": len(verified), "pending": len(predicted - set(by_sample)), "limited": limited,
+            "mae_pct": round(sum(errors) / len(errors), 2) if errors else None,
+            "direction_pct": round(100 * sum(directions) / len(directions), 1) if directions else None,
+            "direction_n": len(directions),
+            "range_pct": round(100 * sum(ranges) / len(ranges), 1) if ranges else None,
+            "range_n": len(ranges), "recent": recent}
+
+
+def render_audit_scorecard(st, predictions, audits, symbol=None):
+    result = prediction_audit_scorecard(predictions, audits, symbol)
+    st.markdown("**預測稽核｜正式收盤後才計分**")
+    cols = st.columns(4)
+    cols[0].metric("有效 T+1 樣本", result["samples"])
+    cols[1].metric("平均收盤誤差", f'{result["mae_pct"]:.2f}%' if result["mae_pct"] is not None else "樣本不足")
+    cols[2].metric("漲跌方向", f'{result["direction_pct"]:.1f}%' if result["direction_pct"] is not None else "樣本不足")
+    cols[3].metric("收盤落入預測區間", f'{result["range_pct"]:.1f}%' if result["range_pct"] is not None else "樣本不足")
+    st.caption(f'方向樣本 {result["direction_n"]}｜區間樣本 {result["range_n"]}｜待核對 {result["pending"]}｜參考或來源未達正式門檻 {result["limited"]}。每個標的與目標交易日只計一次；預測準確度不是模擬交易報酬。')
+    if result["recent"]:
+        with st.expander("查看最近正式稽核"):
+            st.dataframe([{"標的": r.get("ticker"), "目標日": r.get("target_trade_date"),
+                           "預測收盤": r.get("predicted_close"), "正式收盤": r.get("actual_close"),
+                           "絕對誤差%": round(abs(float(r["actual_close"])-float(r["predicted_close"])) / float(r["predicted_close"]) * 100, 2),
+                           "方向正確": r.get("direction_hit"), "來源": r.get("actual_price_source")}
+                          for r in result["recent"]], use_container_width=True, hide_index=True)
+
+
 def render_autonomous_dashboard(st):
     """Public read-only ledger; does not run scans or access a broker."""
-    from memory_store import MEMORY_DIR, read_jsonl
+    from memory_store import MEMORY_DIR, read_jsonl, read_prediction_log, read_audit_log
     from paper_portfolio_v1118 import snapshot, set_capital, _path as portfolio_path
     root = Path(MEMORY_DIR) / "paper_lab"
     runs = read_jsonl(root / "scan_runs.jsonl", 100)
@@ -165,6 +230,7 @@ def render_autonomous_dashboard(st):
     outcomes = {r.get("experiment_id"): r for r in read_jsonl(root / "outcomes.jsonl", 4000)}
     st.markdown("## 🤖 V1118 自主模擬研究")
     st.markdown("每日市場掃描 → AI 比較論點與風險 → 正式模型否決／確認 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
+    render_audit_scorecard(st, read_prediction_log(2000), read_audit_log(2000))
     portfolio = snapshot()
     st.markdown("**虛擬資金池｜已驗證 T+1 模擬成交**")
     funds = st.columns(2)
@@ -273,7 +339,7 @@ def learning_summary(rows):
 
 
 def render_paper_lab(st, symbol):
-    from memory_store import read_jsonl
+    from memory_store import read_jsonl, read_prediction_log, read_audit_log
     from memory_store import MEMORY_DIR
     from tino_persistent_store import remote_status
     seeds_path, outcomes_path = _paths()
@@ -281,6 +347,7 @@ def render_paper_lab(st, symbol):
     outcomes = [r for r in read_jsonl(outcomes_path, 4000) if r.get("ticker") == symbol]
     runs = read_jsonl(Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl", 10)
     st.markdown("**自主尋標研究**")
+    render_audit_scorecard(st, read_prediction_log(2000), read_audit_log(2000), symbol)
     if runs:
         latest = runs[-1]
         st.markdown(f"最近掃描：{latest.get('run_day', '日期未知')}｜AI 研究 {latest.get('ai_status', '未執行')}｜提名 {latest.get('candidates', 0)}｜正式判斷記錄 {latest.get('recorded', 0)}｜模擬 BUY {latest.get('paper_buy', 0)}")
