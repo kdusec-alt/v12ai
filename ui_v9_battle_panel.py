@@ -448,7 +448,7 @@ def render_battle_panel(st, forecast, analysis_payload=None, comfortable=False):
         <div class='risk'>風險／失效｜{intelligence_risk}</div>
         {staged_entry_html}
         <div class='pricebar'>{price_tiles_html}</div>
-        <details class='evidence-details'><summary>查看依據與歷史買點（信心 {intelligence_confidence}）</summary><div class='evidence-full'><b>決策依據：</b>{evidence_summary}<br><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>近20日觀察：</b>{near20_line}；{near20_full}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
+        <details class='evidence-details'><summary>查看依據與歷史買點（證據一致 {intelligence_confidence}）</summary><div class='evidence-full'><b>決策依據：</b>{evidence_summary}<br><b>推理仲裁：</b>{reasoning_conflict}<br><b>跨模組門檻：</b>{gate_detail}<br><b>進場狀態：</b>{entry_state_detail}<br><b>AI執行價格：</b>{entry_plan_text}<br><b>近20日觀察：</b>{near20_line}；{near20_full}<br><b>ABC情境：</b>{abc_detail}<br><b>Quantum：</b>{quantum_detail}<br><b>AI 證據：</b>{evidence}<br><b>市場：</b>{market}<br><b>{'Short' if t.market == 'US' else '籌碼'}：</b>{chip}</div></details>
       </div>
       <div class='t1'><div class='tl'>下一交易日價格情境 · 非進場訊號</div><div class='tm'>收盤模型值：{fmt(p.final_t1)}</div><div class='ts'>模型上緣：{fmt(p.final_t1_high)}｜風險低點：{fmt(p.final_t1_low)}</div></div>
     </div></body></html>
