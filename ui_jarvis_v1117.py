@@ -39,7 +39,7 @@ STYLE = """<style>
 .j-command{grid-template-columns:1fr 70px 1.8fr;gap:16px;padding:12px 18px;margin:8px 0;border-radius:16px}
 .j-command .j-orb{width:68px;height:68px}.j-command .j-core{width:43px;height:43px;font-size:12px}
 .j-name{font-size:20px;margin-bottom:4px}.j-price{font-size:30px}.j-meta{margin-top:4px}.j-verdict{font-size:20px;margin:4px 0}.j-risk{margin-top:4px}
-.j-levels{gap:8px;margin:8px 0}.j-level{padding:9px 12px}.j-level strong{font-size:20px;margin:3px 0}.j-level small{display:none}
+.j-levels{gap:8px;margin:8px 0}.j-level{padding:9px 12px}.j-level strong{font-size:20px;margin:3px 0}.j-level small{display:block;font-size:11px;line-height:1.35}
 .j-note{padding:6px 12px;margin:6px 0;font-size:13px}.j-section{padding:7px 0 4px}
 [data-testid="stRadio"] label p{color:#d8edf4!important;font-size:14px!important}
 [data-testid="stTextInput"] input::placeholder{color:#91acbd!important;opacity:1!important}
@@ -103,11 +103,20 @@ def command_html(forecast, payload):
     tone = str(snap.get("color") or "yellow").lower()
     tone = tone if tone in {"green", "red", "yellow"} else "yellow"
     # A brief's explicit '—/等待/禁止' must remain explicit; never replace it with raw entry.
+    candidate = bool(brief.get("candidate_mode"))
+    observed_zone = str(brief.get("entry_zone") or "").strip()
+    entry_value = observed_zone if candidate else "暫不進場"
+    entry_note = ("僅候選區；止穩及量能確認後，才評估第一筆" if candidate else
+                  (f"{observed_zone} 僅供觀察；尚未取得買進資格" if observed_zone and observed_zone != "等待" else "條件未齊，不建立買單"))
+    confirmation = str(brief.get("confirmation") or "--")
+    breakout = str(brief.get("breakout") or "--")
     values = [
-        ("AI 建議進場區", brief.get("entry_zone") or "等待條件確認", brief.get("entry_instruction") or "依正式進場條件執行"),
-        ("確認價", brief.get("confirmation") or "—", brief.get("confirmation_instruction") or "確認成立後再評估"),
-        ("加碼價", brief.get("breakout") or "—", brief.get("breakout_instruction") or "依分批計畫執行"),
-        ("失效／防守", brief.get("invalidation") or "—", brief.get("invalidation_instruction") or "非保證成交的停損價"),
+        ("第一筆候選區", entry_value, entry_note),
+        ("轉強確認價", confirmation if candidate and confirmation not in {"--", "—"} else "未形成",
+         "價格站回且條件確認後，才評估第二筆" if candidate and confirmation not in {"--", "—"} else "尚無可執行的轉強價位"),
+        ("突破加碼價", breakout if candidate and breakout not in {"--", "—"} else "未形成",
+         "已持倉且放量突破後，才評估加碼" if candidate and breakout not in {"--", "—"} else "尚無可執行的加碼價位"),
+        ("失效／防守價", brief.get("invalidation") or "—", "跌破取消候選；持股依原風控，非保證成交價"),
     ]
     levels = ''.join('<div class="j-level"><span>' + _text(label) + '</span><strong>' + _text(value) + '</strong><small>' + _text(note) + '</small></div>' for label, value, note in values)
     verdict = brief.get("verdict") or snap.get("label") or "正式決策待確認"
