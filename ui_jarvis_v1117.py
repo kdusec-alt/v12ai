@@ -110,13 +110,16 @@ def command_html(forecast, payload):
                   (f"{observed_zone} 僅供觀察；尚未取得買進資格" if observed_zone and observed_zone != "等待" else "條件未齊，不建立買單"))
     confirmation = str(brief.get("confirmation") or "--")
     breakout = str(brief.get("breakout") or "--")
+    invalidation_note = ("盤前參考；等待正式盤價格驗證，非立即停損指令"
+                         if "盤前" in str(status or "") else
+                         "跌破取消候選；持股依原風控，非保證成交價")
     values = [
         ("第一筆候選區", entry_value, entry_note),
         ("轉強確認價", confirmation if candidate and confirmation not in {"--", "—"} else "未形成",
          "價格站回且條件確認後，才評估第二筆" if candidate and confirmation not in {"--", "—"} else "尚無可執行的轉強價位"),
         ("突破加碼價", breakout if candidate and breakout not in {"--", "—"} else "未形成",
          "已持倉且放量突破後，才評估加碼" if candidate and breakout not in {"--", "—"} else "尚無可執行的加碼價位"),
-        ("失效／防守價", brief.get("invalidation") or "—", "跌破取消候選；持股依原風控，非保證成交價"),
+        ("失效／防守價", brief.get("invalidation") or "—", invalidation_note),
     ]
     levels = ''.join('<div class="j-level"><span>' + _text(label) + '</span><strong>' + _text(value) + '</strong><small>' + _text(note) + '</small></div>' for label, value, note in values)
     verdict = brief.get("verdict") or snap.get("label") or "正式決策待確認"
