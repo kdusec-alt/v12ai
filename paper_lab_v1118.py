@@ -193,6 +193,19 @@ def prediction_audit_scorecard(predictions, audits, symbol=None, as_of=None):
     errors = [abs((float(r["actual_close"]) - float(r["predicted_close"])) / float(r["predicted_close"])) * 100 for r in verified]
     directions = [r["direction_hit"] for r in verified if isinstance(r.get("direction_hit"), bool)]
     ranges = [r["close_in_predicted_range"] for r in verified if isinstance(r.get("close_in_predicted_range"), bool)]
+    grouped = defaultdict(list)
+    for row in verified:
+        group = (str(row.get("market") or "未知"), str(row.get("prediction_session_mode") or "未知"),
+                 str(row.get("predicted_direction") or "未知"))
+        grouped[group].append(row)
+    breakdown = []
+    for (market, session, direction), samples in grouped.items():
+        hits = [r["direction_hit"] for r in samples if isinstance(r.get("direction_hit"), bool)]
+        breakdown.append({"市場": market, "預測時段": session, "預測方向": direction,
+                          "有效樣本": len(samples),
+                          "方向正確率%": round(100 * sum(hits) / len(hits), 1) if hits else None,
+                          "平均收盤誤差%": round(sum(abs(float(r["actual_close"])-float(r["predicted_close"])) / float(r["predicted_close"]) * 100 for r in samples) / len(samples), 2)})
+    breakdown.sort(key=lambda row: (-row["有效樣本"], row["市場"], row["預測時段"]))
     recent = sorted(verified, key=lambda r: str(r.get("audit_time_tw") or ""), reverse=True)[:20]
     unresolved = [row for identity, row in predicted.items() if identity not in by_sample]
     clock = as_of or datetime.now(timezone.utc)
@@ -215,7 +228,7 @@ def prediction_audit_scorecard(predictions, audits, symbol=None, as_of=None):
             "direction_pct": round(100 * sum(directions) / len(directions), 1) if directions else None,
             "direction_n": len(directions),
             "range_pct": round(100 * sum(ranges) / len(ranges), 1) if ranges else None,
-            "range_n": len(ranges), "recent": recent}
+            "range_n": len(ranges), "recent": recent, "breakdown": breakdown}
 
 
 def render_audit_scorecard(st, predictions, audits, symbol=None):
@@ -236,6 +249,10 @@ def render_audit_scorecard(st, predictions, audits, symbol=None):
                            "絕對誤差%": round(abs(float(r["actual_close"])-float(r["predicted_close"])) / float(r["predicted_close"]) * 100, 2),
                            "方向正確": r.get("direction_hit"), "來源": r.get("actual_price_source")}
                           for r in result["recent"]], use_container_width=True, hide_index=True)
+    if result["breakdown"]:
+        with st.expander("查看市場、時段與方向分群"):
+            st.dataframe(result["breakdown"], use_container_width=True, hide_index=True)
+            st.caption("僅包含已驗證樣本；分群樣本數不同，不能直接解讀為可交易勝率。")
 
 
 def render_autonomous_dashboard(st):
