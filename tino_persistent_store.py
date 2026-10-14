@@ -70,8 +70,10 @@ _MEMORY_FILES = [
     "paper_lab/experiments.jsonl",
     "paper_lab/outcomes.jsonl",
     "paper_lab/scan_runs.jsonl",
+    "paper_lab/audit_runs.jsonl",
     "prediction_log.jsonl",
     "audit_log.jsonl",
+    "learning_weights_v14.json",
     "ticker_profiles.json",
     "tino_memory_ledger.json",
     # V13 Research sidecar memory.  These files are independent from the V12
