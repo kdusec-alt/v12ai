@@ -11,6 +11,16 @@ import memory_store
 
 
 class AutonomousPaperContracts(unittest.TestCase):
+    def test_failed_scanner_never_consumes_partial_csv_but_records_status(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(memory_store, 'MEMORY_DIR', Path(folder)), patch.object(memory_store, '_post_memory_write'):
+            path = Path(folder) / 'tino_market_scanner_v156_partial.csv'
+            path.write_text('ticker,execution_status,recommendation_score\nMU,ACTIONABLE,99\n')
+            report = worker.run_cycle(folder, scanner_status='failure',
+                                      settle=lambda: {'settled': 0}, research=lambda _: self.fail('partial scan researched'))
+            self.assertEqual((report['status'], report['shortlist'], report['source']), ('skipped', 0, ''))
+            self.assertEqual(report['scanner_status'], 'failure')
+            self.assertIn('不完整', report['reason'])
+
     def test_research_shortlist_includes_watch_but_excludes_rejected(self):
         rows = [
             {'ticker':'A','is_recommended5':'True','execution_status':'ACTIONABLE','recommendation_score':'80'},
