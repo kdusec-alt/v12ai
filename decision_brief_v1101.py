@@ -455,6 +455,9 @@ def build_decision_brief(
         "staged_entry": (
             f"{_zone_text(execution)} 止穩先 1/3；站回 {_price(execution.get('confirmation_price'))} 再 1/3；"
             f"放量突破 {_price(execution.get('add_price') or execution.get('breakout_price'))} 才考慮最後 1/3"
+            if candidate_mode and _num(execution.get('confirmation_price')) is not None
+            and _num(execution.get('add_price') or execution.get('breakout_price')) is not None
+            else "目前沒有可執行的分批進場計畫"
         ),
         "audit_preserved": True,
         "formal_model_unchanged": True,
