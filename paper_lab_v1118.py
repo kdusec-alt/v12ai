@@ -188,7 +188,11 @@ def prediction_audit_scorecard(predictions, audits, symbol=None, as_of=None):
         identity = sample_id(row)
         if identity not in by_sample or str(row.get("audit_time_tw") or "") > str(by_sample[identity].get("audit_time_tw") or ""):
             by_sample[identity] = row
-    verified = [row for row in by_sample.values() if row.get("price_sample_quality") == "verified"]
+    verified = [row for row in by_sample.values() if row.get("price_sample_quality") == "verified"
+                and before_target_open({"market": row.get("market"),
+                                        "target_trade_date": row.get("target_trade_date"),
+                                        "observed_at": row.get("prediction_run_time_tw"),
+                                        "signal_date": "1900-01-01"})]
     limited = len(by_sample) - len(verified)
     errors = [abs((float(r["actual_close"]) - float(r["predicted_close"])) / float(r["predicted_close"])) * 100 for r in verified]
     directions = [r["direction_hit"] for r in verified if isinstance(r.get("direction_hit"), bool)]
@@ -239,7 +243,7 @@ def render_audit_scorecard(st, predictions, audits, symbol=None):
     cols[1].metric("平均收盤誤差", f'{result["mae_pct"]:.2f}%' if result["mae_pct"] is not None else "樣本不足")
     cols[2].metric("三向判斷正確率", f'{result["direction_pct"]:.1f}%' if result["direction_pct"] is not None else "樣本不足")
     cols[3].metric("收盤落入預測區間", f'{result["range_pct"]:.1f}%' if result["range_pct"] is not None else "樣本不足")
-    st.caption(f'方向樣本 {result["direction_n"]}｜區間樣本 {result["range_n"]}｜等待目標收盤 {result["waiting"]}｜逾期未取得有效收盤 {result["overdue"]}｜參考或來源未達正式門檻 {result["limited"]}。每個標的與目標交易日只計一次；預測準確度不是模擬交易報酬。')
+    st.caption(f'方向樣本 {result["direction_n"]}｜區間樣本 {result["range_n"]}｜等待目標收盤 {result["waiting"]}｜逾期未取得有效收盤 {result["overdue"]}｜來源或預測時點未達正式門檻 {result["limited"]}。每個標的與目標交易日只計一次；預測準確度不是模擬交易報酬。')
     if result["overdue"]:
         st.warning(f'有 {result["overdue"]} 筆預測已過目標日，仍缺有效正式收盤；稽核覆蓋不足，暫勿將上述統計視為完整模型成績。')
     if result["recent"]:
