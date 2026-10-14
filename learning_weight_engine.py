@@ -32,6 +32,7 @@ from memory_store import LEARNING_WEIGHTS, read_audit_log, read_json, write_json
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 SCHEMA = "TINO_V14_LEARNING_WEIGHTS_V1"
+VALIDATION_PROTOCOL = "session_holdout_v2"
 
 ALLOWED_FAMILIES = {
     "trend", "intraday", "price_action", "flow", "short", "exhaustion", "news",
@@ -46,6 +47,8 @@ MIN_TOTAL = 24
 MIN_TRAIN = 16
 MIN_HOLDOUT = 8
 MIN_UNIQUE_TICKERS = 6
+MIN_UNIQUE_SESSIONS = 8
+MIN_HOLDOUT_SESSIONS = 3
 MIN_FAMILY_COUNT = 8
 MIN_FAMILY_TICKERS = 4
 MAX_AUDITS = 900
@@ -131,7 +134,7 @@ def _canonical_audits(rows: Iterable[Mapping[str, Any]], market: str) -> List[Di
             continue
         if str(row.get("price_sample_quality") or "").lower() != "verified":
             continue
-        if not bool(row.get("actual_valid")):
+        if row.get("actual_valid") is not True:
             continue
         if str(row.get("actual_direction") or "").upper() not in {"UP", "DOWN"}:
             continue
@@ -143,7 +146,10 @@ def _canonical_audits(rows: Iterable[Mapping[str, Any]], market: str) -> List[Di
             continue
         ticker = str(row.get("ticker") or "").strip().upper()
         trade_date = str(row.get("target_trade_date") or "").strip()
-        if not ticker or not trade_date:
+        if (not ticker or not trade_date
+                or str(row.get("actual_price_date") or "")[:10] != trade_date[:10]
+                or _num(row.get("actual_close")) <= 0
+                or _num(row.get("anchor_close")) <= 0):
             continue
         key = f"{wanted}|{ticker}|{trade_date}"
         old = chosen.get(key)
@@ -263,7 +269,8 @@ def _evaluate(rows: List[Dict[str, Any]], multipliers: Mapping[str, float]) -> D
 
 
 def _model_is_applied(model: Mapping[str, Any]) -> bool:
-    return str(model.get("status") or "").upper() in {"ACTIVE", "FROZEN"}
+    return (model.get("validation_protocol") == VALIDATION_PROTOCOL
+            and str(model.get("status") or "").upper() in {"ACTIVE", "FROZEN"})
 
 
 def _step_toward(previous: Mapping[str, Any], candidate: Mapping[str, float]) -> Dict[str, float]:
@@ -282,6 +289,7 @@ def _step_toward(previous: Mapping[str, Any], candidate: Mapping[str, float]) ->
 def _train_market(market: str, rows: List[Dict[str, Any]], previous: Mapping[str, Any]) -> Dict[str, Any]:
     count = len(rows)
     unique_tickers = len({str(row.get("ticker") or "").upper() for row in rows})
+    sessions = sorted({str(row.get("target_trade_date") or "")[:10] for row in rows})
     generation = int(_num(previous.get("generation"), 0.0)) + 1
     base = {
         "market": market,
@@ -289,6 +297,8 @@ def _train_market(market: str, rows: List[Dict[str, Any]], previous: Mapping[str
         "generation": generation,
         "sample_count": count,
         "unique_tickers": unique_tickers,
+        "unique_sessions": len(sessions),
+        "validation_protocol": VALIDATION_PROTOCOL,
         "trained_through": str(rows[-1].get("target_trade_date") or "") if rows else None,
         "last_audit_count": count,
         "audit_fingerprint": _audit_fingerprint(rows),
@@ -296,20 +306,22 @@ def _train_market(market: str, rows: List[Dict[str, Any]], previous: Mapping[str
         "max_step": MAX_STEP,
     }
 
-    if count < MIN_TOTAL or unique_tickers < MIN_UNIQUE_TICKERS:
+    if count < MIN_TOTAL or unique_tickers < MIN_UNIQUE_TICKERS or len(sessions) < MIN_UNIQUE_SESSIONS:
         return {
             **base,
             "status": "COLLECTING",
-            "gate": f"need_total>={MIN_TOTAL}_and_unique>={MIN_UNIQUE_TICKERS}",
+            "gate": f"need_total>={MIN_TOTAL}_tickers>={MIN_UNIQUE_TICKERS}_sessions>={MIN_UNIQUE_SESSIONS}",
             "multipliers": dict(previous.get("multipliers") or {}) if _model_is_applied(previous) else {},
             "candidate_multipliers": {},
             "family_statistics": {},
             "validation": {},
         }
 
-    holdout_n = max(MIN_HOLDOUT, int(round(count * 0.25)))
-    holdout_n = min(holdout_n, count - MIN_TRAIN)
-    if holdout_n < MIN_HOLDOUT:
+    holdout_days = max(MIN_HOLDOUT_SESSIONS, int(round(len(sessions) * 0.25)))
+    validation_dates = set(sessions[-holdout_days:])
+    train = [row for row in rows if str(row.get("target_trade_date") or "")[:10] not in validation_dates]
+    holdout = [row for row in rows if str(row.get("target_trade_date") or "")[:10] in validation_dates]
+    if len(train) < MIN_TRAIN or len(holdout) < MIN_HOLDOUT:
         return {
             **base,
             "status": "COLLECTING",
@@ -320,8 +332,6 @@ def _train_market(market: str, rows: List[Dict[str, Any]], previous: Mapping[str
             "validation": {},
         }
 
-    train = rows[:-holdout_n]
-    holdout = rows[-holdout_n:]
     stats = _family_statistics(train)
     candidate = _candidate_multipliers(stats)
     baseline_eval = _evaluate(holdout, {})
@@ -339,6 +349,7 @@ def _train_market(market: str, rows: List[Dict[str, Any]], previous: Mapping[str
     validation_pass = bool(
         candidate_eval.get("count", 0) >= MIN_HOLDOUT
         and meaningful
+        and candidate_hit >= 0.52
         and candidate_hit + 1e-9 >= baseline_hit
         and candidate_loss <= baseline_loss - 0.001
         and candidate_margin >= baseline_margin
@@ -373,6 +384,9 @@ def _train_market(market: str, rows: List[Dict[str, Any]], previous: Mapping[str
         "gate": gate,
         "train_count": len(train),
         "validation_count": len(holdout),
+        "train_through": sessions[-holdout_days-1],
+        "validation_from": sessions[-holdout_days],
+        "validation_sessions": holdout_days,
         "multipliers": {k: round(_clamp(v, ABS_MIN, ABS_MAX), 5) for k, v in active.items()},
         "candidate_multipliers": {k: round(v, 5) for k, v in candidate.items()},
         "family_statistics": stats,
@@ -459,6 +473,7 @@ def get_learning_weight_state(market: str) -> Dict[str, Any]:
     target = _market(market)
     doc = _load_doc_cached()
     model = dict((doc.get("models") or {}).get(target) or {})
+    legacy = _model_is_applied({**model, "validation_protocol": VALIDATION_PROTOCOL}) and model.get("validation_protocol") != VALIDATION_PROTOCOL
     applied = (
         _enabled("TINO_V14_WEIGHT_LEARNING", "1")
         and _enabled("TINO_V14_WEIGHT_INFLUENCE", "1")
@@ -473,14 +488,14 @@ def get_learning_weight_state(market: str) -> Dict[str, Any]:
     return {
         "schema": SCHEMA,
         "market": target,
-        "status": str(model.get("status") or "MISSING"),
+        "status": "REVALIDATION_REQUIRED" if legacy else str(model.get("status") or "MISSING"),
         "applied": bool(applied),
         "multipliers": multipliers,
         "generation": int(_num(model.get("generation"), 0.0)),
         "sample_count": int(_num(model.get("sample_count"), 0.0)),
         "unique_tickers": int(_num(model.get("unique_tickers"), 0.0)),
         "trained_through": model.get("trained_through"),
-        "gate": model.get("gate") or "not_trained",
+        "gate": "session_holdout_revalidation_required" if legacy else model.get("gate") or "not_trained",
         "updated_at_tw": model.get("updated_at_tw") or doc.get("updated_at_tw"),
     }
 
