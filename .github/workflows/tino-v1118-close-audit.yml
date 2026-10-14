@@ -1,0 +1,62 @@
+name: TINO V1118 Verified Close Audit
+
+on:
+  schedule:
+    - cron: '30 7 * * 1-5'
+    - cron: '30 23 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      market:
+        description: Market with a completed close
+        type: choice
+        options: [TW, US]
+        required: true
+
+concurrency:
+  group: tino-v1118-close-audit
+  cancel-in-progress: false
+
+jobs:
+  audit_tw:
+    if: (github.event_name == 'workflow_dispatch' && inputs.market == 'TW') || github.event.schedule == '30 7 * * 1-5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Audit recorded TW predictions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TINO_GITHUB_REPO: ${{ github.repository }}
+          TINO_GITHUB_BRANCH: tino-memory
+          TINO_INLINE_REMOTE_SYNC: '0'
+        run: python scheduled_audit_v1118.py --market TW
+
+  audit_us:
+    if: (github.event_name == 'workflow_dispatch' && inputs.market == 'US') || github.event.schedule == '30 23 * * 1-5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Audit recorded US predictions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TINO_GITHUB_REPO: ${{ github.repository }}
+          TINO_GITHUB_BRANCH: tino-memory
+          TINO_INLINE_REMOTE_SYNC: '0'
+        run: python scheduled_audit_v1118.py --market US
