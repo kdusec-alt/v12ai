@@ -34,6 +34,18 @@ class PaperContracts(unittest.TestCase):
         report=lab.prediction_audit_scorecard([p1,p1,p2],[good,duplicate,wrong_date], '6770.TW')
         self.assertEqual((report['samples'],report['pending'],report['mae_pct'],report['direction_pct']), (1,1,2.0,100.0))
         self.assertEqual(report['range_pct'],0.0)
+        self.assertEqual(report['breakdown'][0]['有效樣本'], 1)
+
+    def test_scorecard_breaks_down_market_session_and_predicted_direction(self):
+        rows=[]
+        for market, session, direction, hit in [('TW','intraday','UP',False),('US','pre_market','DOWN',True)]:
+            rows.append({'target':'next','market':market,'ticker':market,'target_trade_date':'2026-10-14',
+                         'actual_price_date':'2026-10-14','actual_valid':True,'predicted_close':100,
+                         'actual_close':102,'anchor_close':99,'price_sample_quality':'verified',
+                         'prediction_session_mode':session,'predicted_direction':direction,'direction_hit':hit})
+        groups=lab.prediction_audit_scorecard([],rows)['breakdown']
+        self.assertEqual({(r['市場'],r['預測時段'],r['預測方向']) for r in groups},
+                         {('TW','intraday','UP'),('US','pre_market','DOWN')})
 
     def test_reference_limited_audit_is_not_accuracy_sample(self):
         row={'target':'next','market':'US','ticker':'MU','target_trade_date':'2026-10-07',
