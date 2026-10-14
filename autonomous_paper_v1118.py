@@ -44,11 +44,13 @@ def select_candidates(rows, limit=12):
     return shortlist[:limit]
 
 
-def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None, research=None, now=None):
+def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None, research=None, now=None,
+              scanner_status="success"):
     from memory_store import MEMORY_DIR, append_jsonl, read_jsonl
 
     now = now or datetime.now(timezone.utc)
-    csv_path = result_csv(snapshot_dir)
+    # A failed scanner may leave a partial CSV. Never let it enter paper research.
+    csv_path = result_csv(snapshot_dir) if scanner_status == "success" else None
     report_path = Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl"
     run_day = now.astimezone(__import__("zoneinfo").ZoneInfo("Asia/Taipei")).date().isoformat()
     if any(r.get("run_day") == run_day and r.get("source")
@@ -57,7 +59,10 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
         return {"status": "duplicate", "run_day": run_day}
     report = {"run_day": run_day, "run_at": now.isoformat(), "source": csv_path.name if csv_path else "",
               "status": "skipped", "shortlist": 0, "candidates": 0, "recorded": 0, "paper_buy": 0, "details": []}
-    if csv_path is None:
+    if scanner_status != "success":
+        report["reason"] = "Scanner 未完成；禁止使用可能不完整的快照"
+        report["scanner_status"] = scanner_status
+    elif csv_path is None:
         report["reason"] = "找不到完成的 Scanner 結果"
     elif datetime.fromtimestamp(csv_path.stat().st_mtime, timezone.utc).date() < now.date():
         report["reason"] = "Scanner 結果不是當日新鮮快照"
@@ -140,13 +145,14 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--snapshot-dir", required=True)
+    parser.add_argument("--scanner-status", choices=("success", "failure"), default="success")
     args = parser.parse_args()
     from tino_persistent_store import ensure_memory_initialized_bootsafe, remote_status, _sync_file_to_remote
     from memory_store import MEMORY_DIR, PREDICTION_LOG, AUDIT_LOG
     if not remote_status().get("configured"):
         raise SystemExit("V1118 requires persistent memory before unattended paper research")
     ensure_memory_initialized_bootsafe()
-    report = run_cycle(args.snapshot_dir)
+    report = run_cycle(args.snapshot_dir, scanner_status=args.scanner_status)
     print(report)
     for path in (PREDICTION_LOG, AUDIT_LOG, Path(MEMORY_DIR)/"paper_lab"/"experiments.jsonl",
                  Path(MEMORY_DIR)/"paper_lab"/"outcomes.jsonl", Path(MEMORY_DIR)/"paper_lab"/"scan_runs.jsonl",
