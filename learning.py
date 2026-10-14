@@ -1600,7 +1600,7 @@ def auto_audit_queried_predictions(limit: int = 1200, max_tickers: int = 6, appl
     # V14 trains once after the completed audit batch.  This avoids repeated
     # JSON scans/remote commits inside each audit row and keeps reruns stable.
     weight_learning = {"status": "SKIPPED", "reason": "no_new_verified_t1"}
-    if audited_t1:
+    if audited_t1 and apply_safe_learning:
         try:
             weight_learning = refresh_learning_weights(market_filter, force=False)
         except Exception as exc:
