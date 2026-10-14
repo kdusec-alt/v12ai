@@ -21,6 +21,26 @@ def audit():
 
 
 class PaperContracts(unittest.TestCase):
+    def test_audit_scorecard_counts_only_unique_verified_target_sessions(self):
+        p1={'market':'TW','ticker':'6770.TW','target_trade_date':'2026-10-14','official_sample_key':'s1'}
+        p2={'market':'TW','ticker':'6770.TW','target_trade_date':'2026-10-15','official_sample_key':'s2'}
+        good={'target':'next','market':'TW','ticker':'6770.TW','official_sample_key':'s1',
+              'target_trade_date':'2026-10-14','actual_price_date':'2026-10-14',
+              'actual_valid':True,'predicted_close':100,'actual_close':102,'anchor_close':99,
+              'price_sample_quality':'verified','direction_hit':True,'close_in_predicted_range':False}
+        duplicate={**good,'audit_time_tw':'2026-10-14T18:00:00+08:00'}
+        wrong_date={**good,'official_sample_key':'s2','actual_price_date':'2026-10-13'}
+        report=lab.prediction_audit_scorecard([p1,p1,p2],[good,duplicate,wrong_date], '6770.TW')
+        self.assertEqual((report['samples'],report['pending'],report['mae_pct'],report['direction_pct']), (1,1,2.0,100.0))
+        self.assertEqual(report['range_pct'],0.0)
+
+    def test_reference_limited_audit_is_not_accuracy_sample(self):
+        row={'target':'next','market':'US','ticker':'MU','target_trade_date':'2026-10-07',
+             'actual_price_date':'2026-10-07','actual_valid':True,'predicted_close':100,
+             'actual_close':110,'anchor_close':100,'price_sample_quality':'reference_limited'}
+        report=lab.prediction_audit_scorecard([], [row])
+        self.assertEqual((report['samples'],report['limited'],report['mae_pct']), (0,1,None))
+
     def test_inputs_unchanged(self):
         p,a=prediction(),audit(); before=copy.deepcopy((p,a));lab.settle_experiment(lab.build_experiment(p),a);self.assertEqual((p,a),before)
     def test_only_formal_buy_enters(self):
