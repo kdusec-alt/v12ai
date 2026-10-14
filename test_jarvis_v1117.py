@@ -36,8 +36,25 @@ class UIContractTest(unittest.TestCase):
         f, p = fixture()
         f.low_entry = 66.6
         output = ui.command_html(f, p)
-        self.assertIn("<strong>等待</strong>", output)
+        self.assertIn("<strong>暫不進場</strong>", output)
         self.assertNotIn("66.6", output)
+
+    def test_non_executable_zone_is_not_shown_as_buy_price(self):
+        f, p = fixture()
+        p["decision_brief"]["entry_zone"] = "67.55～67.61"
+        p["decision_brief"]["invalidation"] = "67.55"
+        output = ui.command_html(f, p)
+        self.assertIn("<strong>暫不進場</strong>", output)
+        self.assertIn("67.55～67.61 僅供觀察；尚未取得買進資格", output)
+        self.assertIn("<strong>未形成</strong>", output)
+
+    def test_candidate_prices_explain_sequential_conditions(self):
+        f, p = fixture()
+        p["decision_brief"].update(candidate_mode=True, entry_zone="66.60～67.30", confirmation="68.00", breakout="70.00")
+        output = ui.command_html(f, p)
+        self.assertIn("<strong>66.60～67.30</strong>", output)
+        self.assertIn("<strong>68.00</strong>", output)
+        self.assertIn("已持倉且放量突破後，才評估加碼", output)
 
     def test_escaped_external_content(self):
         f, p = fixture()
@@ -72,7 +89,7 @@ class UIContractTest(unittest.TestCase):
         f, _ = fixture()
         output = ui.command_html(f, None)
         self.assertIn("正式決策待確認", output)
-        self.assertIn("等待條件確認", output)
+        self.assertIn("暫不進場", output)
 
     def test_us_currency_and_time_are_preserved(self):
         f, p = fixture()
