@@ -158,12 +158,20 @@ def main():
     restore_status = (bootstrap.get("remote_restore") or {}).get("status")
     if restore_status not in {"PASS", "EMPTY_REMOTE"}:
         raise SystemExit(f"V1118 remote memory restore incomplete: {restore_status}")
+    sync_paths = (PREDICTION_LOG, AUDIT_LOG, Path(MEMORY_DIR)/"paper_lab"/"experiments.jsonl",
+                  Path(MEMORY_DIR)/"paper_lab"/"outcomes.jsonl", Path(MEMORY_DIR)/"paper_lab"/"scan_runs.jsonl",
+                  Path(MEMORY_DIR)/"paper_lab"/"portfolio_events.jsonl")
+    before = {
+        str(path): (path.stat().st_size, path.stat().st_mtime_ns)
+        for path in sync_paths if path.exists()
+    }
     report = run_cycle(args.snapshot_dir, scanner_status=args.scanner_status)
     print(report)
-    for path in (PREDICTION_LOG, AUDIT_LOG, Path(MEMORY_DIR)/"paper_lab"/"experiments.jsonl",
-                 Path(MEMORY_DIR)/"paper_lab"/"outcomes.jsonl", Path(MEMORY_DIR)/"paper_lab"/"scan_runs.jsonl",
-                 Path(MEMORY_DIR)/"paper_lab"/"portfolio_events.jsonl"):
+    for path in sync_paths:
         if path.exists():
+            current = (path.stat().st_size, path.stat().st_mtime_ns)
+            if before.get(str(path)) == current:
+                continue
             ok, error = _sync_file_to_remote(path, shrink_guard=True)
             if not ok:
                 raise SystemExit(f"V1118 memory sync failed: {path.name}: {error}")
