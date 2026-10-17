@@ -1003,6 +1003,17 @@ def main():
             st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(migrate=False)
         except Exception as _mem_exc:
             st.session_state["memory_init_report"] = {"status": "FAIL", "error": f"{type(_mem_exc).__name__}: {_mem_exc}"}
+        _memory_boot = st.session_state.get("memory_init_report") or {}
+        _remote_boot = _memory_boot.get("remote_restore") or {}
+        _boot_print(
+            "memory_restore_done",
+            status=_remote_boot.get("status"),
+            configured=_remote_boot.get("configured"),
+            restored=len(_remote_boot.get("restored_files") or []),
+            missing=len(_remote_boot.get("missing_files") or []),
+            error=_remote_boot.get("error"),
+            warnings=(list(_remote_boot.get("shrink_warnings") or [])[:3]),
+        )
     # RC4.2 Stability Contract:
     # Main quote/render reruns never execute Auto Audit. Controlled one-ticker
     # cycles live only in the Admin maintenance fragment.
