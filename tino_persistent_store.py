@@ -233,6 +233,27 @@ def _gh_request(method: str, url: str, token: str, payload: Optional[Dict[str, A
                 return int(resp.status), json.loads(body) if body else {}
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "ignore")
+            # Streamlit may retain an expired GitHub PAT.  This repository and
+            # its tino-memory branch are public, so a rejected credential must
+            # not block read-only disaster recovery.  Never apply this fallback
+            # to writes.
+            if method.upper() == "GET" and token and int(exc.code) in (401, 403):
+                try:
+                    anon_req = urllib.request.Request(
+                        url, data=data, method=method, headers=_gh_headers("")
+                    )
+                    with urllib.request.urlopen(anon_req, timeout=timeout) as resp:
+                        anon_body = resp.read().decode("utf-8")
+                        return int(resp.status), json.loads(anon_body) if anon_body else {}
+                except urllib.error.HTTPError as anon_exc:
+                    anon_body = anon_exc.read().decode("utf-8", "ignore")
+                    try:
+                        anon_parsed = json.loads(anon_body) if anon_body else {}
+                    except Exception:
+                        anon_parsed = {"message": anon_body}
+                    return int(anon_exc.code), anon_parsed
+                except Exception as anon_exc:
+                    return 599, {"message": f"{type(anon_exc).__name__}: {anon_exc}"}
             try:
                 parsed = json.loads(body) if body else {}
             except Exception:
