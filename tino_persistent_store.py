@@ -204,24 +204,36 @@ def _gh_headers(token: str) -> Dict[str, str]:
 
 
 def _gh_request(method: str, url: str, token: str, payload: Optional[Dict[str, Any]] = None) -> Tuple[int, Any]:
-    """Small bounded GitHub request wrapper that never raises into Streamlit."""
+    """Bounded GitHub request wrapper, including large durable-memory blobs.
+
+    Prediction and ledger snapshots legitimately grow beyond 30 MB.  Eight
+    seconds was enough for metadata but caused false data loss after a cold
+    Streamlit restart and failed uploads from Actions.  Large transfers get a
+    longer timeout and one retry; HTTP errors are never retried here.
+    """
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, method=method, headers=_gh_headers(token))
-    try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            body = resp.read().decode("utf-8")
-            return int(resp.status), json.loads(body) if body else {}
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", "ignore")
+    timeout = max(15, int(os.environ.get("TINO_GITHUB_IO_TIMEOUT", "90") or 90))
+    last_error: Exception | None = None
+    for attempt in range(2):
         try:
-            parsed = json.loads(body) if body else {}
-        except Exception:
-            parsed = {"message": body}
-        return int(exc.code), parsed
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return 599, {"message": f"{type(exc).__name__}: {exc}"}
-    except Exception as exc:
-        return 598, {"message": f"{type(exc).__name__}: {exc}"}
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8")
+                return int(resp.status), json.loads(body) if body else {}
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "ignore")
+            try:
+                parsed = json.loads(body) if body else {}
+            except Exception:
+                parsed = {"message": body}
+            return int(exc.code), parsed
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt == 0:
+                continue
+        except Exception as exc:
+            return 598, {"message": f"{type(exc).__name__}: {exc}"}
+    return 599, {"message": f"{type(last_error).__name__}: {last_error}"}
 
 
 def _ensure_remote_branch() -> Tuple[bool, Optional[str]]:
