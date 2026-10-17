@@ -178,16 +178,25 @@ def _normalize_remote_memory_dir(value: Any) -> str:
 @lru_cache(maxsize=1)
 def _remote_config() -> Dict[str, Any]:
     token = _secret("TINO_GITHUB_TOKEN") or _secret("GITHUB_TOKEN")
-    repo = _secret("TINO_GITHUB_REPO") or _secret("GITHUB_REPOSITORY")
+    # This application is deployed from one public repository.  Streamlit only
+    # needs anonymous read access to restore the isolated tino-memory branch;
+    # a token remains mandatory for writes.  Previously the missing Streamlit
+    # GitHub secret disabled restore entirely and made intact data look erased.
+    repo = (
+        _secret("TINO_GITHUB_REPO")
+        or _secret("GITHUB_REPOSITORY")
+        or "kdusec-alt/v12ai"
+    )
     branch = _secret("TINO_GITHUB_BRANCH", "tino-memory") or "tino-memory"
     memory_dir = _normalize_remote_memory_dir(
         _secret("TINO_GITHUB_MEMORY_DIR", ".tino_memory") or ".tino_memory"
     )
-    configured = bool(token and repo and "/" in str(repo))
+    configured = bool(repo and "/" in str(repo))
     return {
         "configured": configured,
         "backend": "github" if configured else "none",
         "token": token,
+        "write_enabled": bool(token),
         "repo": str(repo or "").strip().strip("/"),
         "branch": str(branch or "tino-memory").strip() or "tino-memory",
         "memory_dir": memory_dir,
@@ -195,12 +204,14 @@ def _remote_config() -> Dict[str, Any]:
 
 
 def _gh_headers(token: str) -> Dict[str, str]:
-    return {
-        "Authorization": f"Bearer {token}",
+    headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "TINO-V12-Memory-Guard",
     }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def _gh_request(method: str, url: str, token: str, payload: Optional[Dict[str, Any]] = None) -> Tuple[int, Any]:
