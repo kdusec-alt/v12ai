@@ -175,6 +175,10 @@ def learning_heartbeat_snapshot(*, ttl_seconds: int = 30, force: bool = False) -
         or str(persistent.get("remote_status") or "").upper() in {"FAILED", "ERROR"}
         or persistent.get("remote_error")
     )
+    remote_unverified = remote_configured and (
+        not bool(remote_prediction.get("verified"))
+        or remote_prediction_rows < local_prediction_rows
+    )
     missing_local = not prediction.get("exists") or total_predictions <= 0
     last_prediction_dt = _parse_dt(prediction.get("last_time"))
     age_hours = None
@@ -189,6 +193,10 @@ def learning_heartbeat_snapshot(*, ttl_seconds: int = 30, force: bool = False) -
         health_level = "red"
         health_label = "遠端同步異常"
         health_detail = "本機仍保留資料，但最近一次長期Memory同步失敗。"
+    elif remote_unverified:
+        health_level = "yellow"
+        health_label = "本機有紀錄／遠端待確認"
+        health_detail = "本機Prediction可讀取，但尚未驗證遠端已保存全部紀錄。"
     elif age_hours is not None and age_hours <= 24:
         health_level = "green"
         health_label = "正常寫入"
@@ -281,3 +289,4 @@ def render_learning_heartbeat(st, snapshot: Optional[Mapping[str, Any]] = None) 
         f"30日 +{row.get('predictions_30d', 0)}｜{remote_text}｜Decision Influence FALSE"
     )
     return row
+
