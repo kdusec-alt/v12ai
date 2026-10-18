@@ -60,3 +60,11 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TINO_AI_RESEARCH_MODEL: gpt-5-mini
         run: python autonomous_paper_v1118.py --snapshot-dir ./scanner_output --scanner-status "$SCANNER_STATUS"
+      - name: Archive daily scan details including rejected stocks
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v1118-scan-${{ github.run_id }}
+          path: scanner_output/
+          retention-days: 14
+          if-no-files-found: warn
