@@ -30,8 +30,20 @@ def _refresh_scan_runs(path, interval_seconds=600):
             from tino_persistent_store import _github_read_file, _reconcile_local_with_remote
             exists, blob, _sha, error = _github_read_file("paper_lab/scan_runs.jsonl")
             if not exists or blob is None:
-                _SCAN_REFRESH_ERROR = error or "remote_missing"
-                return _SCAN_REFRESH_ERROR
+                # Public read-only fallback avoids API quota exhaustion from an expired PAT.
+                import urllib.request
+                from urllib.parse import quote
+                from tino_persistent_store import _remote_config, _remote_path_for
+                cfg = _remote_config()
+                raw_url = "https://raw.githubusercontent.com/" + cfg["repo"] + "/" + quote(cfg["branch"], safe="") + "/" + quote(_remote_path_for("paper_lab/scan_runs.jsonl"), safe="/")
+                with urllib.request.urlopen(raw_url, timeout=15) as response:
+                    blob = response.read()
+                import json
+                for line in blob.decode("utf-8-sig").splitlines():
+                    if line.strip():
+                        if not isinstance(json.loads(line), dict):
+                            raise ValueError("invalid scan record")
+
             ok, _info, error = _reconcile_local_with_remote(path, blob)
             _SCAN_REFRESH_ERROR = None if ok else (error or "reconcile_failed")
         except Exception as exc:
@@ -315,6 +327,12 @@ def render_autonomous_dashboard(st):
     root = Path(MEMORY_DIR) / "paper_lab"
     refresh_error = _refresh_scan_runs(root / "scan_runs.jsonl")
     runs = read_jsonl(root / "scan_runs.jsonl", 100)
+    run_versions = {}
+    for row in runs:
+        key = (row.get("run_day"), row.get("run_at"))
+        if key not in run_versions or len(row.get("scan_items") or []) > len(run_versions[key].get("scan_items") or []):
+            run_versions[key] = row
+    runs = list(run_versions.values())
     close_audits = read_jsonl(root / "audit_runs.jsonl", 20)
     seeds = [r for r in read_jsonl(root / "experiments.jsonl", 2000) if r.get("origin") == "autonomous"]
     outcomes = {r.get("experiment_id"): r for r in read_jsonl(root / "outcomes.jsonl", 4000)}
@@ -427,7 +445,7 @@ def render_autonomous_dashboard(st):
         "未進場原因": latest.get("reason") or ("掃描失敗，未採用快照" if scan_failed else "—"),
     }], use_container_width=True, hide_index=True)
     if not scan_failed and latest.get("status") == "skipped" and not latest.get("candidates"):
-        st.info(f"{latest.get('run_day') or '本輪'} 掃描已有紀錄，但合格研究標的為 0；因此沒有選股清單，也沒有模擬下單。")
+        st.info(f"{latest.get('run_day') or '本輪'} 掃描已有紀錄，但合格研究標的為 0；因此沒有合格推薦或模擬下單；當日受檢股票請見上方每日股票掃描清單。")
     cols = st.columns(3)
     cols[0].metric("AI 提名研究", latest.get("candidates", 0))
     cols[1].metric("本輪模擬買進訊號", latest.get("paper_buy", 0))
