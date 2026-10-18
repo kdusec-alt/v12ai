@@ -101,7 +101,7 @@ def build_experiment(prediction, fundamental=None, research=None):
     stop = number(plan.get("invalidation_price"))
     target = number(p.get("next_high_est"))
     price = number(p.get("anchor_close"))
-    ready = (before_target_open(p) and snap.get("action_code") == "BUY" and stop is not None and target is not None
+    ready = (p.get("paper_trade_allowed") is not False and before_target_open(p) and snap.get("action_code") == "BUY" and stop is not None and target is not None
              and price is not None and 0 < stop < price < target)
     identity = "|".join((VERSION, str(p.get("market")), str(p.get("ticker")), str(p.get("target_trade_date"))))
     # First observation per symbol/session: repeated searches cannot multiply trials.
@@ -121,7 +121,7 @@ def build_experiment(prediction, fundamental=None, research=None):
             "ticker": p.get("ticker"), "market": p.get("market"), "asset_type": p.get("asset_type"),
             "target_trade_date": str(p["target_trade_date"])[:10], "observed_at": observed,
             "signal_date": str(snap.get("session_date") or recorded_date)[:10],
-            "formal_action": snap.get("action_code") or "BLOCK", "reason": snap.get("reason"),
+            "formal_action": snap.get("action_code") or "BLOCK", "reason": p.get("paper_gate_reason") or snap.get("reason"),
             "status": "PENDING" if ready else "OBSERVE", "stop": stop, "target": target,
             "quantity": 1, "research": r, "fundamental": finance,
             "policy": "正式BUY後下一交易日開盤模擬一股；停損優先；未出場則T1收盤；非完整資金組合回測",
@@ -330,7 +330,7 @@ def render_autonomous_dashboard(st):
     run_versions = {}
     for row in runs:
         key = (row.get("run_day"), row.get("run_at"))
-        if key not in run_versions or len(row.get("scan_items") or []) > len(run_versions[key].get("scan_items") or []):
+        if key not in run_versions or (str(row.get("last_audit_at") or ""), len(row.get("scan_items") or [])) > (str(run_versions[key].get("last_audit_at") or ""), len(run_versions[key].get("scan_items") or [])):
             run_versions[key] = row
     runs = list(run_versions.values())
     close_audits = read_jsonl(root / "audit_runs.jsonl", 20)
@@ -348,6 +348,24 @@ def render_autonomous_dashboard(st):
             key="v1118_daily_scan_date")
         selected_run = daily_runs[selected_index]
         scan_items = selected_run.get("scan_items") or []
+        st.markdown("**候選預測與收盤自我檢查｜未准買進仍保留預測**")
+        forecasts = selected_run.get("forecast_details") or []
+        if forecasts:
+            st.dataframe([{
+                "股票": item.get("ticker"), "目標交易日": item.get("target_trade_date"),
+                "預測收盤": item.get("predicted_close"), "預測低點": item.get("predicted_low"),
+                "預測高點": item.get("predicted_high"), "條件進場參考價": item.get("entry_price"),
+                "確認價": item.get("confirmation_price"), "失效價": item.get("stop_price"),
+                "正式判斷": item.get("formal_action"),
+                "模擬進場資格": "允許送交正式判斷" if item.get("paper_trade_allowed") else "未允許／空手觀察",
+                "正式收盤": item.get("actual_close"), "收盤誤差%": item.get("close_error_pct"),
+                "驗證狀態": item.get("audit_status") or item.get("result"),
+                "原因": item.get("reason"),
+            } for item in forecasts], use_container_width=True, hide_index=True)
+            st.caption("條件價格不代表買進指令；模擬成交需通過掃描、AI、正式BUY及交易時點檢查。收盤驗證寫入記憶，權重校準仍須通過既有驗證門檻。")
+        else:
+            st.info("這輪未保存前瞻價格預測，無法事後補造預測收盤與進場價。新流程每輪最多對12檔候選建立預測；資料不合格則保留失敗原因。")
+
         st.caption(selected_run.get("scan_items_scope") or "歷史逐檔明細未保存")
         if scan_items:
             st.dataframe([{
