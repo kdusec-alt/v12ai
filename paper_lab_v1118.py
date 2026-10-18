@@ -357,6 +357,17 @@ def render_autonomous_dashboard(st):
     st.markdown(f"最近一輪：**{latest.get('run_day') or '日期未知'}**｜狀態 **{run_label}**｜AI 研究 **{latest.get('ai_status') or '未執行'}**｜來源 {latest.get('source') or '無快照'}")
     if datetime.now(ZoneInfo("Asia/Taipei")).weekday() >= 5:
         st.caption("今天是週末，例行市場掃描只在交易週一至週五排程；最近一輪日期不會自動變成今天。")
+    st.markdown("**本輪掃描結果**")
+    st.dataframe([{
+        "掃描日": latest.get("run_day") or "日期未知",
+        "掃描狀態": run_label,
+        "初選候選": latest.get("shortlist", 0),
+        "合格研究標的": latest.get("candidates", 0),
+        "模擬買進": latest.get("paper_buy", 0),
+        "未進場原因": latest.get("reason") or ("掃描失敗，未採用快照" if scan_failed else "—"),
+    }], use_container_width=True, hide_index=True)
+    if not scan_failed and latest.get("status") == "skipped" and not latest.get("candidates"):
+        st.info(f"{latest.get('run_day') or '本輪'} 掃描已有紀錄，但合格研究標的為 0；因此沒有選股清單，也沒有模擬下單。")
     cols = st.columns(3)
     cols[0].metric("AI 提名研究", latest.get("candidates", 0))
     cols[1].metric("本輪模擬買進訊號", latest.get("paper_buy", 0))
