@@ -39,9 +39,22 @@ class AutonomousPaperContracts(unittest.TestCase):
                 writer=csv.DictWriter(file,fieldnames=['ticker','is_recommended5','execution_status'])
                 writer.writeheader();writer.writerow({'ticker':'A','is_recommended5':'False','execution_status':'ACTIONABLE'})
             now=datetime.fromtimestamp(path.stat().st_mtime,timezone.utc)
-            first=worker.run_cycle(folder,now=now,settle=lambda:{'settled':0},research=lambda _: {'status':'completed','decisions':[]})
+            first=worker.run_cycle(folder,now=now,analyze=lambda _:SimpleNamespace(stopped=True,stop_reason='test invalid quote'),settle=lambda:{'settled':0},research=lambda _: {'status':'completed','decisions':[]})
             self.assertEqual((first['candidates'],first['paper_buy']), (0,0))
             self.assertEqual(worker.run_cycle(folder,now=now)['status'],'duplicate')
+
+    def test_rejected_candidate_still_has_forecast_without_paper_permission(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(memory_store, 'MEMORY_DIR', Path(folder)), patch.object(memory_store, '_post_memory_write'):
+            Path(folder, 'tino_market_scanner_v156_today.csv').write_text('ticker,execution_status,recommendation_score\nMU,REJECTED,90\n')
+            row = {'id':'f1', 'ticker':'MU', 'market':'US', 'target_trade_date':'2026-10-19', 'next_close_est':110, 'public_decision_snapshot':{'action_code':'BUY'}}
+            captured = []
+            report = worker.run_cycle(folder, analyze=lambda _:SimpleNamespace(stopped=False), log=lambda _:row,
+                capture=lambda value, *args, **kwargs: captured.append(value) or {'status':'recorded','experiment_status':'OBSERVE'},
+                settle=lambda:{}, research=lambda _:self.fail('rejected pool cannot authorize trades'))
+            self.assertEqual(report['forecast_details'][0]['predicted_close'], 110)
+            self.assertFalse(captured[0]['paper_trade_allowed'])
+            self.assertNotIn('paper_trade_allowed', row)
+            self.assertEqual(report['paper_buy'], 0)
 
     def test_formal_block_does_not_become_paper_buy(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(memory_store,'MEMORY_DIR',Path(folder)), patch.object(memory_store,'_post_memory_write'):
