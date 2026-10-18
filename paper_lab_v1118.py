@@ -250,7 +250,26 @@ def prediction_audit_scorecard(predictions, audits, symbol=None, as_of=None):
             waiting += 1
         else:
             overdue += 1
-    return {"samples": len(verified), "pending": len(unresolved), "waiting": waiting,
+    verified_ids = {sample_id(row) for row in verified}
+    history = []
+    for identity, row in predicted.items():
+        audit = by_sample.get(identity)
+        if identity in verified_ids:
+            status, reason = "已完成正式稽核", ""
+        elif audit:
+            status, reason = "不符合正式計分門檻", "來源品質或預測時間未達門檻"
+        else:
+            target_day = str(row.get("target_trade_date") or "")[:10]
+            market_tz = ZoneInfo("America/New_York" if str(row.get("market") or "").upper() == "US" else "Asia/Taipei")
+            future = target_day >= clock.astimezone(market_tz).date().isoformat()
+            status = "等待目標收盤" if future else "逾期／尚未取得有效收盤"
+            reason = "尚無符合日期與品質要求的收盤稽核"
+        history.append({"標的": row.get("ticker"), "目標日": row.get("target_trade_date"),
+                        "預測時間": row.get("run_time_tw") or row.get("observed_at") or "",
+                        "狀態": status, "原因": reason,
+                        "正式收盤": audit.get("actual_close") if audit else None})
+    history.sort(key=lambda row: (str(row.get("目標日") or ""), str(row.get("預測時間") or "")), reverse=True)
+    return {"history": history, "samples": len(verified), "pending": len(unresolved), "waiting": waiting,
             "overdue": overdue, "limited": limited,
             "mae_pct": round(sum(errors) / len(errors), 2) if errors else None,
             "direction_pct": round(100 * sum(directions) / len(directions), 1) if directions else None,
@@ -270,6 +289,12 @@ def render_audit_scorecard(st, predictions, audits, symbol=None):
     st.caption(f'方向樣本 {result["direction_n"]}｜區間樣本 {result["range_n"]}｜等待目標收盤 {result["waiting"]}｜逾期未取得有效收盤 {result["overdue"]}｜來源或預測時點未達正式門檻 {result["limited"]}。每個標的與目標交易日只計一次；預測準確度不是模擬交易報酬。')
     if result["overdue"]:
         st.warning(f'有 {result["overdue"]} 筆預測已過目標日，仍缺有效正式收盤；稽核覆蓋不足，暫勿將上述統計視為完整模型成績。')
+    st.markdown("**全部預測紀錄｜含等待、逾期及不合格**")
+    st.caption("依目標日由新到舊排列；未驗證與不合格紀錄保留顯示，但不列入準確度。")
+    if result["history"]:
+        st.dataframe(result["history"][:100], use_container_width=True, hide_index=True)
+    else:
+        st.info("尚無已保存的預測紀錄。")
     if result["recent"]:
         with st.expander("查看最近正式稽核"):
             st.dataframe([{"標的": r.get("ticker"), "目標日": r.get("target_trade_date"),
@@ -297,6 +322,20 @@ def render_autonomous_dashboard(st):
     st.markdown("每日市場掃描 → AI 比較論點與風險 → 正式模型否決／確認 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
     if refresh_error:
         st.warning("遠端最新掃描紀錄暫時無法確認；以下為本機最後取得的資料。")
+    st.markdown("**自主掃描歷史｜含失敗、不合格與未進場**")
+    if runs:
+        st.dataframe([{
+            "掃描日期": row.get("run_day") or "日期未知",
+            "目標日": "未建立（沒有合格預測）" if not row.get("recorded") else "依個別預測紀錄",
+            "狀態": "掃描失敗" if row.get("scanner_status") == "failure" else {"completed": "已完成研究", "skipped": "未進場／略過"}.get(row.get("status"), "待確認"),
+            "合格研究標的": row.get("candidates", 0),
+            "模擬買進": row.get("paper_buy", 0),
+            "原因": row.get("reason") or "—",
+        } for row in sorted(runs, key=lambda row: (str(row.get("run_day") or ""), str(row.get("run_at") or "")), reverse=True)],
+        use_container_width=True, hide_index=True)
+        st.caption("掃描日期與預測目標日分開記錄；沒有建立預測的掃描仍保留一列。")
+    else:
+        st.warning("尚無自主掃描紀錄。")
     render_audit_scorecard(st, read_prediction_log(2000), read_audit_log(2000))
     try:
         from learning_weight_engine import get_learning_weight_state
