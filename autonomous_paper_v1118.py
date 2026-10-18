@@ -68,7 +68,10 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
         report["reason"] = "Scanner 結果不是當日新鮮快照"
     else:
         with csv_path.open(encoding="utf-8-sig", newline="") as handle:
-            candidates = select_candidates(csv.DictReader(handle))
+            snapshot_rows = list(csv.DictReader(handle))
+        report["scan_items"] = snapshot_rows
+        report["scan_items_scope"] = "候選快照（含未獲推薦）"
+        candidates = select_candidates(snapshot_rows)
         report["shortlist"] = len(candidates)
         if not candidates:
             report["reason"] = "本輪掃描沒有資料品質可供研究的候選"
@@ -122,6 +125,13 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                     item["result"] = "error"
                     item["reason"] = type(exc).__name__
                 report["details"].append(item)
+    # Preserve every inspected ticker independently of research eligibility.
+    detail_path = Path(snapshot_dir) / "scan_universe_details.csv"
+    if detail_path.exists() and datetime.fromtimestamp(detail_path.stat().st_mtime, timezone.utc).date() >= now.date():
+        with detail_path.open(encoding="utf-8-sig", newline="") as handle:
+            report["scan_items"] = list(csv.DictReader(handle))
+        report["scan_items_scope"] = "全市場逐檔掃描紀錄（含不合格與失敗）"
+    report["scan_items_count"] = len(report.get("scan_items") or [])
     # Reconcile prior decisions even when today's scanner recommends nobody.
     # A failed scan should not trigger extra quote requests during recovery.
     if scanner_status != "success":
@@ -166,7 +176,7 @@ def main():
         for path in sync_paths if path.exists()
     }
     report = run_cycle(args.snapshot_dir, scanner_status=args.scanner_status)
-    print(report)
+    print({key: value for key, value in report.items() if key != "scan_items"})
     for path in sync_paths:
         if path.exists():
             current = (path.stat().st_size, path.stat().st_mtime_ns)
