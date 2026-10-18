@@ -9,6 +9,44 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def update_candidate_checks(market):
+    """Project verified audits into the daily candidate ledger without rewriting forecasts."""
+    from memory_store import MEMORY_DIR, read_jsonl, read_audit_log, append_jsonl
+    from paper_lab_v1118 import before_target_open
+    path = Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl"
+    by_prediction = {}
+    for row in read_audit_log(2000):
+        if row.get("target") == "next" and row.get("actual_valid") is True and str(row.get("market") or "").upper() == market:
+            by_prediction[row.get("prediction_id")] = row
+    latest_runs = {}
+    for row in read_jsonl(path, 100):
+        key = (row.get("run_day"), row.get("run_at"))
+        if key not in latest_runs or str(row.get("last_audit_at") or "") >= str(latest_runs[key].get("last_audit_at") or ""):
+            latest_runs[key] = row
+    changed = 0
+    for report in latest_runs.values():
+        dirty = False
+        for item in report.get("forecast_details") or []:
+            audit = by_prediction.get(item.get("prediction_id"))
+            if not audit or str(audit.get("actual_price_date") or "")[:10] != str(item.get("target_trade_date") or "")[:10]:
+                continue
+            actual = audit.get("actual_close")
+            predicted = item.get("predicted_close")
+            if not isinstance(actual, (int, float)) or not isinstance(predicted, (int, float)) or actual <= 0 or predicted <= 0:
+                continue
+            status = "已驗證" if audit.get("price_sample_quality") == "verified" and before_target_open({"market": market, "target_trade_date": item.get("target_trade_date"), "run_time_tw": item.get("observed_at")}) else "已比對／未達正式計分門檻"
+            fields = {"actual_close": actual, "close_error_pct": round((actual / predicted - 1) * 100, 4),
+                      "audit_status": status, "actual_source": audit.get("actual_price_source")}
+            if any(item.get(k) != v for k, v in fields.items()):
+                item.update(fields)
+                dirty = True
+        if dirty:
+            report["last_audit_at"] = datetime.now(timezone.utc).isoformat()
+            append_jsonl(path, report)
+            changed += 1
+    return changed
+
+
 def run_close_audit(market, *, audit=None, reconcile=None, portfolio=None, now=None):
     from memory_store import MEMORY_DIR, append_jsonl
 
@@ -26,9 +64,10 @@ def run_close_audit(market, *, audit=None, reconcile=None, portfolio=None, now=N
         portfolio = record_verified_trades
     started = now or datetime.now(timezone.utc)
     result = audit(limit=2000, max_tickers=12, apply_safe_learning=True, market_filter=market)
+    updated_candidate_runs = update_candidate_checks(market)
     errors = result.get("errors") or []
     report = {
-        "market": market, "run_at": started.isoformat(),
+        "market": market, "run_at": started.isoformat(), "updated_candidate_runs": updated_candidate_runs,
         "status": "audited" if result.get("audited_t1_count", 0) else "deferred" if errors else "no_target_samples",
         "fetched": result.get("fetched_ticker_count", 0),
         "audited_t1": result.get("audited_t1_count", 0),
@@ -60,6 +99,7 @@ def main():
     report = run_close_audit(args.market)
     print({k: v for k, v in report.items() if k != "errors"})
     for path in (AUDIT_LOG, TICKER_PROFILE, LEARNING_WEIGHTS,
+                 Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl",
                  Path(MEMORY_DIR) / "paper_lab" / "outcomes.jsonl",
                  Path(MEMORY_DIR) / "paper_lab" / "portfolio_events.jsonl",
                  Path(MEMORY_DIR) / "paper_lab" / "audit_runs.jsonl"):
