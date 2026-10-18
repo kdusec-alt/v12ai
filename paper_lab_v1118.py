@@ -7,12 +7,36 @@ from collections import defaultdict
 from datetime import date, datetime, time, timezone
 import hashlib
 import math
+import time as clock
 from pathlib import Path
 import threading
 from zoneinfo import ZoneInfo
 
 VERSION = "V1118_T1_UNIT_OPEN_V1"
 _LOCK = threading.RLock()
+_SCAN_REFRESH_AT = 0.0
+_SCAN_REFRESH_ERROR = None
+
+
+def _refresh_scan_runs(path, interval_seconds=600):
+    """Read the small durable scan log periodically without uploading or downloading large ledgers."""
+    global _SCAN_REFRESH_AT, _SCAN_REFRESH_ERROR
+    with _LOCK:
+        now = clock.monotonic()
+        if now - _SCAN_REFRESH_AT < interval_seconds:
+            return _SCAN_REFRESH_ERROR
+        _SCAN_REFRESH_AT = now
+        try:
+            from tino_persistent_store import _github_read_file, _reconcile_local_with_remote
+            exists, blob, _sha, error = _github_read_file("paper_lab/scan_runs.jsonl")
+            if not exists or blob is None:
+                _SCAN_REFRESH_ERROR = error or "remote_missing"
+                return _SCAN_REFRESH_ERROR
+            ok, _info, error = _reconcile_local_with_remote(path, blob)
+            _SCAN_REFRESH_ERROR = None if ok else (error or "reconcile_failed")
+        except Exception as exc:
+            _SCAN_REFRESH_ERROR = f"{type(exc).__name__}: {exc}"
+        return _SCAN_REFRESH_ERROR
 
 
 def number(value):
@@ -264,12 +288,15 @@ def render_autonomous_dashboard(st):
     from memory_store import MEMORY_DIR, read_jsonl, read_prediction_log, read_audit_log
     from paper_portfolio_v1118 import snapshot, set_capital, _path as portfolio_path
     root = Path(MEMORY_DIR) / "paper_lab"
+    refresh_error = _refresh_scan_runs(root / "scan_runs.jsonl")
     runs = read_jsonl(root / "scan_runs.jsonl", 100)
     close_audits = read_jsonl(root / "audit_runs.jsonl", 20)
     seeds = [r for r in read_jsonl(root / "experiments.jsonl", 2000) if r.get("origin") == "autonomous"]
     outcomes = {r.get("experiment_id"): r for r in read_jsonl(root / "outcomes.jsonl", 4000)}
     st.markdown("## 🤖 V1118 自主模擬研究")
     st.markdown("每日市場掃描 → AI 比較論點與風險 → 正式模型否決／確認 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
+    if refresh_error:
+        st.warning("遠端最新掃描紀錄暫時無法確認；以下為本機最後取得的資料。")
     render_audit_scorecard(st, read_prediction_log(2000), read_audit_log(2000))
     try:
         from learning_weight_engine import get_learning_weight_state
@@ -324,10 +351,12 @@ def render_autonomous_dashboard(st):
     if not runs:
         st.warning("尚未取得自主掃描完成紀錄，無法確認排程已產生可用快照；請檢查 Actions 掃描、雲端發布與紀錄同步。沒有紀錄不代表已模擬下單。")
         return
-    latest = runs[-1]
+    latest = max(runs, key=lambda row: (str(row.get("run_day") or ""), str(row.get("run_at") or "")))
     scan_failed = latest.get("scanner_status") == "failure"
     run_label = "掃描失敗，未使用快照" if scan_failed else {"completed": "已完成研究", "skipped": "略過"}.get(latest.get("status"), "待確認")
     st.markdown(f"最近一輪：**{latest.get('run_day') or '日期未知'}**｜狀態 **{run_label}**｜AI 研究 **{latest.get('ai_status') or '未執行'}**｜來源 {latest.get('source') or '無快照'}")
+    if datetime.now(ZoneInfo("Asia/Taipei")).weekday() >= 5:
+        st.caption("今天是週末，例行市場掃描只在交易週一至週五排程；最近一輪日期不會自動變成今天。")
     cols = st.columns(3)
     cols[0].metric("AI 提名研究", latest.get("candidates", 0))
     cols[1].metric("本輪模擬買進訊號", latest.get("paper_buy", 0))
@@ -400,6 +429,7 @@ def learning_summary(rows):
 def render_paper_lab(st, symbol):
     from memory_store import read_jsonl, read_prediction_log, read_audit_log
     from memory_store import MEMORY_DIR
+    _refresh_scan_runs(Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl")
     from tino_persistent_store import remote_status
     seeds_path, outcomes_path = _paths()
     seeds = [s for s in read_jsonl(seeds_path, 2000) if s.get("ticker") == symbol]
