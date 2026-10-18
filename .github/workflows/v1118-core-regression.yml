@@ -30,6 +30,7 @@ jobs:
         run: >-
           python -m pytest -q
           test_market_proxy_observation.py test_candidate_forecast_integrity.py
+          test_global_event_scanner.py test_event_attribution_v1078.py test_news_event_scoring.py
           test_learning_readonly_compare.py test_autonomous_paper_v1118.py
           test_paper_lab_v1118.py test_scheduled_audit_v1118.py
           test_learning_weight_engine.py test_paper_portfolio_v1118.py

@@ -38,6 +38,14 @@ class MarketProxyObservationTests(unittest.TestCase):
     def test_absent_sources_have_zero_data_coverage(self):
         self.assertEqual(assess_market_command("US", {})["coverage"],0)
 
+    def test_old_oil_quote_does_not_become_fresh_headline(self):
+        import global_event_scanner as scanner
+        from unittest.mock import patch
+        now=datetime(2026,10,18,12,tzinfo=timezone.utc)
+        old=datetime(2026,10,16,20,tzinfo=timezone.utc).timestamp()
+        with patch.object(scanner,"_quote_change",return_value={"price":100,"pct":8,"market_time":old}):
+            self.assertIsNone(scanner._oil_event(now))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -120,6 +120,21 @@ def ensure_global_macro_calendar() -> None:
 
 
 def _quote_change(symbol: str) -> Dict[str, Any]:
+    # Share the radar's dated daily baseline. chartPreviousClose on a 5-day
+    # intraday response can be the start of the range, not yesterday's close.
+    from quantum_market_context import fetch_market_proxy_context
+    key = {"CL=F": "wti", "BZ=F": "brent"}.get(symbol)
+    snapshot = fetch_market_proxy_context()
+    row = (snapshot.get("observations") or {}).get(key) or {}
+    if not key or row.get("stale") or not row.get("quote_at"):
+        raise ValueError("dated oil quote unavailable")
+    stamp = datetime.fromisoformat(str(row["quote_at"]).replace("Z", "+00:00"))
+    return {"symbol": symbol, "price": row["price"], "previous": row["previous_close"],
+            "pct": row["change_pct"], "market_time": stamp.timestamp()}
+
+
+def _legacy_quote_change(symbol: str) -> Dict[str, Any]:
+    """Retained diagnostic parser; not used for live oil-event decisions."""
     encoded = quote(symbol, safe="")
     params = urlencode({"range": "5d", "interval": "15m", "includePrePost": "true"})
     payload = _json_request(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}?{params}")
@@ -187,7 +202,14 @@ def _oil_event(now: datetime) -> NewsItem | None:
                 quotes[label] = future.result()
             except Exception:
                 continue
-    valid = [row for row in quotes.values() if float(row.get("price") or 0.0) > 0]
+    def current_quote(row):
+        try:
+            age = now.timestamp() - float(row.get("market_time"))
+            return float(row.get("price") or 0.0) > 0 and 0 <= age <= 18 * 3600
+        except (TypeError, ValueError):
+            return False
+    quotes = {name: row for name, row in quotes.items() if current_quote(row)}
+    valid = list(quotes.values())
     if not valid:
         return None
     lead_move = max((float(row.get("pct") or 0.0) for row in valid), key=abs)
@@ -197,11 +219,12 @@ def _oil_event(now: datetime) -> NewsItem | None:
     rising = lead_move > 0
     score = {2: -0.12, 3: -0.18, 4: -0.24}[severity] if rising else {2: 0.06, 3: 0.10, 4: 0.14}[severity]
     quote_text = "／".join(
-        f"{name} {float(row.get('pct') or 0.0):+.2f}%"
+        f"{name} US$ {float(row.get('price')):.2f}/桶 {float(row.get('pct') or 0.0):+.2f}%"
         for name, row in (("WTI", quotes.get("WTI", {})), ("Brent", quotes.get("Brent", {})))
         if float(row.get("price") or 0.0) > 0
     )
-    day_key = now.strftime("%Y%m%d")
+    observed_at = datetime.fromtimestamp(max(float(row["market_time"]) for row in valid), tz=_TAIPEI)
+    day_key = observed_at.strftime("%Y%m%d")
     if rising:
         title = (
             f"Global Event Core｜油價快速上漲｜{quote_text}｜"
@@ -231,7 +254,7 @@ def _oil_event(now: datetime) -> NewsItem | None:
     tag = "|".join([tag, *event_metadata_tags(impact)])
     return NewsItem(
         "TINO_GlobalEventCore_YahooFinance",
-        now.isoformat(timespec="seconds"),
+        observed_at.isoformat(timespec="seconds"),
         round(score, 3),
         tag,
         title,
@@ -507,3 +530,4 @@ def fetch_global_event_news(*, force_refresh: bool = False, now: datetime | None
     _publish_initial_lifecycle(result, reference)
     _CACHE = (now_epoch, result)
     return list(result)
+

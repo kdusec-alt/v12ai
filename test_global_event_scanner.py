@@ -17,6 +17,7 @@ def test_oil_quote_builds_market_wide_transmission(monkeypatch):
         "price": 100.0,
         "previous": 96.0,
         "pct": 4.1667 if symbol == "CL=F" else 3.25,
+        "market_time": datetime(2026, 7, 24, 21, 15, tzinfo=_TW).timestamp(),
     })
     item = scanner._oil_event(datetime(2026, 7, 24, 21, 20, tzinfo=_TW))
     assert item is not None
@@ -86,3 +87,4 @@ def test_five_minute_delta_reassesses_on_ticker_independent_oil_event():
     assert result["event_category"] == "geo_energy_escalation"
     assert result["event_family"] == "energy"
     assert "油價↑" in result["event_transmission"]
+
