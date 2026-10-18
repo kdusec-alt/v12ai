@@ -71,11 +71,24 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
             snapshot_rows = list(csv.DictReader(handle))
         report["scan_items"] = snapshot_rows
         report["scan_items_scope"] = "候選快照（含未獲推薦）"
+        # Forecast the bounded candidate pool before applying permission to trade.
+        research_pool = []
+        for raw in snapshot_rows:
+            ticker = str(raw.get("ticker") or "").strip().upper()
+            if not ticker or ticker in {r["ticker"] for r in research_pool}:
+                continue
+            try:
+                score = float(raw.get("recommendation_score") or 0)
+            except (ValueError, TypeError):
+                score = 0
+            research_pool.append({**raw, "ticker": ticker, "score": score})
+        research_pool = sorted(research_pool, key=lambda row: row["score"], reverse=True)[:12]
         candidates = select_candidates(snapshot_rows)
-        report["shortlist"] = len(candidates)
-        if not candidates:
-            report["reason"] = "本輪掃描沒有資料品質可供研究的候選"
-        else:
+        report["shortlist"] = len(research_pool)
+        report["forecast_details"] = []
+        selected = {}
+        allowed_codes = set()
+        if candidates:
             if research is None:
                 from ai_research_v1118 import research_candidates
                 research = research_candidates
@@ -86,12 +99,13 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
             report["ai_status"] = research_result.get("status")
             report["market_view"] = research_result.get("market_view", "")
             report["research_decisions"] = research_result.get("decisions", [])
-            selected = {d["ticker"]: d for d in report["research_decisions"] if d.get("verdict") == "PAPER_REVIEW"}
-            candidates = [r for r in candidates if r["ticker"] in selected and str(r.get("execution_status") or "").upper() == "ACTIONABLE"][:5]
-            report["candidates"] = len(candidates)
-            if not candidates:
-                report["reason"] = "AI 研究未提名可執行標的" if report["ai_status"] == "completed" else "AI 研究模型尚未設定或暫時無法使用"
-        if candidates and report["candidates"]:
+            selected = {d["ticker"]: d for d in report["research_decisions"] if d.get("ticker") and d.get("verdict") == "PAPER_REVIEW"}
+            allowed_codes = {r["ticker"] for r in candidates if r["ticker"] in selected and str(r.get("execution_status") or "").upper() == "ACTIONABLE"}
+            allowed_codes = set([r["ticker"] for r in candidates if r["ticker"] in allowed_codes][:5])
+        report["candidates"] = len(allowed_codes)
+        if not allowed_codes:
+            report["reason"] = "未通過模擬買進條件；候選仍建立預測並等待收盤驗證"
+        if research_pool:
             if analyze is None:
                 from data_sources import fetch_news, fetch_price
                 from orchestrator import orchestrate
@@ -101,30 +115,48 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                     fetch_price(ticker), "neutral", news_items=fetch_news(ticker),
                     extra_signals=build_learning_signals(ticker))
                 log, capture = log_prediction, capture_query
-            report["status"] = "completed"
-            for candidate in candidates:
+            for candidate in research_pool:
                 symbol = candidate["ticker"]
-                item = {"ticker": symbol, "scanner_score": candidate["score"], "research": selected[symbol]}
+                permitted = symbol in allowed_codes
+                item = {"ticker": symbol, "name": candidate.get("name"),
+                        "scanner_score": candidate["score"], "scanner_status": candidate.get("execution_status"),
+                        "research": selected.get(symbol, {}), "paper_trade_allowed": permitted}
                 try:
                     forecast = analyze(symbol)
                     if forecast is None or bool(getattr(forecast, "stopped", False)):
-                        item["result"] = "資料品質未通過"
+                        item.update(result="資料品質未通過", reason=str(getattr(forecast, "stop_reason", "") or "無有效行情，無法建立預測"))
                     else:
                         row = log(forecast)
                         if not isinstance(row, dict) or row.get("skipped"):
-                            item["result"] = "正式預測未通過"
+                            item.update(result="正式預測未通過", reason=str((row or {}).get("reason") or "預測保存失敗"))
                         else:
-                            outcome = capture(row, forecast, origin="autonomous")
+                            item.update(prediction_id=row.get("id"), observed_at=row.get("run_time_tw"),
+                                target_trade_date=row.get("target_trade_date"),
+                                predicted_close=row.get("next_close_est"),
+                                predicted_low=row.get("next_low_est"), predicted_high=row.get("next_high_est"),
+                                entry_price=row.get("entry_low_1") or row.get("public_entry_price"),
+                                confirmation_price=row.get("public_confirmation_price"),
+                                stop_price=row.get("public_invalidation_price") or row.get("defense_stop"),
+                                formal_action=str((row.get("public_decision_snapshot") or {}).get("action_code") or "BLOCK"),
+                                reason=row.get("public_action_reason") or "",
+                                audit_status="等待目標交易日收盤")
+                            # An AI/scanner veto permits observation, never a simulated position.
+                            capture_row = dict(row)
+                            capture_row["paper_trade_allowed"] = permitted
+                            if not permitted:
+                                capture_row["paper_gate_reason"] = "掃描或AI未允許進場，保留價格預測作空手觀察"
+                            outcome = capture(capture_row, forecast, origin="autonomous")
                             item["result"] = str(outcome.get("status") or "unknown")
-                            item["formal_action"] = str((row.get("public_decision_snapshot") or {}).get("action_code") or "BLOCK")
+                            item["experiment_status"] = outcome.get("experiment_status")
                             if item["result"] in {"recorded", "duplicate"}:
                                 report["recorded"] += 1
-                            if outcome.get("experiment_status") == "PENDING" and item["result"] in {"recorded", "duplicate"}:
+                            if permitted and outcome.get("experiment_status") == "PENDING" and item["result"] in {"recorded", "duplicate"}:
                                 report["paper_buy"] += 1
                 except Exception as exc:
-                    item["result"] = "error"
-                    item["reason"] = type(exc).__name__
+                    item.update(result="error", reason=type(exc).__name__)
                 report["details"].append(item)
+                report["forecast_details"].append(item)
+            report["status"] = "completed"
     # Preserve every inspected ticker independently of research eligibility.
     detail_path = Path(snapshot_dir) / "scan_universe_details.csv"
     if detail_path.exists() and datetime.fromtimestamp(detail_path.stat().st_mtime, timezone.utc).date() >= now.date():
