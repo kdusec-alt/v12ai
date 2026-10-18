@@ -322,6 +322,27 @@ def render_autonomous_dashboard(st):
     st.markdown("每日市場掃描 → AI 比較論點與風險 → 正式模型否決／確認 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
     if refresh_error:
         st.warning("遠端最新掃描紀錄暫時無法確認；以下為本機最後取得的資料。")
+    st.markdown("### 每日股票掃描清單｜包含未通過標的")
+    daily_runs = sorted(runs, key=lambda row: (str(row.get("run_day") or ""), str(row.get("run_at") or "")), reverse=True)
+    if daily_runs:
+        selected_index = st.selectbox("選擇掃描日期", range(len(daily_runs)),
+            format_func=lambda i: f'{daily_runs[i].get("run_day", "未知日期")}｜{daily_runs[i].get("run_at", "")[11:16]} UTC',
+            key="v1118_daily_scan_date")
+        selected_run = daily_runs[selected_index]
+        scan_items = selected_run.get("scan_items") or []
+        st.caption(selected_run.get("scan_items_scope") or "歷史逐檔明細未保存")
+        if scan_items:
+            st.dataframe([{
+                "掃描日": selected_run.get("run_day"),
+                "股票": item.get("ticker"), "名稱": item.get("name"),
+                "行情日": item.get("data_date") or "未保存",
+                "掃描結果": item.get("result") or item.get("execution_status") or "未保存",
+                "分數": item.get("recommendation_score"),
+                "原因": item.get("reason") or item.get("execution_reason") or item.get("tag") or "個別原因未保存",
+            } for item in scan_items], use_container_width=True, hide_index=True)
+            st.caption(f"共 {len(scan_items)} 檔；這是掃描明細，不代表已建立預測或模擬成交。")
+        else:
+            st.warning(f'{selected_run.get("run_day")} 只有執行摘要，舊程式未保存股票明細；不能以 0 檔宣稱當天沒有掃描股票。')
     st.markdown("**自主掃描歷史｜含失敗、不合格與未進場**")
     if runs:
         st.dataframe([{
