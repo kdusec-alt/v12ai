@@ -18,6 +18,9 @@ import os
 import re
 import time
 from typing import Any, Dict, Iterable, Mapping, Tuple
+import copy
+from concurrent.futures import ThreadPoolExecutor
+from market_proxy_observation import observation_from_history
 
 
 TAIFEX_NIGHT_URL = "https://www.taifex.com.tw/cht/3/futDailyMarketExcel?marketCode=1"
@@ -158,7 +161,7 @@ def _fetch_taifex_night() -> Dict[str, object]:
             "contract_month": month,
         })
         if not out["session_date"]:
-            out["session_date"] = date.today().isoformat()
+            out.update(accepted=False, reason="official night-session date unavailable")
         return out
     except Exception as exc:
         out["reason"] = type(exc).__name__
@@ -184,6 +187,9 @@ def _fetch_cached(fifteen_minute_bucket: int) -> Dict[str, object]:
         "tx_night": None,
         "as_of": {},
         "symbols": {},
+        "observations": {},
+        "sessions": {},
+        "trends": {},
     }
     if os.environ.get("TINO_OFFLINE_TEST") == "1":
         today = date.today().isoformat()
@@ -220,47 +226,70 @@ def _fetch_cached(fifteen_minute_bucket: int) -> Dict[str, object]:
             ("tsm_adr", "TSM"),
             ("wti", "CL=F"),
             ("brent", "BZ=F"),
+            ("taiex", "^TWII"),
+            ("tpex", "^TWOII"),
         )
-        for key, symbol in maps:
+        def load_proxy(pair):
+            key, symbol = pair
             try:
-                hist = yf.Ticker(symbol).history(
-                    period="5d", interval="1d", auto_adjust=False, timeout=5
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(
+                    period="3mo", interval="1d", auto_adjust=False, timeout=5
                 )
-                if hist is None or hist.empty or "Close" not in hist:
-                    continue
-                clean = hist.dropna(subset=["Close"])
-                closes = [float(x) for x in clean["Close"].tail(3)]
-                if len(closes) < 2:
-                    continue
-                change = _pct_change(closes)
-                if change is None:
-                    continue
+                try:
+                    metadata = ticker.history_metadata
+                except Exception:
+                    metadata = {}
+                return key, observation_from_history(key, symbol, hist, metadata), None
+            except Exception as exc:
+                return key, None, type(exc).__name__
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(load_proxy, maps))
+        for key, observation, error in results:
+            if error:
+                errors.append(f"{key}:{error}")
+            if observation is None:
+                continue
+            out["observations"][key] = observation
+            if observation["stale"]:
+                errors.append(f"{key}:stale")
+                continue
+            change = observation["change_pct"]
+            try:
                 if key == "vix":
-                    out["vix"] = round(closes[-1], 3)
+                    out["vix"] = observation["price"]
                     out["vix_change"] = change
-                    out["as_of"]["vix_change"] = str(clean.index[-1])[:19]
+                    out["as_of"]["vix_change"] = observation["quote_at"] or observation["data_date"]
+                    out["sessions"]["vix_change"] = observation["session"]
                 else:
                     out[key] = change
-                out["symbols"][key] = symbol
-                out["as_of"][key] = str(clean.index[-1])[:19]
+                out["symbols"][key] = observation["symbol"]
+                out["as_of"][key] = observation["quote_at"] or observation["data_date"]
+                out["sessions"][key] = observation["session"]
+                out["trends"][key] = {field: observation[field] for field in (
+                    "consecutive_down", "return_3d_pct", "return_5d_pct", "below_ma20",
+                    "drawdown_20d_pct", "completed_as_of", "completed_sessions")}
             except Exception as exc:
                 errors.append(f"{key}:{type(exc).__name__}")
     except Exception as exc:
         errors.append(f"yfinance:{type(exc).__name__}")
 
     night = _fetch_taifex_night()
-    if night.get("accepted"):
+    night_date = _parse_date(night.get("session_date"))
+    night_fresh = night_date is not None and 0 <= (date.today() - night_date).days <= 4
+    if night.get("accepted") and night_fresh:
         out["tx_night"] = night.get("change_pct")
         out["tx_night_last"] = night.get("last")
         out["tx_night_contract"] = night.get("contract_month")
         out["as_of"]["tx_night"] = night.get("session_date")
         out["symbols"]["tx_night"] = "TAIFEX:TX night"
+        out["sessions"]["tx_night"] = "overnight"
     else:
-        out["tx_night_reason"] = night.get("reason")
+        out["tx_night_reason"] = night.get("reason") or "official night-session date is stale or missing"
 
     out["accepted"] = any(
         out.get(k) is not None
-        for k in ("sox", "nq", "qqq", "smh", "mu", "tsm_adr", "tx_night")
+        for k in ("sox", "nq", "qqq", "smh", "mu", "tsm_adr", "tx_night", "taiex", "tpex")
     )
     if errors and not out["accepted"]:
         out["reason"] = ";".join(errors[-4:])
@@ -288,8 +317,9 @@ def fetch_market_proxy_context(reference_date: str = "") -> Dict[str, object]:
         }
 
     raw = _fetch_cached(int(time.time() // 300))
-    out = dict(raw)
+    out = copy.deepcopy(raw)
     out["as_of"] = dict(raw.get("as_of") or {})
     out["symbols"] = dict(raw.get("symbols") or {})
     out["reference_date"] = reference_date or today.isoformat()
     return out
+

@@ -130,11 +130,16 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                         if not isinstance(row, dict) or row.get("skipped"):
                             item.update(result="正式預測未通過", reason=str((row or {}).get("reason") or "預測保存失敗"))
                         else:
+                            entry_plan = (row.get("public_decision_snapshot") or {}).get("entry") or {}
+                            zone = entry_plan.get("low_entry_zone") or {}
                             item.update(prediction_id=row.get("id"), observed_at=row.get("run_time_tw"),
                                 target_trade_date=row.get("target_trade_date"),
+                                anchor_price=row.get("anchor_close"), scanner_entry_price=candidate.get("entry"),
                                 predicted_close=row.get("next_close_est"),
                                 predicted_low=row.get("next_low_est"), predicted_high=row.get("next_high_est"),
-                                entry_price=row.get("entry_low_1") or row.get("public_entry_price"),
+                                entry_price=zone.get("lower") or row.get("entry_low_1"),
+                                entry_price_upper=zone.get("upper") or row.get("entry_low_2"),
+                                strategy_version="V1118_CANDIDATE_FORECAST_V2",
                                 confirmation_price=row.get("public_confirmation_price"),
                                 stop_price=row.get("public_invalidation_price") or row.get("defense_stop"),
                                 formal_action=str((row.get("public_decision_snapshot") or {}).get("action_code") or "BLOCK"),
@@ -223,3 +228,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

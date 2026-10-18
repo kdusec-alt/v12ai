@@ -5,6 +5,7 @@ No scanner, new candidate discovery, broker connection or historical backfill.
 from __future__ import annotations
 
 import argparse
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,15 +29,30 @@ def update_candidate_checks(market):
         dirty = False
         for item in report.get("forecast_details") or []:
             audit = by_prediction.get(item.get("prediction_id"))
-            if not audit or str(audit.get("actual_price_date") or "")[:10] != str(item.get("target_trade_date") or "")[:10]:
+            if (not audit or not item.get("prediction_id")
+                or audit.get("ticker") != item.get("ticker")
+                or str(audit.get("target_trade_date") or "")[:10] != str(item.get("target_trade_date") or "")[:10]
+                or str(audit.get("actual_price_date") or "")[:10] != str(item.get("target_trade_date") or "")[:10]):
                 continue
             actual = audit.get("actual_close")
             predicted = item.get("predicted_close")
-            if not isinstance(actual, (int, float)) or not isinstance(predicted, (int, float)) or actual <= 0 or predicted <= 0:
+            if not isinstance(actual, (int, float)) or not isinstance(predicted, (int, float)) or not math.isfinite(actual) or not math.isfinite(predicted) or actual <= 0 or predicted <= 0:
                 continue
             status = "已驗證" if audit.get("price_sample_quality") == "verified" and before_target_open({"market": market, "target_trade_date": item.get("target_trade_date"), "run_time_tw": item.get("observed_at")}) else "已比對／未達正式計分門檻"
             fields = {"actual_close": actual, "close_error_pct": round((actual / predicted - 1) * 100, 4),
                       "audit_status": status, "actual_source": audit.get("actual_price_source")}
+            for name in ("open", "high", "low"):
+                value = audit.get("actual_" + name)
+                if isinstance(value, (int, float)) and math.isfinite(value) and value > 0:
+                    fields["actual_" + name] = value
+            anchor = item.get("anchor_price")
+            if isinstance(anchor, (int, float)) and math.isfinite(anchor) and anchor > 0:
+                fields["anchor_to_close_pct"] = round((actual / anchor - 1) * 100, 4)
+                fields["missed_rise"] = bool(not item.get("paper_trade_allowed") and actual / anchor - 1 >= 0.03)
+            entry = item.get("entry_price")
+            high, low = fields.get("actual_high"), fields.get("actual_low")
+            if isinstance(entry, (int, float)) and math.isfinite(entry) and entry > 0 and high is not None and low is not None and low <= high:
+                fields["entry_level_touched"] = low <= entry <= high
             if any(item.get(k) != v for k, v in fields.items()):
                 item.update(fields)
                 dirty = True
@@ -111,3 +127,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

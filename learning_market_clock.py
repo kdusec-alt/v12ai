@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date, timedelta
+import math
 from typing import Any, Dict
 from zoneinfo import ZoneInfo
 
@@ -81,17 +82,23 @@ def fetch_actual_daily_snapshot(ticker: str) -> Dict[str, Any]:
     truth = getattr(frame, "truth", None)
     status = str(getattr(frame, "market_status", "") or "")
     ready_status = status in {"closed_reference", "after_close", "close_confirm", "after_hours"}
-    close = closes[-1] if closes else _safe_float(getattr(frame, "last", 0.0))
+    # The frame OHLC belongs to price_date; history tails can still be the
+    # previous session during a quote/history synchronization window.
+    close = _safe_float(getattr(frame, "last", 0.0))
+    open_price = _safe_float(getattr(frame, "open", 0.0))
+    high = _safe_float(getattr(frame, "high", 0.0))
+    low = _safe_float(getattr(frame, "low", 0.0))
+    valid_ohlc = all(math.isfinite(value) and value > 0 for value in (open_price, high, low, close)) and low <= min(open_price, close) <= max(open_price, close) <= high
     return {
         "actual_close": close,
-        "actual_open": _safe_float(getattr(frame, "open", 0.0)),
-        "actual_high": highs[-1] if highs else _safe_float(getattr(frame, "high", 0.0)),
-        "actual_low": lows[-1] if lows else _safe_float(getattr(frame, "low", 0.0)),
+        "actual_open": open_price,
+        "actual_high": high,
+        "actual_low": low,
         "price_date": str(getattr(frame, "price_date", "") or ""),
         "market_status": status,
         "source": str(getattr(truth, "source", "fetch_price") or "fetch_price"),
         "actual_valid": bool(
-            close > 0 and bool(getattr(truth, "accepted", False))
+            valid_ohlc and bool(getattr(truth, "accepted", False))
             and not bool(getattr(truth, "fallback", False)) and ready_status
         ),
     }
@@ -102,3 +109,4 @@ def actual_matches_target(actual: Dict[str, Any], target_date: str) -> bool:
         actual.get("actual_valid")
         and str(actual.get("price_date") or "")[:10] == str(target_date or "")[:10]
     )
+

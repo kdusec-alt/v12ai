@@ -748,6 +748,19 @@ def _render_market_command(forecast) -> None:
         <small>市場資料覆蓋度 {coverage}%｜非方向命中率</small></div></div>""",
         unsafe_allow_html=True,
     )
+    observations = result.get("observations") or {}
+    if observations:
+        with st.expander("市場報價與連續走勢｜來源、日期與期貨口徑"):
+            st.caption("報價可能延遲；連跌與累計報酬只採已完成交易日。WTI／Brent為連續期貨，換月可能影響漲跌，並非現貨或官方結算價。")
+            st.dataframe([{
+                "指標": str(key).upper(), "商品代碼": item.get("symbol"),
+                "價格": item.get("price"), "幣別": item.get("currency"),
+                "單日%": item.get("change_pct"), "3交易日%": item.get("return_3d_pct"),
+                "5交易日%": item.get("return_5d_pct"), "已完成交易日連跌": item.get("consecutive_down"),
+                "行情日": item.get("data_date"), "來源報價時間UTC": item.get("quote_at") or "來源未提供精確時間",
+                "趨勢截至": item.get("completed_as_of"), "狀態": "過舊／不採用" if item.get("stale") else item.get("session"),
+                "合約": item.get("contract"), "來源": item.get("source"),
+            } for key, item in observations.items()], use_container_width=True, hide_index=True)
 
 
 if hasattr(st, "fragment"):
@@ -1262,3 +1275,4 @@ except Exception as exc:
         _render_admin_trace(_trace)
     except Exception:
         raise
+

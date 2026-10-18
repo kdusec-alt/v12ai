@@ -148,7 +148,7 @@ def assess_market_command(
     data = dict(proxies or {})
     event_score, event_reason, event_verified = _event_risk(news)
     fields = (
-        (("tx_night", 16.0), ("tsm_adr", 10.0), ("sox", 8.0), ("nq", 6.0))
+        (("taiex", 12.0), ("tpex", 8.0), ("tx_night", 16.0), ("tsm_adr", 10.0), ("sox", 8.0), ("nq", 6.0))
         if family == "TW" else
         (("sox", 15.0), ("nq", 13.0), ("qqq", 9.0), ("smh", 8.0))
     )
@@ -207,6 +207,31 @@ def assess_market_command(
         # does not prove a same-session Taiwan sell-off.
         score = max(score, 28.0)
 
+    # Multi-session weakness remains risk evidence even if today's move is small.
+    trend_notes = []
+    observations = dict(data.get("observations") or {})
+    for key in ("sox", "qqq"):
+        trend = dict((data.get("trends") or {}).get(key) or {})
+        stamp = str(trend.get("completed_as_of") or "")[:10]
+        try:
+            trend_fresh = 0 <= (date.today() - date.fromisoformat(stamp)).days <= 4
+        except ValueError:
+            trend_fresh = False
+        if not trend_fresh:
+            continue
+        down = int(trend.get("consecutive_down") or 0)
+        five = _num(trend.get("return_5d_pct"))
+        if key == "sox":
+            note = f"SOX 已完成交易日連跌 {down} 日"
+            if five is not None:
+                note += f"／5日 {five:+.2f}%"
+            facts.append(note)
+            trend_notes.append(note + f"（截至 {stamp}）")
+        if down >= 3 or (five is not None and five <= -5):
+            score = max(score, 28.0)
+            if key == "sox" and down >= 3 and five is not None and five <= -8 and falling >= 2:
+                score = max(score, 48.0)
+
     # Oil is context evidence, never a same-session equity vote or proof that
     # a headline caused a move. Ignore old readings after a long market break.
     oil_moves = []
@@ -218,13 +243,16 @@ def assess_market_command(
         except ValueError:
             fresh = False
         if fresh and change is not None:
-            facts.append(f"{key.upper()} {change:+.2f}%（背景）")
+            observation = observations.get(key) or {}
+            price = _num(observation.get("price"))
+            facts.append(f"{key.upper()} " + (f"US$ {price:.2f}/桶 " if price is not None else "") + f"{change:+.2f}%（期貨背景）")
             oil_moves.append(change)
     if oil_moves and max(abs(x) for x in oil_moves) >= 5.0 and falling >= 2:
         score = max(score, 28.0)
 
     radar_count = sum(1 for value in (radar or {}).values() if str(value or "").strip())
-    coverage = min(88, 28 + len(set(observed)) * 9 + min(12, radar_count))
+    expected = len(fields) + 3  # equity proxies, VIX, WTI and Brent
+    coverage = round(100 * (len(set(observed)) + len(oil_moves)) / expected)
     rebound = bool(
         falling >= 2 and improving >= 1 and vix_change is not None
         and vix_change < 0 and vix_eligible
@@ -247,12 +275,14 @@ def assess_market_command(
             "暫不改變部位；等待至少兩項一致Session市場資料同步",
         )
     thesis = _market_thesis(
-        observed_count=len(set(observed)), falling=falling, improving=improving,
+        observed_count=len({key for key in observed if key != "vix"}), falling=falling, improving=improving,
         vix=vix if vix_eligible else None, price_confirmed=price_confirmed,
         same_session_confirmed=same_session_confirmed, event_reason=event_reason,
         event_verified=event_verified, vote_scope=vote_scope,
         excluded_count=len(excluded_keys),
     )
+    if trend_notes:
+        thesis += "；" + "；".join(trend_notes)
     session_fact = {
         "same_session": "同Session",
         "same_session_benchmark": "同Session單一基準",
@@ -273,7 +303,10 @@ def assess_market_command(
         "confidence_semantics": "data_coverage_only",
         "action": action,
         "thesis": thesis,
-        "facts": facts[:8],
+        "facts": facts[:12],
+        "observations": observations,
+        "trend_notes": trend_notes,
+        "data_as_of": dict(data.get("as_of") or {}),
         "event_reason": event_reason,
         "event_verified": event_verified,
         "current_headlines": current_headlines,
@@ -285,3 +318,4 @@ def assess_market_command(
         "radar_evidence_count": radar_count,
         "purple_is_entry_signal": False,
     }
+

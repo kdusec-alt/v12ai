@@ -355,10 +355,14 @@ def render_autonomous_dashboard(st):
                 "股票": item.get("ticker"), "目標交易日": item.get("target_trade_date"),
                 "預測收盤": item.get("predicted_close"), "預測低點": item.get("predicted_low"),
                 "預測高點": item.get("predicted_high"), "條件進場參考價": item.get("entry_price"),
+                "判斷當時價格": item.get("anchor_price"), "Scanner原進場價": item.get("scanner_entry_price"),
                 "確認價": item.get("confirmation_price"), "失效價": item.get("stop_price"),
                 "正式判斷": item.get("formal_action"),
                 "模擬進場資格": "允許送交正式判斷" if item.get("paper_trade_allowed") else "未允許／空手觀察",
                 "正式收盤": item.get("actual_close"), "收盤誤差%": item.get("close_error_pct"),
+                "實際開盤": item.get("actual_open"), "實際最高": item.get("actual_high"), "實際最低": item.get("actual_low"),
+                "當時價至收盤%": item.get("anchor_to_close_pct"), "未允許進場後上漲≥3%": item.get("missed_rise"),
+                "參考進場價落在日內區間": item.get("entry_level_touched"),
                 "驗證狀態": item.get("audit_status") or item.get("result"),
                 "原因": item.get("reason"),
             } for item in forecasts], use_container_width=True, hide_index=True)
@@ -586,3 +590,4 @@ def render_paper_lab(st, symbol):
     else:
         st.markdown("等待已確認收盤結果與有效財報／Lab 樣本，尚無可用統計。")
     st.markdown("研究只產生對照統計，未自動更改正式模型。Lab 須有同一筆預測的既存訊號；無訊號時保留缺值。自主掃描由獨立排程執行，實際候選、模擬與結算以上方完成紀錄為準。")
+
