@@ -1357,6 +1357,14 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
     previous_symbols = set(previous_results.get("ticker", pd.Series(dtype=str)).astype(str)) if not previous_results.empty else set()
     deep_frames: Dict[str, pd.DataFrame] = {}
     institutional_flow = fetch_bulk_institutional_flow()
+    out.mkdir(parents=True, exist_ok=True)
+    scan_detail_path = out / "scan_universe_details.csv"
+    scan_details = {ticker: {"ticker": ticker, "name": name_map.get(ticker, ticker),
+                            "scan_date": run_dt.date().isoformat(), "result": "NOT_PROCESSED",
+                            "reason": "掃描未處理／中途停止"} for ticker in tickers}
+    def save_scan_details():
+        pd.DataFrame(list(scan_details.values())).to_csv(scan_detail_path, index=False, encoding="utf-8-sig")
+    save_scan_details()
     start = time.time()
     print(f"\n📥 全市場掃描｜批次 {CFG.chunk_size}｜period={CFG.period}｜adjusted OHLC")
     for i in tqdm(range(0, len(tickers), CFG.chunk_size)):
@@ -1370,12 +1378,14 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
                     df = normalize_yf_df(fallback, ticker, chunk_len=1)
                     if df.empty:
                         stats["yf_fail"] += 1
+                        scan_details[ticker].update(result="DOWNLOAD_FAILED", reason="行情下載與備援皆失敗")
                         continue
                     stats["yf_fallback_success"] += 1
                 sector = official_snapshot.get(ticker, {}).get("sector", "未分類")
                 if not df.empty:
                     metric = _universe_bar_metrics(ticker, df, sector)
                     universe_metrics[ticker] = metric
+                    scan_details[ticker].update(result="FAST_FILTER_REJECTED", reason="未通過第一階段篩選")
                     if ticker in previous_symbols:
                         historical_frames[ticker] = df
                     if metric["fast_filter_pass"]:
@@ -1383,13 +1393,16 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
                         if len(deep_frames) > CFG.active_pool_n:
                             worst = min(deep_frames, key=lambda code: universe_metrics[code]["fast_filter_score"])
                             deep_frames.pop(worst, None)
+                        scan_details[ticker].update(result="POOL_LIMIT", reason="通過初篩，未排入本輪深度分析名額")
                         stats["fast_filter_pass"] += 1
                     else:
                         stats["fast_filter_reject"] += 1
             except Exception as exc:
                 stats["calc_fail"] += 1
+                scan_details[ticker].update(result="CALCULATION_ERROR", reason=type(exc).__name__)
                 logger.debug("%s failed: %s", ticker, exc)
         time.sleep(random.uniform(CFG.sleep_min, CFG.sleep_max))
+        save_scan_details()
         checked = min(i + len(chunk), len(tickers))
         if checked >= CFG.chunk_size * 2 and stats["yf_fail"] / checked >= 0.80:
             raise RuntimeError(
@@ -1413,13 +1426,16 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
                 market_ctx=market_ctx,
                 official=official_snapshot.get(ticker),
             )
+            scan_details[ticker].update(result=status, reason={"success": "已建立候選，待可執行性判斷", "history_fail": "歷史不足", "vol_fail": "流動性不足", "stale_fail": "行情過舊", "official_mismatch_fail": "官方價差不符", "edge_fail": "條件或預期優勢不足"}.get(status, status))
             stats[status] += 1
             stats["deep_scanned"] += 1
             if status == "success" and row is not None:
                 candidates.append(row)
         except Exception as exc:
             stats["calc_fail"] += 1
+            scan_details[ticker].update(result="CALCULATION_ERROR", reason=type(exc).__name__)
             logger.debug("%s deep-scan failed: %s", ticker, exc)
+    save_scan_details()
     historical_frames.update(deep_frames)
     print("\n" + "=" * 70)
     print("🔍 TINO V156 診斷面板")
@@ -1459,6 +1475,14 @@ def main(mode: str = "manual", output_dir: Optional[str] = None, download: bool 
     )
     recommended_codes = set(recommended["ticker"].tolist())
     df_results["is_recommended5"] = df_results["ticker"].isin(recommended_codes)
+    for row in df_results.to_dict("records"):
+        scan_details[row["ticker"]].update(
+            result=str(row.get("execution_status") or "UNKNOWN"),
+            reason=str(row.get("execution_reason") or row.get("reject_reason") or row.get("tag") or row.get("execution_status") or "未保存個別原因"),
+            recommended=bool(row["is_recommended5"]),
+            data_date=str(row.get("data_date") or ""), last_p=row.get("last_p"),
+            recommendation_score=row.get("recommendation_score"))
+    save_scan_details()
     display_cols = [
         "ticker", "name", "data_date", "last_p", "score", "tag", "execution_status",
         "recommendation_score", "setup_edge_pct", "market_edge_pct", "entry_gap_pct",
