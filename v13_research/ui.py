@@ -7,6 +7,7 @@ runs formal prediction, or recalculates Genome snapshots.
 from __future__ import annotations
 
 from typing import Any, Dict, Mapping
+from datetime import datetime, timezone
 
 from .genome_engine import GENE_LABELS, GENE_ORDER
 from .repository import load_research_dashboard
@@ -148,6 +149,17 @@ def render_research_lab(st) -> None:
     selected = st.selectbox("研究標的", tickers, index=tickers.index(default_ticker), key="research_ticker")
     latest = latest_by_ticker[selected]
     latest_detection = _latest_detection_for(selected, detections)
+    try:
+        recorded_at = datetime.fromisoformat(str(latest.get("run_time_tw") or "").replace("Z", "+00:00"))
+        if recorded_at.tzinfo is None:
+            raise ValueError("timezone_missing")
+        age_days = (datetime.now(timezone.utc) - recorded_at).total_seconds() / 86400
+        if age_days > 7:
+            st.warning(f"這是 {latest.get('run_time_tw', '')[:10]} 的歷史研究快照，已超過7日；分數只描述當時狀態，不代表目前市場。")
+        elif age_days < 0:
+            st.warning("研究快照時間晚於目前時間，請確認資料來源；暫不作當前市場依據。")
+    except (ValueError, TypeError):
+        st.warning("研究快照缺少可驗證的時間；暫不作當前市場依據。")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Genome Score", f"{_number(latest.get('genome_score')):.1f}")
@@ -396,3 +408,4 @@ def render_research_lab(st) -> None:
         if report:
             with st.expander("最近一次 Scheduler Report", expanded=False):
                 st.json(report)
+

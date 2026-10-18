@@ -380,6 +380,32 @@ def _render_card_section(st_module, title: str, frame: pd.DataFrame, *, recommen
     st_module.markdown('<div class="v156-cards">' + "".join(cards) + "</div>", unsafe_allow_html=True)
 
 
+def _load_memory_snapshot():
+    from memory_store import MEMORY_DIR, read_jsonl
+    from paper_lab_v1118 import _refresh_scan_runs
+    from pathlib import Path
+    path = Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl"
+    _refresh_scan_runs(path)
+    rows = [row for row in read_jsonl(path, 100) if row.get("source") and row.get("scanner_status") != "failure"
+            and (row.get("scanner_candidates") or row.get("scan_items"))]
+    if not rows:
+        return None
+    latest = max(rows, key=lambda row: (str(row.get("run_at") or ""), str(row.get("last_audit_at") or ""), len(row.get("scan_items") or [])))
+    candidates = latest.get("scanner_candidates") or latest.get("scan_items") or []
+    frame = pd.DataFrame(candidates)
+    if "execution_status" not in frame:
+        frame["execution_status"] = frame.get("result", "UNKNOWN")
+    if "is_recommended5" not in frame:
+        frame["is_recommended5"] = False
+    if "recommendation_score" in frame:
+        frame["recommendation_score"] = pd.to_numeric(frame["recommendation_score"], errors="coerce")
+    return frame, {
+        "published_at": latest.get("run_at"), "snapshot_id": latest.get("source"),
+        "snapshot_name": "GitHub 每日掃描記憶", "memory_scope": latest.get("scan_items_scope"),
+        "partial": not bool(latest.get("scanner_candidates")),
+    }, latest.get("source"), pd.DataFrame()
+
+
 def render_market_scanner(st_module=st) -> None:
     """Render an isolated, read-only V156 page. Errors stay inside this page."""
     st_module.markdown("## 🌌 AI Market Scanner")
@@ -387,30 +413,35 @@ def render_market_scanner(st_module=st) -> None:
 
     folder_id = _get_secret("GOOGLE_DRIVE_FOLDER_ID")
     service_account_json = _get_secret("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if not folder_id or not service_account_json:
-        st_module.info(
-            "尚未設定 Drive 讀取權限。請在網站部署平台的 Streamlit Secrets 設定 "
-            "GOOGLE_SERVICE_ACCOUNT_JSON 與 GOOGLE_DRIVE_FOLDER_ID。"
-        )
-        return
-
     refresh_nonce = int(st_module.session_state.get("v156_drive_refresh_nonce", 0))
     if st_module.button("🔄 重新讀取最新快照", key="v156_drive_refresh"):
         refresh_nonce += 1
         st_module.session_state["v156_drive_refresh_nonce"] = refresh_nonce
 
+    snapshots = []
+    if folder_id and service_account_json:
+        try:
+            with st_module.spinner("讀取 Google Drive 最新快照…"):
+                snapshots.append(_load_snapshot(folder_id, service_account_json, refresh_nonce))
+        except Exception:
+            st_module.caption("Drive 快照暫時無法取得，正在核對已保存的掃描記憶。")
     try:
-        with st_module.spinner("讀取 Google Drive 最新快照…"):
-            frame, manifest, result_name, validation = _load_snapshot(
-                folder_id, service_account_json, refresh_nonce
-            )
-    except Exception as exc:
-        st_module.warning(
-            "目前無法讀取最新 Scanner 快照；個股分析功能不受影響。"
-        )
-        if bool(st_module.session_state.get("admin_authenticated", False)):
-            st_module.caption(f"Scanner 讀取狀態：{type(exc).__name__}: {exc}")
+        memory_snapshot = _load_memory_snapshot()
+        if memory_snapshot is not None:
+            snapshots.append(memory_snapshot)
+    except Exception:
+        st_module.caption("掃描記憶目前無法確認。")
+    if not snapshots:
+        st_module.warning("目前無可驗證的 Scanner 快照；請檢查每日掃描與快照儲存狀態。")
         return
+    def snapshot_time(snapshot):
+        try:
+            return datetime.fromisoformat(str(snapshot[1].get("published_at") or "").replace("Z", "+00:00")).timestamp()
+        except (ValueError, TypeError):
+            return float("-inf")
+    frame, manifest, result_name, validation = max(snapshots, key=snapshot_time)
+    if manifest.get("partial"):
+        st_module.warning("目前顯示較新的部分復原清單；缺少的進場價、評分與回測資料保留空白。")
 
     published = str(manifest.get("published_at", ""))
     stale = False
@@ -431,7 +462,7 @@ def render_market_scanner(st_module=st) -> None:
         st_module.session_state["v156_quote_snapshot_key"] = quote_snapshot_key
     st_module.caption(
         f"快照：{snapshot_label}｜發布時間：{published or '未知'}｜"
-        f"來源檔：{result_name or '未知'}｜Drive 快取 5 分鐘"
+        f"來源檔：{result_name or '未知'}｜依來源時間選擇較新快照"
     )
     if stale:
         st_module.warning("快照超過 72 小時或時間格式無法確認，請視為舊資料；保留顯示供查閱。")
@@ -551,3 +582,4 @@ def render_market_scanner(st_module=st) -> None:
 
     with st_module.expander("查看完整 Scanner 結果"):
         st_module.dataframe(frame, use_container_width=True, hide_index=True)
+

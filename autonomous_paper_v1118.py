@@ -70,6 +70,7 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
         with csv_path.open(encoding="utf-8-sig", newline="") as handle:
             snapshot_rows = list(csv.DictReader(handle))
         report["scan_items"] = snapshot_rows
+        report["scanner_candidates"] = snapshot_rows
         report["scan_items_scope"] = "候選快照（含未獲推薦）"
         # Forecast the bounded candidate pool before applying permission to trade.
         research_pool = []
