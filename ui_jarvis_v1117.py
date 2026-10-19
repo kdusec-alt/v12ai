@@ -127,15 +127,29 @@ def command_html(forecast, payload):
     thesis = brief.get("summary") or snap.get("reason") or "等待有效資料"
     risk = brief.get("primary_risk") or "風險條件待確認"
     assessment = assess(frame, last)
-    risk = assessment["risk"] + "｜原交易風控：" + str(risk)
-    risk_details = (
-        '<details class="j-shell j-note"><summary>基本面 × 技術風險｜' + _text(assessment["risk_band"]) + '</summary>'
-        '<div>' + _text(assessment["interpretation"]) + '</div>'
-        + ''.join('<div>' + _text(name) + '（研究權重 ' + str(assessment["weights"][name]) + '%）：' + _text(state) + '</div>' for name, state in assessment["dimensions"])
-        + '<div>風險解除觀察：' + _text(assessment["recovery"]) + '</div>'
-        + ''.join('<div>' + _text(item) + '</div>' for item in assessment["checks"])
-        + '<div>初始權重尚未回測校準，不輸出勝率或綜合分數；不改寫原交易資格。</div></details>'
-    )
+    # One concise explanation in the existing risk line; evidence stays in
+    # the engine and the original analysis workspace, not a second UI panel.
+    factors = []
+    ma20, ma60 = assessment["ma20"], assessment["ma60"]
+    price_number = float(last) if _price(last) != "—" else None
+    if price_number and ma20 and ma60 and price_number < min(ma20, ma60):
+        factors.append("跌破月線與季線，趨勢待修復")
+    elif assessment["below_ma60"] is True:
+        factors.append("季線失守，等待站回")
+    elif price_number and ma20 and price_number < ma20:
+        factors.append("跌破月線，短線轉弱")
+    elif assessment["health"] == "疲弱":
+        factors.append("獲利或現金流偏弱")
+    if assessment["health"] == "待確認":
+        factors.append("財報口徑待核對")
+    elif assessment["health"] == "強勁" and assessment["below_ma60"] is True:
+        factors.append("獲利尚未轉為價格支撐")
+    defense = brief.get("invalidation")
+    if _price(defense) != "—":
+        factors.append("防守 " + str(defense))
+    else:
+        factors.append(str(risk).split("；", 1)[0])
+    risk = "；".join(factors)
     confidence = brief.get("confidence_label") or "待確認"
     return STYLE + (
         '<section class="j-shell j-command" data-tone="' + tone + '"><div>'
@@ -147,7 +161,7 @@ def command_html(forecast, payload):
         '<div class="j-eyebrow">AI DECISION · 個股證據一致 ' + _text(confidence) + '（非預測命中率）</div>'
         '<div class="j-verdict">' + _text(verdict) + '</div><div class="j-thesis">' + _text(thesis) + '</div>'
         '<div class="j-risk">主要風險：' + _text(risk) + '</div></div></section>'
-        + risk_details + '<div class="j-shell j-levels">' + levels + '</div>'
+        '<div class="j-shell j-levels">' + levels + '</div>'
         '<div class="j-shell j-note">下一交易日模型參考收盤 ' + _price(getattr(forecast, "final_t1", None)) +
         ' ｜ 隔日高點 ' + _price(getattr(forecast, "final_t1_high", None)) +
         ' ｜ 隔日低點 ' + _price(getattr(forecast, "final_t1_low", None)) +

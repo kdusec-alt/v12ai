@@ -47,8 +47,10 @@ def test_rejected_synthetic_and_short_history_not_used():
 def test_read_only_and_original_stop_preserved():
     f,p=fixture(); f.price_frame=frame(); before=copy.deepcopy((f,p))
     html=command_html(f,p)
-    assert '原交易風控：法人／外資流向偏空' in html
-    assert '72.37' in html and '不改寫原交易資格' in html
+    assert '跌破月線與季線，趨勢待修復' in html
+    assert '<details' not in html
+    assert '研究權重' not in html
+    assert '防守 72.37' in html
     assert f==before[0] and p==before[1]
     assert assess(f.price_frame)['execution_authority'] is False
 
