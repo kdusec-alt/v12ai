@@ -188,6 +188,9 @@ def fetch_us_quarterly_metrics(symbol: str) -> Dict[str, object]:
                 "quarterlyDilutedEPS",
                 "quarterlyNormalizedDilutedEPS",
                 "quarterlyNetIncome",
+                "quarterlyGrossProfit",
+                "quarterlyOperatingCashFlow",
+                "quarterlyCapitalExpenditure",
             )
         )
         url = (
@@ -242,6 +245,20 @@ def fetch_us_quarterly_metrics(symbol: str) -> Dict[str, object]:
                 net_income_yoy=net_income_yoy,
                 net_income_yoy_anchor_date=net_income_anchor,
             )
+        # Match all quality measures to the same fiscal period, never mix TTM.
+        revenue_rows = dict(revenues)
+        income_rows = dict(gaap_eps_rows)
+        gross_rows = dict(_quarterly_rows(payload, "quarterlyGrossProfit"))
+        operating_rows = dict(_quarterly_rows(payload, "quarterlyOperatingCashFlow"))
+        capex_rows = dict(_quarterly_rows(payload, "quarterlyCapitalExpenditure"))
+        quality_date = revenues[-1][0] if revenues else None
+        if quality_date and all(quality_date in rows for rows in
+                (income_rows, gross_rows, operating_rows, capex_rows)):
+            rev = revenue_rows[quality_date]
+            if rev > 0:
+                out.update(quality_period_date=quality_date,
+                           quarterly_gross_margin=gross_rows[quality_date] / rev * 100,
+                           quarterly_free_cashflow=operating_rows[quality_date] - abs(capex_rows[quality_date]))
         if out:
             out["accepted"] = True
             out["source"] = "YahooFinance fundamentals-timeseries"
@@ -376,5 +393,10 @@ def build_us_fundamental_context(
         "earnings_taipei": earnings_taipei,
         "earnings_calendar_source": earnings_calendar_source,
         "growth_semantics": "universal_truth_guard_v2",
+        "quarterly_gross_margin": quarterly.get("quarterly_gross_margin"),
+        "quarterly_free_cashflow": quarterly.get("quarterly_free_cashflow"),
+        "quality_period_consistent": bool(revenue_date and quarterly.get("quality_period_date") == revenue_date
+                                           and quarterly.get("latest_gaap_eps_date") == revenue_date),
         "quarterly_source_date": revenue_date or _text(quarterly.get("latest_gaap_eps_date")),
     }
+

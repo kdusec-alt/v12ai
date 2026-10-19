@@ -39,3 +39,4 @@ jobs:
           test_session_truth_market_command_v1081.py test_quantum_entanglement.py
           test_market_command_v1071.py test_v1081_event_refresh.py
           test_jarvis_v1117.py test_ai_research_v1118.py
+          test_fundamental_technical_risk.py

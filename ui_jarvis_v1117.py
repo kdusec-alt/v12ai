@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import math
+from fundamental_technical_risk import assess
 from collections.abc import Mapping
 
 
@@ -125,6 +126,16 @@ def command_html(forecast, payload):
     verdict = brief.get("verdict") or snap.get("label") or "正式決策待確認"
     thesis = brief.get("summary") or snap.get("reason") or "等待有效資料"
     risk = brief.get("primary_risk") or "風險條件待確認"
+    assessment = assess(frame, last)
+    risk = assessment["risk"] + "｜原交易風控：" + str(risk)
+    risk_details = (
+        '<details class="j-shell j-note"><summary>基本面 × 技術風險｜' + _text(assessment["risk_band"]) + '</summary>'
+        '<div>' + _text(assessment["interpretation"]) + '</div>'
+        + ''.join('<div>' + _text(name) + '（研究權重 ' + str(assessment["weights"][name]) + '%）：' + _text(state) + '</div>' for name, state in assessment["dimensions"])
+        + '<div>風險解除觀察：' + _text(assessment["recovery"]) + '</div>'
+        + ''.join('<div>' + _text(item) + '</div>' for item in assessment["checks"])
+        + '<div>初始權重尚未回測校準，不輸出勝率或綜合分數；不改寫原交易資格。</div></details>'
+    )
     confidence = brief.get("confidence_label") or "待確認"
     return STYLE + (
         '<section class="j-shell j-command" data-tone="' + tone + '"><div>'
@@ -136,7 +147,7 @@ def command_html(forecast, payload):
         '<div class="j-eyebrow">AI DECISION · 個股證據一致 ' + _text(confidence) + '（非預測命中率）</div>'
         '<div class="j-verdict">' + _text(verdict) + '</div><div class="j-thesis">' + _text(thesis) + '</div>'
         '<div class="j-risk">主要風險：' + _text(risk) + '</div></div></section>'
-        '<div class="j-shell j-levels">' + levels + '</div>'
+        + risk_details + '<div class="j-shell j-levels">' + levels + '</div>'
         '<div class="j-shell j-note">下一交易日模型參考收盤 ' + _price(getattr(forecast, "final_t1", None)) +
         ' ｜ 隔日高點 ' + _price(getattr(forecast, "final_t1_high", None)) +
         ' ｜ 隔日低點 ' + _price(getattr(forecast, "final_t1_low", None)) +
@@ -155,3 +166,4 @@ WORKSPACES = ("交易計畫", "籌碼與事件", "模擬與財報學習", "深�
 def render_workspace_picker(st):
     return st.radio("分析工作區", WORKSPACES, index=4, horizontal=True,
                     label_visibility="collapsed", key="jarvis_workspace_v1118")
+
