@@ -10,7 +10,7 @@ def frame(healthy=True, price=90):
     return NS(last=price, recent_closes=[100.] * 60, price_date='2026-10-19',
               truth=NS(accepted=True, fallback=False), context={'fundamental': {
                   'accepted': True, 'quarterly_source_date': '2026-08-31',
-                  'quality_period_consistent': True, 'gaap_eps': 2 if healthy else -2,
+                  'quality_period_consistent': True, 'statement_verified': True, 'gaap_eps': 2 if healthy else -2,
                   'quarterly_gross_margin': 50, 'quarterly_free_cashflow': 100,
                   'eps': 24.67, 'eps_kind': 'ttm', 'eps_basis': 'gaap_ttm', 'forward_pe': 4.25}})
 
@@ -88,12 +88,16 @@ def test_cashflow_period_alignment():
         assert 'quarterly_free_cashflow' not in mismatched
 
 
+def check_unverified_source_cannot_claim_health():
+    f=frame(); del f.context['fundamental']['statement_verified']
+    assert assess(f)['health']=='待確認'
+
 class RiskTests(unittest.TestCase):
     pass
 
 for name, function in list(globals().items()):
-    if name.startswith("test_") and callable(function):
-        setattr(RiskTests, name, lambda self, fn=function: fn())
+    if name.startswith(("test_", "check_")) and callable(function):
+        setattr(RiskTests, name.replace("check_", "test_"), lambda self, fn=function: fn())
 
 if __name__ == '__main__':
     unittest.main()

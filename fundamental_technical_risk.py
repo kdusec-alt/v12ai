@@ -59,13 +59,13 @@ def assess(frame, price=None):
     cash = number(f.get("quarterly_free_cashflow"))
     quality_ok = bool(report_ok and f.get("quality_period_consistent"))
     health = "待確認"
-    if quality_ok and eps is not None and margin is not None and cash is not None:
+    if quality_ok and f.get("statement_verified") is True and eps is not None and margin is not None and cash is not None:
         health = "強勁" if eps > 0 and margin > 0 and cash > 0 else "疲弱"
         if health == "疲弱":
             risks.append("最新同季 GAAP 獲利、毛利率或自由現金流非正值，需檢查虧損與融資需求")
             recovery.append("同季 GAAP 獲利、毛利率及自由現金流改善，並核對財測")
     if health == "待確認":
-        risks.append("財報健康待確認，營收或 EPS 成長不能替代現金流檢驗")
+        risks.append("財報健康待確認，來源數據尚待獨立口徑核對；營收或 EPS 成長不能替代現金流檢驗")
     quadrants = {
         ("強勁", False): "成長與趨勢同步，仍須通過原交易條件",
         ("強勁", True): "基本面強、技術轉弱，等待修復",
@@ -88,7 +88,7 @@ def assess(frame, price=None):
         "尚待核對：財測、負債與融資需求、歷史估值區間、利率、產業需求及 AI 資本支出；資料覆蓋率不代表資料正確",
     ])
     if quality_ok:
-        checks.append(f"同季毛利率 {margin}%；自由現金流 {cash}（營業現金流減資本支出，財報幣別）")
+        checks.append(f"來源同季毛利率 {margin:.2f}%；自由現金流 {cash:,.0f}（營業現金流減資本支出，財報幣別；尚待獨立核對）" if margin is not None and cash is not None else "同季獲利品質資料缺漏")
     next_event = str(f.get("next_earnings") or "未取得確切日期")
     checks.append(f"下次財報 {next_event}；重新分析時以新財報重算，本模組沒有獨立排程")
     sf = number(short.get("short_float"))
