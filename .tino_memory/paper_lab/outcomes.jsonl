@@ -12,3 +12,6 @@
 {"experiment_id": "5cfc2a7a5eba54c21d2e69e7", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
 {"experiment_id": "27f3a33e5cce1920d2bdc34d", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
 {"experiment_id": "e5e398ad1734daa72ee0df2a", "status": "EXCLUDED", "reason": "觀測日期未早於目標交易日"}
+{"experiment_id": "15e62c22a2b2f1d408f8dd30", "prediction_id": "f3316a2a4419159c", "ticker": "6221.TWO", "date": "2026-10-28", "actual_source": "TPEX_MIS_Realtime", "underlying_return_pct": -5.3738, "fundamental": {}, "research": {}, "settled_at": "2026-10-28T14:15:26.287492+00:00", "status": "OBSERVED", "reason": "正式決策未買進，保留空手結果"}
+{"experiment_id": "d559afe7d967f836006d3da4", "prediction_id": "0668371cb57bf4d6", "ticker": "1569.TWO", "date": "2026-10-28", "actual_source": "TPEX_MIS_Realtime", "underlying_return_pct": 4.2105, "fundamental": {}, "research": {}, "settled_at": "2026-10-28T14:15:26.287771+00:00", "status": "OBSERVED", "reason": "正式決策未買進，保留空手結果"}
+{"experiment_id": "12393dd7e27a880db42673e2", "prediction_id": "268d2c6f724f780e", "ticker": "3406.TW", "date": "2026-10-28", "actual_source": "TWSE_MIS_Realtime", "underlying_return_pct": 6.4, "fundamental": {}, "research": {}, "settled_at": "2026-10-28T14:15:26.287871+00:00", "status": "OBSERVED", "reason": "正式決策未買進，保留空手結果"}
