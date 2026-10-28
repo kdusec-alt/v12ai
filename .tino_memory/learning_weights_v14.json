@@ -1,0 +1,212 @@
+{
+  "schema": "TINO_V14_LEARNING_WEIGHTS_V1",
+  "updated_at_tw": "2026-10-28T22:15:26+08:00",
+  "decision_influence": true,
+  "safety": {
+    "absolute_multiplier_range": [
+      0.94,
+      1.06
+    ],
+    "max_step_per_refresh": 0.0125,
+    "chronological_holdout_required": true,
+    "verified_t1_only": true,
+    "duplicate_ticker_date_collapsed": true
+  },
+  "models": {
+    "TW": {
+      "market": "TW",
+      "updated_at_tw": "2026-10-28T22:15:26+08:00",
+      "generation": 1,
+      "sample_count": 153,
+      "unique_tickers": 41,
+      "unique_sessions": 23,
+      "validation_protocol": "session_holdout_v2",
+      "trained_through": "2026-10-28",
+      "last_audit_count": 153,
+      "audit_fingerprint": "c1680b3a35559cbc",
+      "bounds": [
+        0.94,
+        1.06
+      ],
+      "max_step": 0.0125,
+      "status": "SHADOW",
+      "gate": "candidate_failed_holdout",
+      "train_count": 123,
+      "validation_count": 30,
+      "train_through": "2026-09-21",
+      "validation_from": "2026-09-24",
+      "validation_sessions": 6,
+      "multipliers": {},
+      "candidate_multipliers": {
+        "trend": 0.98243,
+        "flow": 1.00447,
+        "intraday": 1.01645,
+        "overnight": 1.01241,
+        "futures": 1.01811,
+        "market_heat": 1.00046,
+        "geo_policy": 1.02081,
+        "price_action": 0.98909,
+        "leverage": 1.00009,
+        "foreign_pressure": 1.00685,
+        "news": 0.96922,
+        "exhaustion": 1.02865
+      },
+      "family_statistics": {
+        "trend": {
+          "count": 122,
+          "hits": 52,
+          "unique_tickers": 31,
+          "bayes_hit_rate": 0.42969,
+          "impact_weighted_hit_rate": 0.42243,
+          "blended_reliability": 0.42678,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 0.98243
+        },
+        "flow": {
+          "count": 122,
+          "hits": 62,
+          "unique_tickers": 31,
+          "bayes_hit_rate": 0.50781,
+          "impact_weighted_hit_rate": 0.53483,
+          "blended_reliability": 0.51862,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.00447
+        },
+        "intraday": {
+          "count": 123,
+          "hits": 68,
+          "unique_tickers": 31,
+          "bayes_hit_rate": 0.55039,
+          "impact_weighted_hit_rate": 0.59581,
+          "blended_reliability": 0.56856,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.01645
+        },
+        "overnight": {
+          "count": 123,
+          "hits": 71,
+          "unique_tickers": 31,
+          "bayes_hit_rate": 0.57364,
+          "impact_weighted_hit_rate": 0.51884,
+          "blended_reliability": 0.55172,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.01241
+        },
+        "futures": {
+          "count": 123,
+          "hits": 69,
+          "unique_tickers": 31,
+          "bayes_hit_rate": 0.55814,
+          "impact_weighted_hit_rate": 0.60142,
+          "blended_reliability": 0.57545,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.01811
+        },
+        "market_heat": {
+          "count": 118,
+          "hits": 58,
+          "unique_tickers": 31,
+          "bayes_hit_rate": 0.49194,
+          "impact_weighted_hit_rate": 0.51685,
+          "blended_reliability": 0.5019,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.00046
+        },
+        "geo_policy": {
+          "count": 90,
+          "hits": 54,
+          "unique_tickers": 26,
+          "bayes_hit_rate": 0.59375,
+          "impact_weighted_hit_rate": 0.57617,
+          "blended_reliability": 0.58672,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.02081
+        },
+        "price_action": {
+          "count": 121,
+          "hits": 54,
+          "unique_tickers": 31,
+          "bayes_hit_rate": 0.44882,
+          "impact_weighted_hit_rate": 0.46315,
+          "blended_reliability": 0.45455,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 0.98909
+        },
+        "leverage": {
+          "count": 109,
+          "hits": 57,
+          "unique_tickers": 29,
+          "bayes_hit_rate": 0.52174,
+          "impact_weighted_hit_rate": 0.46828,
+          "blended_reliability": 0.50036,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.00009
+        },
+        "foreign_pressure": {
+          "count": 117,
+          "hits": 63,
+          "unique_tickers": 31,
+          "bayes_hit_rate": 0.53659,
+          "impact_weighted_hit_rate": 0.51649,
+          "blended_reliability": 0.52855,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.00685
+        },
+        "news": {
+          "count": 53,
+          "hits": 15,
+          "unique_tickers": 17,
+          "bayes_hit_rate": 0.30508,
+          "impact_weighted_hit_rate": 0.4717,
+          "blended_reliability": 0.37173,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 0.96922
+        },
+        "exhaustion": {
+          "count": 69,
+          "hits": 43,
+          "unique_tickers": 25,
+          "bayes_hit_rate": 0.61333,
+          "impact_weighted_hit_rate": 0.62839,
+          "blended_reliability": 0.61935,
+          "maturity": 1.0,
+          "eligible": true,
+          "candidate_multiplier": 1.02865
+        }
+      },
+      "validation": {
+        "baseline": {
+          "count": 30,
+          "hit_rate": 0.6,
+          "log_loss": 0.852968,
+          "signed_margin": 0.087915
+        },
+        "candidate": {
+          "count": 30,
+          "hit_rate": 0.6,
+          "log_loss": 0.85049,
+          "signed_margin": 0.087059
+        },
+        "previous_active": {
+          "count": 30,
+          "hit_rate": 0.6,
+          "log_loss": 0.852968,
+          "signed_margin": 0.087915
+        },
+        "passed": false,
+        "previous_degraded": false
+      }
+    }
+  }
+}
