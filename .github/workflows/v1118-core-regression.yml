@@ -32,13 +32,13 @@ jobs:
           test_market_proxy_observation.py test_candidate_forecast_integrity.py
           test_global_event_scanner.py test_event_attribution_v1078.py test_news_event_scoring.py test_news_decision_integration.py
           test_scanner_snapshot_selection.py
-          test_learning_heartbeat_remote.py test_memory_sync_retry.py test_compressed_memory.py
+          test_learning_heartbeat_remote.py test_memory_sync_retry.py test_compressed_memory.py test_memory_streaming_v1118.py test_runtime_stability_v1118.py
           test_learning_readonly_compare.py test_autonomous_paper_v1118.py
           test_paper_lab_v1118.py test_scheduled_audit_v1118.py
           test_learning_weight_engine.py test_paper_portfolio_v1118.py
           test_session_truth_market_command_v1081.py test_quantum_entanglement.py
           test_market_command_v1071.py test_v1081_event_refresh.py
-          test_jarvis_v1117.py test_ai_research_v1118.py
+          test_jarvis_v1117.py test_ai_research_v1118.py test_research_evidence_v1118.py
           test_fundamental_technical_risk.py
   memory_write_readback:
     # Explicit commit marker opts into one small real storage check. PRs never
@@ -60,3 +60,21 @@ jobs:
           TINO_GITHUB_BRANCH: tino-memory
           TINO_INLINE_REMOTE_SYNC: '0'
         run: python verify_memory_sync_v1118.py
+  cold_restore:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[verify-startup]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify real read-only cold memory restore
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TINO_GITHUB_REPO: ${{ github.repository }}
+          TINO_GITHUB_BRANCH: tino-memory
+          TINO_INLINE_REMOTE_SYNC: '0'
+        run: python -u verify_startup_v1118.py

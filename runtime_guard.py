@@ -54,3 +54,22 @@ def mark_runtime_stage(stage: str, **meta: Any) -> None:
         print("[TINO_RUNTIME] " + payload, flush=True)
     except Exception:
         return
+
+
+
+_ANALYSIS_LOCK = threading.RLock()
+
+
+def analysis_slot(timeout_seconds=15.0):
+    """Bound concurrent analysis graphs per process; no worker thread is created."""
+    from contextlib import contextmanager
+    @contextmanager
+    def slot():
+        acquired = _ANALYSIS_LOCK.acquire(timeout=max(0.0,float(timeout_seconds)))
+        if not acquired:
+            raise RuntimeError('系統正在處理另一筆分析，請稍後重試')
+        try:
+            yield
+        finally:
+            _ANALYSIS_LOCK.release()
+    return slot()

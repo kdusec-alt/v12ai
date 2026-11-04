@@ -159,7 +159,8 @@ def read_jsonl(path: Path, limit: int = 200) -> List[Dict[str, Any]]:
         return []
 
     rows: List[Dict[str, Any]] = []
-    for line in lines:
+    while lines:
+        line = lines.popleft()
         try:
             value = json.loads(line)
             if isinstance(value, dict) and value:
@@ -421,3 +422,4 @@ def memory_diagnostics(limit: int = DEFAULT_VISIBLE_LOG_ROWS) -> Dict[str, Any]:
         "audit_rows_visible": len(audit_rows),
         "profile_count": len(load_profiles()),
     }
+

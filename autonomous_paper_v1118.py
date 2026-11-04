@@ -88,6 +88,36 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
         candidates = select_candidates(snapshot_rows)
         report["shortlist"] = len(research_pool)
         report["forecast_details"] = []
+        # Freeze each forecast once before the one batch AI request. Keep only
+        # the logged row and the small capture context, not 12 full object graphs.
+        if research_pool and analyze is None:
+            from data_sources import fetch_news, fetch_price
+            from orchestrator import orchestrate
+            from learning import build_learning_signals, log_prediction
+            from paper_lab_v1118 import capture_query
+            analyze = lambda ticker: orchestrate(fetch_price(ticker), "neutral", news_items=fetch_news(ticker),
+                                                extra_signals=build_learning_signals(ticker))
+            log, capture = log_prediction, capture_query
+        prepared, contexts = {}, {}
+        from types import SimpleNamespace
+        from research_evidence_v1118 import evidence_from_forecast
+        for candidate in research_pool:
+            symbol = candidate["ticker"]
+            try:
+                forecast = analyze(symbol)
+                if forecast is None or getattr(forecast, "stopped", False):
+                    prepared[symbol] = (forecast, None, None)
+                else:
+                    row = log(forecast)
+                    contexts[symbol] = evidence_from_forecast(forecast)
+                    frame = getattr(forecast, "price_frame", None)
+                    fundamental = dict((getattr(frame, "context", {}) or {}).get("fundamental") or {})
+                    compact = SimpleNamespace(stopped=False, price_frame=SimpleNamespace(context={"fundamental": fundamental}))
+                    prepared[symbol] = (compact, row, None)
+                del forecast
+            except Exception as exc:
+                prepared[symbol] = (None, None, type(exc).__name__)
+        candidates = [{**row, "research_context": contexts.get(row["ticker"], {})} for row in candidates]
         selected = {}
         allowed_codes = set()
         if candidates:
@@ -99,6 +129,7 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
             except Exception as exc:
                 research_result = {"status": "error", "reason": type(exc).__name__, "decisions": []}
             report["ai_status"] = research_result.get("status")
+            report["research_model"] = research_result.get("model")
             report["market_view"] = research_result.get("market_view", "")
             report["research_decisions"] = research_result.get("decisions", [])
             selected = {d["ticker"]: d for d in report["research_decisions"] if d.get("ticker") and d.get("verdict") == "PAPER_REVIEW"}
@@ -108,27 +139,23 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
         if not allowed_codes:
             report["reason"] = "未通過模擬買進條件；候選仍建立預測並等待收盤驗證"
         if research_pool:
-            if analyze is None:
-                from data_sources import fetch_news, fetch_price
-                from orchestrator import orchestrate
-                from learning import build_learning_signals, log_prediction
-                from paper_lab_v1118 import capture_query
-                analyze = lambda ticker: orchestrate(
-                    fetch_price(ticker), "neutral", news_items=fetch_news(ticker),
-                    extra_signals=build_learning_signals(ticker))
-                log, capture = log_prediction, capture_query
             for candidate in research_pool:
                 symbol = candidate["ticker"]
                 permitted = symbol in allowed_codes
                 item = {"ticker": symbol, "name": candidate.get("name"),
                         "scanner_score": candidate["score"], "scanner_status": candidate.get("execution_status"),
-                        "research": selected.get(symbol, {}), "paper_trade_allowed": permitted}
+                        "research": selected.get(symbol, {}), "paper_trade_allowed": permitted,
+                        "research_evidence": contexts.get(symbol, {}),
+                        "research_context_version": "V1118_CONTEXT_20261104"}
+                preparation_error = None
                 try:
-                    forecast = analyze(symbol)
+                    forecast, prepared_row, preparation_error = prepared.pop(symbol)
+                    if preparation_error:
+                        raise RuntimeError(preparation_error)
                     if forecast is None or bool(getattr(forecast, "stopped", False)):
                         item.update(result="資料品質未通過", reason=str(getattr(forecast, "stop_reason", "") or "無有效行情，無法建立預測"))
                     else:
-                        row = log(forecast)
+                        row = prepared_row
                         if not isinstance(row, dict) or row.get("skipped"):
                             item.update(result="正式預測未通過", reason=str((row or {}).get("reason") or "預測保存失敗"))
                         else:
@@ -160,7 +187,7 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                             if permitted and outcome.get("experiment_status") == "PENDING" and item["result"] in {"recorded", "duplicate"}:
                                 report["paper_buy"] += 1
                 except Exception as exc:
-                    item.update(result="error", reason=type(exc).__name__)
+                    item.update(result="error", reason=preparation_error or type(exc).__name__)
                 report["details"].append(item)
                 report["forecast_details"].append(item)
             report["status"] = "completed"

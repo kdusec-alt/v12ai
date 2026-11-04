@@ -20,6 +20,8 @@ import base64
 import copy
 import hashlib
 import gzip
+import io
+import shutil
 import json
 import os
 import tempfile
@@ -555,7 +557,7 @@ def _github_write_file(
 def _count_jsonl_bytes(blob: bytes) -> int:
     if not blob:
         return 0
-    return len([x for x in blob.decode("utf-8", "ignore").splitlines() if x.strip()])
+    return sum(1 for line in io.BytesIO(blob) if line.strip())
 
 
 def _count_jsonl_file(path: str | Path) -> int:
@@ -563,7 +565,8 @@ def _count_jsonl_file(path: str | Path) -> int:
     if not p.exists() or p.is_dir():
         return 0
     try:
-        return len([x for x in p.read_text(encoding="utf-8").splitlines() if x.strip()])
+        with p.open("rb") as handle:
+            return sum(1 for line in handle if line.strip())
     except Exception:
         return 0
 
@@ -746,6 +749,17 @@ def _merge_remote_candidate_blobs(
     recoverable Prediction DNA, Audit and Research history is retained.
     """
     name = _memory_relative_name(memory_name)
+    if not legacy_blob:
+        return canonical_blob
+    if not canonical_blob:
+        return legacy_blob
+    if name.endswith(".jsonl") and len(canonical_blob) + len(legacy_blob) >= 2 * 1024 * 1024:
+        from memory_streaming_v1118 import merge_streams
+        with tempfile.TemporaryDirectory(prefix="tino-union-") as folder:
+            target = Path(folder) / "union.jsonl"
+            merge_streams((io.BytesIO(canonical_blob), io.BytesIO(legacy_blob)), target,
+                          _memory_row_identity, _memory_row_stamp)
+            return target.read_bytes()
     if name.endswith(".jsonl"):
         canonical_rows = _decode_jsonl_bytes(canonical_blob)
         legacy_rows = _decode_jsonl_bytes(legacy_blob)
@@ -773,6 +787,25 @@ def _merge_remote_candidate_blobs(
 def _reconcile_local_with_remote(path: str | Path, remote_blob: bytes) -> Tuple[bool, Dict[str, Any], Optional[str]]:
     """Merge remote and local without allowing either side to erase history."""
     p = Path(path)
+    if p.suffix == ".jsonl" and len(remote_blob) + (p.stat().st_size if p.exists() else 0) >= 2 * 1024 * 1024:
+        from memory_streaming_v1118 import merge_streams, file_digest
+        info = {"remote_bytes": len(remote_blob), "local_bytes_before": p.stat().st_size if p.exists() else 0}
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix="tino-reconcile-", dir=p.parent) as folder:
+                target = Path(folder) / "union.jsonl"
+                with (p.open("rb") if p.is_file() else io.BytesIO()) as local:
+                    result = merge_streams((io.BytesIO(remote_blob), local), target,
+                                           _memory_row_identity, _memory_row_stamp)
+                changed = file_digest(p) != result["digest"]
+                if changed:
+                    os.replace(target, p)
+                info.update(remote_rows=result["counts"][0], local_rows_before=result["counts"][1],
+                            merged_rows=result["merged_rows"], changed=changed, local_bytes_after=result["bytes"],
+                            merge_backend="disk_streaming")
+            return True, info, None
+        except Exception as exc:
+            return False, info, f"reconcile_failed:{type(exc).__name__}:{exc}"
     local_blob = p.read_bytes() if p.exists() and p.is_file() else b""
     info: Dict[str, Any] = {"remote_bytes": len(remote_blob or b""), "local_bytes_before": len(local_blob)}
     try:
@@ -823,6 +856,37 @@ def _write_local_backup(path: str | Path) -> None:
     if not p.exists() or p.is_dir():
         return
     try:
+        if p.suffix == ".jsonl":
+            bak_dir = p.parent / "_backup"
+            bak_dir.mkdir(parents=True, exist_ok=True)
+            latest = bak_dir / f"{p.name}.bak"
+            def valid_count(source):
+                count = 0
+                with source.open("rb") as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        try:
+                            row = json.loads(line)
+                        except (ValueError, UnicodeError):
+                            return None
+                        if not isinstance(row, dict) or not row:
+                            return None
+                        count += 1
+                return count
+            with _REMOTE_IO_LOCK, tempfile.TemporaryDirectory(prefix="tino-backup-", dir=bak_dir) as folder:
+                candidate = Path(folder) / "snapshot"
+                shutil.copyfile(p, candidate)
+                count = valid_count(candidate)
+                previous = valid_count(latest) if latest.exists() else 0
+                if count is None or (previous is not None and previous > count):
+                    return
+                day = datetime.now(TW_TZ).strftime("%Y%m%d")
+                daily = Path(folder) / "daily"
+                shutil.copyfile(candidate, daily)
+                os.replace(candidate, latest)
+                os.replace(daily, bak_dir / f"{p.name}.{day}.bak")
+            return
         payload = p.read_bytes()
         bak_dir = p.parent / "_backup"
         bak_dir.mkdir(parents=True, exist_ok=True)
@@ -916,7 +980,7 @@ def _local_path_for_memory_file(file_name: str) -> Path:
     return Path(_TINO_MEMORY_DIR) / Path(memory_name)
 
 
-def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
+def remote_restore_memory_files(force: bool = False, sync_recovered: bool = True) -> Dict[str, Any]:
     """Restore GitHub memory and migrate the historical double-root layout.
 
     Both the canonical ``.tino_memory/<file>`` snapshot and the one known
@@ -951,6 +1015,7 @@ def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
         _LAST_REMOTE_REPORT.update(report)
         return report
 
+    from memory_streaming_v1118 import file_digest
     for name in _MEMORY_FILES:
         local = _local_path_for_memory_file(name)
         try:
@@ -974,7 +1039,7 @@ def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
             if legacy_bytes:
                 report["legacy_nested_recovered"].append(name)
 
-            before = local.read_bytes() if local.exists() and local.is_file() else b""
+            before = file_digest(local)
             ok, info, reconcile_err = _reconcile_local_with_remote(local, remote_blob)
             info["canonical_remote_bytes"] = len(canonical_bytes)
             info["legacy_nested_bytes"] = len(legacy_bytes)
@@ -984,7 +1049,7 @@ def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
                 report["shrink_warnings"].append(f"{name}:{reconcile_err}")
                 continue
 
-            after = local.read_bytes() if local.exists() and local.is_file() else b""
+            after = file_digest(local)
             if force or after != before:
                 report["restored_files"].append(name)
             _write_local_backup(local)
@@ -994,9 +1059,12 @@ def remote_restore_memory_files(force: bool = False) -> Dict[str, Any]:
             needs_canonical_sync = (
                 force
                 or not canonical_exists
-                or after != canonical_bytes
+                or after != hashlib.sha256(canonical_bytes).digest()
             )
-            if needs_canonical_sync:
+            if needs_canonical_sync and not sync_recovered:
+                report.setdefault("pending_sync", []).append(name)
+                _record_remote_file(name, remote_blob, canonical_sha, verified=False)
+            elif needs_canonical_sync:
                 sync_ok, sync_err = _sync_file_to_remote(local, shrink_guard=True)
                 if sync_ok:
                     report["synced_files"].append(name)
@@ -1471,7 +1539,7 @@ def _read_jsonl_file(path: Path) -> List[Dict[str, Any]]:
         return []
     rows: List[Dict[str, Any]] = []
     try:
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.open("r", encoding="utf-8"):
             line = line.strip()
             if not line:
                 continue
@@ -1881,6 +1949,7 @@ def ensure_memory_initialized_bootsafe(
     default_symbols: Optional[Iterable[str]] = None,
     migrate: bool = True,
     path: str | Path = DEFAULT_LEDGER_PATH,
+    read_only: bool = False,
 ) -> Dict[str, Any]:
     """One-time process bootstrap with fail-safe GitHub restore.
 
@@ -1889,7 +1958,7 @@ def ensure_memory_initialized_bootsafe(
     they cannot stop Streamlit or the main analysis engine.
     """
     normalized_defaults = tuple(_unique_symbols(default_symbols or []))
-    key = (str(Path(path).resolve()), normalized_defaults, bool(migrate))
+    key = (str(Path(path).resolve()), normalized_defaults, bool(migrate), bool(read_only))
     with _BOOTSAFE_INIT_LOCK:
         cached = _BOOTSAFE_INIT_CACHE.get(key)
         if cached is not None:
@@ -1897,7 +1966,7 @@ def ensure_memory_initialized_bootsafe(
 
         remote_report: Dict[str, Any]
         try:
-            remote_report = remote_restore_memory_files(force=False)
+            remote_report = remote_restore_memory_files(force=False, sync_recovered=not read_only)
         except Exception as exc:
             remote_report = {
                 "configured": bool(_remote_config().get("configured")),
@@ -1914,7 +1983,7 @@ def ensure_memory_initialized_bootsafe(
         report["remote_restore"] = remote_report
         seed_report: Dict[str, Any] = {"status": "SKIPPED", "synced_files": [], "errors": []}
         missing_remote = list(remote_report.get("missing_files") or [])
-        if remote_report.get("configured") and remote_report.get("status") in {"PASS", "EMPTY_REMOTE"} and missing_remote:
+        if not read_only and remote_report.get("configured") and remote_report.get("status") in {"PASS", "EMPTY_REMOTE"} and missing_remote:
             seed_report["status"] = "PASS"
             for name in missing_remote:
                 local_path = _local_path_for_memory_file(name)

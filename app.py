@@ -452,7 +452,9 @@ def _analysis_once(symbol: str, macro: str, live_data: bool):
 def run_analysis(symbol: str, macro: str, live_data: bool):
     # Manual analysis is already guarded by the Analyze button/session state.
     # Do not retain a second forecast copy in st.cache_data.
-    return _analysis_once(symbol.strip(), macro, live_data)
+    from runtime_guard import analysis_slot
+    with analysis_slot():
+        return _analysis_once(symbol.strip(), macro, live_data)
 
 
 def _event_reassessment_enabled() -> bool:
@@ -1012,10 +1014,14 @@ def main():
     # RC4.8 Memory Persistence Guard: restore GitHub memory once per process,
     # then keep all Streamlit reruns local.  Remote failures remain diagnostic-only.
     if "memory_init_report" not in st.session_state:
+        boot_notice = st.empty()
         try:
-            st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(migrate=False)
+            boot_notice.info("正在恢復歷史紀錄，首次載入可能需要較長時間。")
+            st.session_state["memory_init_report"] = ensure_memory_initialized_bootsafe(migrate=False, read_only=True)
         except Exception as _mem_exc:
             st.session_state["memory_init_report"] = {"status": "FAIL", "error": f"{type(_mem_exc).__name__}: {_mem_exc}"}
+        finally:
+            boot_notice.empty()
         _memory_boot = st.session_state.get("memory_init_report") or {}
         _remote_boot = _memory_boot.get("remote_restore") or {}
         _boot_print(
