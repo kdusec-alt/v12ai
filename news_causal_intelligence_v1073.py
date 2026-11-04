@@ -1331,9 +1331,10 @@ def select_effective_news_items(
     rows = [item for item in (news_items or []) if timestamp_is_model_eligible(item)]
     selected = set(str(key) for key in (assessment or {}).get("selected_keys", []) if key)
     if not selected:
-        return rows
-    out = [item for item in rows if _event_key(item) in selected]
-    return out or rows
+        # An adjudicator's explicit empty selection is a rejection, not a
+        # request to re-admit all raw/stale headlines into the price model.
+        return [] if assessment is not None and "selected_keys" in assessment else rows
+    return [item for item in rows if _event_key(item) in selected]
 
 
 def news_causal_line(assessment: Mapping[str, Any] | None) -> str:
@@ -1345,3 +1346,4 @@ def news_causal_line(assessment: Mapping[str, Any] | None) -> str:
         f"｜公司事件族 {int(row.get('company_family_count') or 0)}"
         f"｜全球事件族 {int(row.get('global_family_count') or 0)}"
     )
+

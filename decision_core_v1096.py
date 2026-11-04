@@ -20,6 +20,7 @@ from evidence_reasoning_v1082 import build_evidence_reasoning as build_narrative
 
 
 SCHEMA = "TINO_DECISION_SNAPSHOT_V1096"
+DECISION_LOGIC_VERSION = "V1118_EVENT_ARBITRATION_20261104"
 EVIDENCE_SCHEMA = "TINO_TYPED_EVIDENCE_V1094"
 LIFECYCLE_SCHEMA = "TINO_RECOVERY_LIFECYCLE_V1095"
 FUNNEL_SCHEMA = "TINO_ENTRY_FUNNEL_V1093"
@@ -139,7 +140,7 @@ class DecisionSnapshot:
     position_status: str = "UNKNOWN"
     average_cost: Optional[float] = None
     position_size: Optional[float] = None
-    source_version: str = "V1096"
+    source_version: str = DECISION_LOGIC_VERSION
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -332,17 +333,35 @@ def build_typed_evidence(forecast: Any) -> Tuple[EvidenceFact, ...]:
         reason=str(macro.get("reason") or "跨市場數值未驗證"),
     ))
 
-    news = list(getattr(forecast, "news_items", []) or [])
-    scored_news = [item for item in news if _num(getattr(item, "score", None)) is not None]
-    event_score = sum(_num(getattr(item, "score", 0)) or 0 for item in scored_news[:12])
-    event_ok = bool(scored_news)
+    # The Orchestrator already adjudicated identity, timestamps, event families
+    # and earnings/guidance semantics. Raw headlines remain for display only.
+    causal = _mapping(context.get("news_causal_v1073"))
+    dominant = _mapping(causal.get("dominant_event"))
+    state = str(causal.get("causal_state") or "")
+    event_ok = bool(causal.get("accepted") and causal.get("selected_count")
+                    and causal.get("dominant_published_at") and state not in {
+                        "", "degraded", "event_context_only", "event_time_unverified",
+                        "scheduled_event_pending", "no_fresh_company_event"})
+    event_score = _num(causal.get("combined_score")) if event_ok else None
+    direct = bool(causal.get("dominant_entity_verified")
+                  and causal.get("dominant_scope") == "company"
+                  and causal.get("dominant_subject_role") in {"self", ""})
+    semantic = _num(dominant.get("semantic_score")) or 0.0
+    severe = bool(event_ok and direct and causal.get("can_compare_to_price")
+                  and state != "negative_event_absorbed" and semantic < -0.055
+                  and (_num(causal.get("dominant_impact_score")) or 0) >= 78)
+    direction = -1 if severe else 1 if (event_score or 0) > 0.055 else -1 if (event_score or 0) < -0.055 else 0
+    strength = max(78, _num(causal.get("dominant_impact_score")) or 0) if severe else min(77, 55 + abs(event_score or 0) * 100)
     facts.append(_fact(
-        family="event", group="verified_event", label="事件催化",
-        direction=1 if event_score > 0.15 else -1 if event_score < -0.15 else 0,
-        strength=55 + min(abs(event_score) * 12, 38), confidence=78 if event_ok else 0,
-        value=event_score if event_ok else None, unit="event_score", source="news_causal_intelligence",
-        as_of=as_of, accepted=event_ok, reason="採用具分數與時間的事件物件" if event_ok else "沒有可驗證事件",
-        metadata={"event_count": len(scored_news)},
+        family="event", group="verified_event", label="已仲裁事件",
+        direction=direction, strength=strength, confidence=78 if event_ok else 0,
+        value=event_score, unit="deduplicated_event_score", source="news_causal_intelligence",
+        as_of=str(causal.get("dominant_published_at") or as_of), accepted=event_ok,
+        reason=str(causal.get("causal_text") or "沒有已完成時間與實體仲裁的事件；原始標題不計分"),
+        metadata={"event_count": causal.get("selected_count", 0),
+                  "raw_event_count": len(list(getattr(forecast, "news_items", []) or [])),
+                  "entry_gate": causal.get("entry_gate"), "causal_state": state,
+                  "direct_company": direct, "severe_negative": severe},
     ))
 
     return tuple(facts)
@@ -439,6 +458,8 @@ def _structured_gate(
     chip_bear = sum(item.strength for item in _family_vote(facts, "chip", -1))
     chip_bull = sum(item.strength for item in _family_vote(facts, "chip", 1))
     event_bear = any(item.strength >= 78 for item in _family_vote(facts, "event", -1))
+    event_wait = any(item.accepted and item.metadata.get("entry_gate") in
+                     {"block_until_first_reaction", "wait_15_30m"} for item in facts if item.family == "event")
     positive_event = bool(_family_vote(facts, "event", 1))
     positive_market = bool(_family_vote(facts, "market", 1))
     deleveraging = bool(_family_vote(facts, "leverage", 1))
@@ -489,8 +510,11 @@ def _structured_gate(
         allow_immediate = allow_pullback = allow_breakout = False
         reasons.append(f"ABC防守情境 {c:.0f}% 過高")
     if event_bear:
-        allow_immediate = False
-        reasons.append("重大負面事件尚未被價格吸收")
+        allow_immediate = allow_pullback = allow_breakout = False
+        reasons.append("重大負面事件尚未被價格吸收，暫停新倉")
+    if event_wait:
+        allow_immediate = allow_pullback = allow_breakout = False
+        reasons.append("事件剛公布，等待首輪價格與量能反應後重新評估")
     if chip_bear >= 78 and chip_bull == 0:
         allow_immediate = False
         reasons.append("法人／籌碼偏空尚未改善")
@@ -498,7 +522,7 @@ def _structured_gate(
         allow_immediate = False
         allow_breakout = False
         reasons.append("修復條件已形成，但跨Session回測收復順序尚未完成")
-    if recovery_setup or controlled_low:
+    if (recovery_setup or controlled_low) and not event_wait and not event_bear:
         allow_immediate = False
         allow_pullback = True
         allow_breakout = False
@@ -530,7 +554,7 @@ def _structured_gate(
         "allow_pullback": allow_pullback, "allow_breakout": allow_breakout, "reasons": reasons,
         "t1_price": t1, "t1_return_pct": t1_return, "abc_a": a, "abc_b": b, "abc_c": c,
         "chip_bear_strength": chip_bear, "chip_bull_strength": chip_bull,
-        "event_bearish_veto": event_bear, "controlled_low_trade": controlled_low,
+        "event_bearish_veto": event_bear, "event_reaction_wait": event_wait, "controlled_low_trade": controlled_low,
         "left_low_candidate": left_low_candidate,
         "recovery_candidate": recovery_candidate, "recovery_setup": recovery_setup,
         "recovery_confirmation_count": recovery_confirmation_count,
@@ -681,7 +705,7 @@ def _funnel(
         stage("entry_path", bool(gate.get("price_above_vwap") or gate.get("left_low_candidate")), "右側站回VWAP，或左側低接條件完整"),
         stage("abc_risk", (_num(gate.get("abc_c")) or 0) <= 30 if gate.get("abc_c") is not None else None, "ABC防守受控"),
         stage("independent_confirmation", int(gate.get("recovery_confirmation_count") or 0) >= 2, "至少兩個獨立相關性群組"),
-        stage("event_veto", not bool(gate.get("event_bearish_veto")), "無重大負面事件否決", (x.evidence_id for x in event)),
+        stage("event_veto", not bool(gate.get("event_bearish_veto") or gate.get("event_reaction_wait")), "重大事件與首輪價格反應完成檢查", (x.evidence_id for x in event)),
         stage("chip_veto", int(gate.get("chip_bear_strength") or 0) < 78, "無強空籌碼否決", (x.evidence_id for x in chip)),
         stage("lifecycle_sequence", bool(lifecycle.get("sequence_verified")), "跨Session完成反彈、回測、收復"),
         stage("price_order", bool(plan.get("price_order_valid")), "現價、觸發、突破與失效價順序有效"),
@@ -750,8 +774,10 @@ def build_decision_snapshot(
     # A blocked live decision must remain blocked.  Separately expose a
     # verified, next-session conditional plan so a closed/holiday reference
     # does not degrade into an empty "等待" screen.
-    plan["conditional_next_session"] = _conditional_next_session_plan(
-        forecast, entry, plan,
+    plan["conditional_next_session"] = (
+        {"eligible": False, "reason": "事件風險或首輪量價反應尚未解除，重新分析後才建立條件候選"}
+        if gate.get("event_bearish_veto") or gate.get("event_reaction_wait")
+        else _conditional_next_session_plan(forecast, entry, plan)
     )
     acceptance = _acceptance(entry, facts)
     drivers = _drivers(facts)
@@ -793,7 +819,7 @@ def build_decision_snapshot(
         "decision_influence": True,
         "formal_price_model_unchanged": True,
     }
-    snapshot_id = _stable_id(SCHEMA, symbol, session_date, action.get("code"), lifecycle.get("state"), plan.get("current_price"), plan.get("confirmation_price"))
+    snapshot_id = _stable_id(SCHEMA, DECISION_LOGIC_VERSION, symbol, session_date, action.get("code"), lifecycle.get("state"), plan.get("current_price"), plan.get("confirmation_price"))
     return DecisionSnapshot(
         schema=SCHEMA, snapshot_id=snapshot_id, ticker=symbol, market=market,
         session_date=session_date, action_code=str(action.get("code") or "BLOCK"),
@@ -821,3 +847,4 @@ def blocked_decision_snapshot(forecast: Any, reason: str) -> DecisionSnapshot:
         "top_drivers": [], "top_driver_summary": "有效證據不足", "price_acceptance": {}, "cross_module_gate": {}},
         ), evidence=(), lifecycle=_freeze({"schema": LIFECYCLE_SCHEMA, "state": "UNKNOWN", "sequence_verified": False}), funnel=funnel,
     )
+

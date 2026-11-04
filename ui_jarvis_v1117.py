@@ -130,6 +130,11 @@ def command_html(forecast, payload):
     # One concise explanation in the existing risk line; evidence stays in
     # the engine and the original analysis workspace, not a second UI panel.
     factors = []
+    gate = _map(_map(snap.get("reasoning")).get("cross_module_gate"))
+    if gate.get("event_bearish_veto"):
+        factors.append("重大事件風險未解除，暫停新倉")
+    elif gate.get("event_reaction_wait"):
+        factors.append("等待事件首輪量價反應，暫不進場")
     ma20, ma60 = assessment["ma20"], assessment["ma60"]
     price_number = float(last) if _price(last) != "—" else None
     if price_number and ma20 and ma60 and price_number < min(ma20, ma60):

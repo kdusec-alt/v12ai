@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 from dataclasses import replace
 import os
+import math
 import re
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
@@ -449,6 +450,23 @@ def _news_summary(news_items: List[NewsItem]) -> Dict[str, object]:
         "earnings": earnings,
         "earnings_family_counted_once": bool(earnings.get("accepted")),
     }
+
+
+def _adjudicated_company_news_signal(price: PriceFrame, causal: dict) -> SignalPacket | None:
+    """One deduplicated, freshness-weighted earnings/guidance event family."""
+    if not causal.get("accepted") or not causal.get("company_family_count"):
+        return None
+    try:
+        value = float(causal["company_score"])
+        if not math.isfinite(value):
+            return None
+    except (KeyError, TypeError, ValueError):
+        return None
+    value = max(-0.32, min(0.32, value))
+    return SignalPacket("News", f"已仲裁公司／產業事件｜淨影響 {value:+.2f}",
+                        value * 10, 0.0, 2.0, max(-0.04, min(0.04, value * 0.08)),
+                        str(causal.get("company_text") or causal.get("causal_text") or "事件待驗證"),
+                        "news_causal_intelligence", price.price_date, True)
 
 
 def _directional_company_news(news_items: List[NewsItem]) -> List[NewsItem]:
@@ -1061,7 +1079,7 @@ def _us_daily_headline_line(price: PriceFrame, news_items: List[NewsItem] | None
     if top:
         direction = '風險偏高' if neg > pos else ('風險支撐' if pos > neg else '市場天氣觀察')
         return f"Daily Headline｜{level}｜2026近端頭條 {len(items)}則｜{themes}｜{direction}｜{top}"
-    return f"Daily Headline｜低｜近端未命中重大外部頭條｜全市場風險觀察"
+    return f"Daily Headline｜待確認｜未取得可驗證市場頭條，不代表低風險｜全市場風險觀察"
 
 
 def _us_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
@@ -1157,7 +1175,7 @@ def _tw_daily_headline_line(price: PriceFrame, news_items: List[NewsItem] | None
     if top:
         direction = '風險偏高' if neg > pos else ('環境支撐' if pos > neg else '市場天氣觀察')
         return f"Daily Headline｜{level}｜繁中近端頭條 {len(items)}則｜{direction}｜{top}"
-    return "Daily Headline｜低｜近端共同市場頭條觀察中"
+    return "Daily Headline｜待確認｜未取得可驗證市場頭條，不代表低風險"
 
 
 def _tw_policy_geo_line(price: PriceFrame, news_items: List[NewsItem] | None = None) -> str:
@@ -1489,9 +1507,9 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
     ns = _news_summary(effective_news_items)
     directional_news_items = _directional_company_news(effective_news_items)
     directional_ns = _news_summary(directional_news_items)
-    if directional_news_items:
-        news_source = "GoogleNewsUS" if price.ticker.market == "US" else "GoogleNewsTW"
-        signals.append(SignalPacket("News", f"個股/產業新聞採納 {directional_ns['accepted']}/{directional_ns['count']}｜情緒 {directional_ns['score']:+.2f}", directional_ns["score"] * 10, 0.0, 2.0, directional_ns["bias"], f"採納 {directional_ns['accepted']}｜忽略 {directional_ns['ignored']}｜{directional_ns['top']}", news_source, price.price_date, True))
+    news_signal = _adjudicated_company_news_signal(price, causal_news)
+    if news_signal is not None:
+        signals.append(news_signal)
     qmacro = _quantum_macro_policy_assessment(effective_news_items, (price.context or {}).get("macro", {}) if isinstance((price.context or {}), dict) else {}, price.ticker.market)
     if qmacro.get("level") not in ("待同步", "觀察") or qmacro.get("score") or qmacro.get("risk"):
         signals.append(SignalPacket(
@@ -1657,3 +1675,4 @@ def orchestrate(price: PriceFrame, manual_macro: str = "neutral", news_items: Op
         )
     decision["_decision_snapshot_v1096"] = forecast.decision_snapshot.to_dict()
     return forecast
+
