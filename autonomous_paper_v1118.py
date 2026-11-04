@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -198,7 +199,7 @@ def main():
     parser.add_argument("--snapshot-dir", required=True)
     parser.add_argument("--scanner-status", choices=("success", "failure"), default="success")
     args = parser.parse_args()
-    from tino_persistent_store import ensure_memory_initialized_bootsafe, remote_status, _sync_file_to_remote
+    from tino_persistent_store import ensure_memory_initialized_bootsafe, remote_status, sync_memory_batch
     from memory_store import MEMORY_DIR, PREDICTION_LOG, AUDIT_LOG
     if not remote_status().get("configured"):
         raise SystemExit("V1118 requires persistent memory before unattended paper research")
@@ -214,15 +215,20 @@ def main():
         for path in sync_paths if path.exists()
     }
     report = run_cycle(args.snapshot_dir, scanner_status=args.scanner_status)
-    print({key: value for key, value in report.items() if key != "scan_items"})
-    for path in sync_paths:
-        if path.exists():
-            current = (path.stat().st_size, path.stat().st_mtime_ns)
-            if before.get(str(path)) == current:
-                continue
-            ok, error = _sync_file_to_remote(path, shrink_guard=True)
-            if not ok:
-                raise SystemExit(f"V1118 memory sync failed: {path.name}: {error}")
+    output_dir = Path(args.snapshot_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    # Preserve frozen forecasts before attempting remote writes. Never reconstruct
+    # failed historical predictions later from prices observed after the fact.
+    (output_dir / "paper_research_result.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    print({key: report.get(key) for key in
+           ("status", "run_day", "shortlist", "candidates", "recorded", "paper_buy", "reason")})
+    changed_paths = [path for path in sync_paths if path.exists()
+                     and before.get(str(path)) != (path.stat().st_size, path.stat().st_mtime_ns)]
+    sync_report = sync_memory_batch(changed_paths, output_dir / "memory_sync_result.json")
+    print({"memory_sync_status": sync_report["status"], "files": sync_report["files"]})
+    if sync_report["status"] == "FAIL":
+        raise SystemExit("V1118 memory sync incomplete; frozen records saved in recovery artifact")
     if report["status"] == "skipped" and report.get("reason") == "找不到完成的 Scanner 結果":
         raise SystemExit(1)
 

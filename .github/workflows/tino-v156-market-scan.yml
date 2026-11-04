@@ -68,3 +68,19 @@ jobs:
           path: scanner_output/
           retention-days: 14
           if-no-files-found: warn
+
+      - name: Preserve unsynced prediction memory for recovery
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v1118-memory-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .tino_memory/prediction_log.jsonl
+            .tino_memory/audit_log.jsonl
+            .tino_memory/paper_lab/experiments.jsonl
+            .tino_memory/paper_lab/outcomes.jsonl
+            .tino_memory/paper_lab/scan_runs.jsonl
+            .tino_memory/paper_lab/portfolio_events.jsonl
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn

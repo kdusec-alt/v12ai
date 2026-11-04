@@ -104,7 +104,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--market", choices=("TW", "US"), required=True)
     args = parser.parse_args()
-    from tino_persistent_store import ensure_memory_initialized_bootsafe, remote_status, _sync_file_to_remote
+    from tino_persistent_store import ensure_memory_initialized_bootsafe, remote_status, sync_memory_batch
     from memory_store import MEMORY_DIR, AUDIT_LOG, TICKER_PROFILE, LEARNING_WEIGHTS
     if not remote_status().get("configured"):
         raise SystemExit("Scheduled audit requires persistent memory")
@@ -114,15 +114,15 @@ def main():
         raise SystemExit(f"Audit remote memory restore incomplete: {restore_status}")
     report = run_close_audit(args.market)
     print({k: v for k, v in report.items() if k != "errors"})
-    for path in (AUDIT_LOG, TICKER_PROFILE, LEARNING_WEIGHTS,
-                 Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl",
-                 Path(MEMORY_DIR) / "paper_lab" / "outcomes.jsonl",
-                 Path(MEMORY_DIR) / "paper_lab" / "portfolio_events.jsonl",
-                 Path(MEMORY_DIR) / "paper_lab" / "audit_runs.jsonl"):
-        if path.exists():
-            ok, error = _sync_file_to_remote(path, shrink_guard=True)
-            if not ok:
-                raise SystemExit(f"Audit memory sync failed: {path.name}: {error}")
+    paths = (AUDIT_LOG, TICKER_PROFILE, LEARNING_WEIGHTS,
+             Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl",
+             Path(MEMORY_DIR) / "paper_lab" / "outcomes.jsonl",
+             Path(MEMORY_DIR) / "paper_lab" / "portfolio_events.jsonl",
+             Path(MEMORY_DIR) / "paper_lab" / "audit_runs.jsonl")
+    sync_report = sync_memory_batch(paths, Path("audit_output") / "memory_sync_result.json")
+    print({"memory_sync_status": sync_report["status"], "files": sync_report["files"]})
+    if sync_report["status"] == "FAIL":
+        raise SystemExit("Audit memory sync incomplete; local records saved in recovery artifact")
 
 
 if __name__ == "__main__":

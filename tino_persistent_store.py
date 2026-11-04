@@ -23,6 +23,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import quote
@@ -1065,10 +1066,61 @@ def _sync_file_to_remote_unlocked(path: str | Path, shrink_guard: bool = True) -
     _LAST_REMOTE_REPORT["synced_files"] = synced[-30:]
     return True, None
 
+def _transient_memory_sync_error(error: Optional[str]) -> bool:
+    """Retry transport failures, not credential/ruleset denials or bad data."""
+    text = str(error or "").lower()
+    if "github_put_403:" in text:
+        return "the rule did not run because of a timeout" in text
+    return any(marker in text for marker in (
+        "github_put_409:", "github_put_429:", "github_put_500:",
+        "github_put_502:", "github_put_503:", "github_put_504:",
+        "github_put_599:", "github_get_429:", "github_get_500:",
+        "github_get_502:", "github_get_503:", "github_get_504:",
+        "github_get_599:", "remote_verify_read_failed:",
+    ))
+
+
 def _sync_file_to_remote(path: str | Path, shrink_guard: bool = True) -> Tuple[bool, Optional[str]]:
-    """Serialize one reconcile/write/verify transaction across app sessions."""
-    with _REMOTE_IO_LOCK:
-        return _sync_file_to_remote_unlocked(path, shrink_guard=shrink_guard)
+    """Retry at the whole reconcile/write/read-back boundary, at most 3 attempts.
+
+    Every retry re-reads and merges the newest remote state and fetches its SHA.
+    This also handles an ambiguous PUT timeout without replaying a stale SHA or
+    overwriting another writer. Permission denials still fail immediately.
+    """
+    for attempt in range(3):
+        with _REMOTE_IO_LOCK:
+            ok, error = _sync_file_to_remote_unlocked(path, shrink_guard=shrink_guard)
+        if ok or not _transient_memory_sync_error(error) or attempt == 2:
+            return ok, error
+        time.sleep(2 ** (attempt + 1))
+    return False, "sync_attempts_exhausted"
+
+
+def sync_memory_batch(paths: Iterable[Path], manifest_path: str | Path) -> Dict[str, Any]:
+    """Attempt every ledger; keep a recovery manifest even after one failure.
+
+    A batch with any failed file remains failed. A manifest is diagnostic backup,
+    never proof of durable storage. The exact local files are archived by CI.
+    """
+    report: Dict[str, Any] = {"status": "PASS", "files": [], "checked_at_tw": now_tw_iso()}
+    for raw_path in paths:
+        path = Path(raw_path)
+        if not path.is_file():
+            continue
+        try:
+            ok, error = _sync_file_to_remote(path, shrink_guard=True)
+        except Exception as exc:
+            ok, error = False, type(exc).__name__
+        report["files"].append({"file": _memory_relative_name(path),
+                                "verified": bool(ok), "error": error})
+        if not ok:
+            report["status"] = "FAIL"
+        _atomic_write_bytes(manifest_path, json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8"))
+    if not report["files"]:
+        report["status"] = "NO_CHANGED_FILES"
+        _atomic_write_bytes(manifest_path, json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8"))
+    return report
+
 
 def sync_all_memory_files_to_remote() -> Dict[str, Any]:
     cfg = _remote_config()
@@ -1989,3 +2041,4 @@ def storage_status(path: str | Path = DEFAULT_LEDGER_PATH) -> Dict[str, Any]:
         "ledger_recent_predictions": len((ledger.get("recent_predictions") or []) if isinstance(ledger, dict) else []),
         "ledger_recent_audits": len((ledger.get("recent_audits") or []) if isinstance(ledger, dict) else []),
     }
+
