@@ -413,6 +413,37 @@ def _record_remote_file(name: str, blob: bytes, sha: Optional[str], verified: bo
     _LAST_REMOTE_REPORT["remote_files"] = files
 
 
+def _github_raw_blob(repo: str, sha: str, token: str) -> Tuple[bool, Optional[bytes], Optional[str]]:
+    """Read immutable raw bytes, avoiding huge JSON/base64 intermediate copies."""
+    url = f"https://api.github.com/repos/{repo}/git/blobs/{quote(sha, safe='')}"
+    timeout = max(15, int(os.environ.get("TINO_GITHUB_IO_TIMEOUT", "90") or 90))
+    credentials = [token, ""] if token else [""]
+    for credential in credentials:
+        for attempt in range(2):
+            headers = _gh_headers(credential)
+            headers["Accept"] = "application/vnd.github.raw+json"
+            request = urllib.request.Request(url, headers=headers, method="GET")
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    blob = response.read(100 * 1024 * 1024 + 1)
+                if len(blob) > 100 * 1024 * 1024:
+                    return False, None, "github_blob_size_limit"
+                digest = hashlib.sha1()
+                digest.update(f"blob {len(blob)}\0".encode("ascii"))
+                digest.update(blob)
+                if digest.hexdigest() != sha:
+                    return False, None, "github_blob_hash_mismatch"
+                return True, blob, None
+            except urllib.error.HTTPError as exc:
+                if credential and exc.code in (401, 403):
+                    break  # Read-only anonymous recovery for this public repo.
+                return False, None, f"github_blob_{exc.code}"
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                if attempt == 1:
+                    return False, None, f"github_blob_599:{type(exc).__name__}"
+    return False, None, "github_blob_credentials_rejected"
+
+
 def _github_read_remote_path(
     remote_path: str,
     *,
@@ -442,12 +473,9 @@ def _github_read_remote_path(
         if encoded:
             content = base64.b64decode(encoded.encode("ascii"))
         elif sha:
-            blob_url = f"https://api.github.com/repos/{cfg['repo']}/git/blobs/{sha}"
-            blob_status, blob_obj = _gh_request("GET", blob_url, cfg["token"])
-            if blob_status >= 300:
-                return False, None, sha, f"github_blob_{blob_status}:{blob_obj.get('message', blob_obj)}"
-            blob_encoded = str(blob_obj.get("content") or "").replace("\n", "")
-            content = base64.b64decode(blob_encoded.encode("ascii")) if blob_encoded else b""
+            raw_ok, content, raw_error = _github_raw_blob(cfg["repo"], sha, cfg["token"])
+            if not raw_ok or content is None:
+                return False, None, sha, raw_error
         else:
             content = b""
         if record_name:
@@ -1185,7 +1213,7 @@ def _transient_memory_sync_error(error: Optional[str]) -> bool:
         "github_put_502:", "github_put_503:", "github_put_504:",
         "github_put_599:", "github_get_429:", "github_get_500:",
         "github_get_502:", "github_get_503:", "github_get_504:",
-        "github_get_599:", "remote_verify_read_failed:",
+        "github_get_599:", "github_blob_599:", "github_blob_503", "github_blob_502", "github_blob_504", "remote_verify_read_failed:",
     ))
 
 
