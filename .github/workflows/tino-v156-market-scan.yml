@@ -76,7 +76,9 @@ jobs:
           name: v1118-memory-recovery-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             .tino_memory/prediction_log.jsonl
+            .tino_memory/prediction_log.jsonl.gz
             .tino_memory/audit_log.jsonl
+            .tino_memory/audit_log.jsonl.gz
             .tino_memory/paper_lab/experiments.jsonl
             .tino_memory/paper_lab/outcomes.jsonl
             .tino_memory/paper_lab/scan_runs.jsonl

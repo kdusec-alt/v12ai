@@ -27,7 +27,7 @@ class MemorySyncRetryTests(unittest.TestCase):
                 sleep.assert_not_called()
 
     def test_transient_failures_are_bounded_and_remain_failed(self):
-        for error in ('github_put_409:SHA mismatch', 'github_put_503:Unavailable', 'github_put_599:TimeoutError'):
+        for error in ('github_put_403:Timed out validating the rule.', 'github_put_409:SHA mismatch', 'github_put_503:Unavailable', 'github_put_599:TimeoutError'):
             with self.subTest(error=error), patch.object(store, '_sync_file_to_remote_unlocked', return_value=(False, error)) as sync, patch.object(store.time, 'sleep') as sleep:
                 self.assertEqual(store._sync_file_to_remote('ledger.jsonl'), (False, error))
                 self.assertEqual(sync.call_count, 3)
@@ -70,3 +70,4 @@ class MemorySyncRetryTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

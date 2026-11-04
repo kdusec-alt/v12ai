@@ -46,6 +46,7 @@ jobs:
           path: |
             audit_output/
             .tino_memory/audit_log.jsonl
+            .tino_memory/audit_log.jsonl.gz
             .tino_memory/ticker_profiles.json
             .tino_memory/learning_weights_v14.json
             .tino_memory/paper_lab/scan_runs.jsonl
@@ -85,6 +86,7 @@ jobs:
           path: |
             audit_output/
             .tino_memory/audit_log.jsonl
+            .tino_memory/audit_log.jsonl.gz
             .tino_memory/ticker_profiles.json
             .tino_memory/learning_weights_v14.json
             .tino_memory/paper_lab/scan_runs.jsonl

@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import copy
 import hashlib
+import gzip
 import json
 import os
 import tempfile
@@ -456,10 +457,32 @@ def _github_read_remote_path(
 
 def _github_read_file(file_name: str) -> Tuple[bool, Optional[bytes], Optional[str], Optional[str]]:
     memory_name = _memory_relative_name(file_name)
-    return _github_read_remote_path(
-        _remote_path_for(memory_name),
-        record_name=memory_name,
-    )
+    canonical = _github_read_remote_path(_remote_path_for(memory_name))
+    if not memory_name.endswith(".jsonl"):
+        if canonical[0] and canonical[1] is not None:
+            _record_remote_file(memory_name, canonical[1], canonical[2], verified=False)
+        return canonical
+    packed = _github_read_remote_path(_remote_path_for(memory_name) + ".gz")
+    if not packed[0]:
+        # Missing is the legacy format. Other failures must not silently expose
+        # an older, uncompressed archive as if it were the current ledger.
+        if packed[3] != "remote_missing":
+            return False, None, None, f"compressed_remote_read_failed:{packed[3]}"
+        if canonical[0] and canonical[1] is not None:
+            _record_remote_file(memory_name, canonical[1], canonical[2], verified=False)
+        return canonical
+    if not canonical[0] and canonical[3] != "remote_missing":
+        return canonical
+    try:
+        blob = gzip.decompress(packed[1])
+    except Exception as exc:
+        return False, None, packed[2], f"compressed_memory_invalid:{type(exc).__name__}"
+    if canonical[0] and canonical[1]:
+        # Preserve additions from an older deployed writer during migration.
+        # The current compressed snapshot wins for matching immutable IDs.
+        blob = _merge_remote_candidate_blobs(memory_name, canonical[1], blob)
+    _record_remote_file(memory_name, blob, packed[2], verified=False)
+    return True, blob, packed[2], None
 
 
 def _github_read_legacy_nested_file(
@@ -474,6 +497,7 @@ def _github_write_file(
     local_path: str | Path,
     message: Optional[str] = None,
     payload_bytes: Optional[bytes] = None,
+    expected_sha: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """Write the exact supplied snapshot to GitHub.
 
@@ -494,13 +518,28 @@ def _github_write_file(
     ok, _old_bytes, sha, read_err = _github_read_file(memory_name)
     if read_err not in (None, "remote_missing"):
         return False, f"remote_prewrite_read_failed:{read_err}"
+    if expected_sha is not None and str(sha or "") != expected_sha:
+        return False, "github_put_409:remote_changed_before_write"
     remote_path = _remote_path_for(memory_name)
     root = _normalize_remote_memory_dir(cfg.get("memory_dir"))
     if _remote_path_has_duplicated_root(remote_path, root):
         return False, f"remote_path_guard_blocked:{remote_path}"
+    blob = bytes(payload_bytes) if payload_bytes is not None else p.read_bytes()
+    if memory_name.endswith(".jsonl"):
+        packed = _github_read_remote_path(remote_path + ".gz")
+        if not packed[0] and packed[3] != "remote_missing":
+            return False, f"compressed_remote_prewrite_failed:{packed[3]}"
+        if packed[0] and packed[2] != sha:
+            return False, "github_put_409:compressed_remote_changed_before_write"
+        if len(blob) >= 8 * 1024 * 1024 or packed[0]:
+            # Lossless alternate transport only. Local schemas, row identities,
+            # merge guards and exact read-back verification stay unchanged.
+            # The original canonical history is retained, never deleted.
+            remote_path += ".gz"
+            ok, sha = packed[0], packed[2]
+            blob = gzip.compress(blob, compresslevel=6, mtime=0)
     remote_path_q = quote(remote_path, safe="/")
     url = f"https://api.github.com/repos/{cfg['repo']}/contents/{remote_path_q}"
-    blob = bytes(payload_bytes) if payload_bytes is not None else p.read_bytes()
     payload: Dict[str, Any] = {
         "message": message or f"TINO memory sync: {memory_name}",
         "content": base64.b64encode(blob).decode("ascii"),
@@ -1015,6 +1054,7 @@ def _sync_file_to_remote_unlocked(path: str | Path, shrink_guard: bool = True) -
             p,
             message=f"TINO memory sync: {memory_name}",
             payload_bytes=upload_blob,
+            expected_sha=str(_sha or ""),
         )
         if not write_ok:
             return False, None, None, write_err
@@ -1040,6 +1080,7 @@ def _sync_file_to_remote_unlocked(path: str | Path, shrink_guard: bool = True) -
             _LAST_REMOTE_REPORT["error"] = msg
             return False, msg
         retry_blob = p.read_bytes()
+        _sha = verify_sha
         ok, verify_blob, verify_sha, sync_err = _upload_and_verify(retry_blob)
         if not ok or verify_blob is None:
             _LAST_REMOTE_REPORT["status"] = "WARN"
@@ -1070,7 +1111,7 @@ def _transient_memory_sync_error(error: Optional[str]) -> bool:
     """Retry transport failures, not credential/ruleset denials or bad data."""
     text = str(error or "").lower()
     if "github_put_403:" in text:
-        return "the rule did not run because of a timeout" in text
+        return any(message in text for message in ("the rule did not run because of a timeout", "timed out validating the rule"))
     return any(marker in text for marker in (
         "github_put_409:", "github_put_429:", "github_put_500:",
         "github_put_502:", "github_put_503:", "github_put_504:",
