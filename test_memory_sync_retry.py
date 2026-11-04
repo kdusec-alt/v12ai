@@ -56,6 +56,17 @@ class MemorySyncRetryTests(unittest.TestCase):
             self.assertEqual(result['files'][0]['error'], 'OSError')
             self.assertTrue(result['files'][1]['verified'])
 
+    def test_probe_uses_unique_non_trading_file_and_fails_on_unverified_write(self):
+        import verify_memory_sync_v1118 as probe
+        import memory_store
+        with tempfile.TemporaryDirectory() as folder, patch.object(memory_store, 'MEMORY_DIR', Path(folder)), patch.dict('os.environ', {'GITHUB_RUN_ID':'12345', 'GITHUB_RUN_ATTEMPT':'2', 'GITHUB_STEP_SUMMARY':''}), patch.object(store, '_remote_config', return_value={'configured':True,'token':'test'}), patch.object(store, '_sync_file_to_remote', return_value=(False, 'test denial')) as sync:
+            with self.assertRaises(SystemExit):
+                probe.main()
+            path=sync.call_args.args[0]
+            self.assertEqual(path, Path(folder)/'health_checks'/'12345-2.json')
+            self.assertIn('not a forecast', json.loads(path.read_text())['purpose'])
+            self.assertFalse((Path(folder)/'prediction_log.jsonl').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

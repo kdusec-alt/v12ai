@@ -40,3 +40,23 @@ jobs:
           test_market_command_v1071.py test_v1081_event_refresh.py
           test_jarvis_v1117.py test_ai_research_v1118.py
           test_fundamental_technical_risk.py
+  memory_write_readback:
+    # Explicit commit marker opts into one small real storage check. PRs never
+    # receive a write token and ordinary pushes run only the offline core suite.
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[verify-memory]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify real GitHub durable memory without market or AI requests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TINO_GITHUB_REPO: ${{ github.repository }}
+          TINO_GITHUB_BRANCH: tino-memory
+          TINO_INLINE_REMOTE_SYNC: '0'
+        run: python verify_memory_sync_v1118.py
