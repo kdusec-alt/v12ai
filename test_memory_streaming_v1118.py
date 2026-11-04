@@ -49,5 +49,24 @@ class MemoryStreamingTests(unittest.TestCase):
             restore.assert_called_once_with(force=False,sync_recovered=False)
             sync.assert_not_called()
 
+    def test_large_json_cold_restore_preserves_original_bytes(self):
+        remote=json.dumps({'recent_predictions':[{'id':'a','text':'x'*(2*1024*1024)}]}).encode()
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'tino_memory_ledger.json'
+            ok,info,error=store._reconcile_local_with_remote(target,remote)
+            self.assertTrue(ok,error)
+            self.assertEqual(info['merge_backend'],'cold_exact_copy')
+            self.assertEqual(target.read_bytes(),remote)
+
+    def test_save_ledger_preserves_input_and_all_history_fields(self):
+        import copy
+        with tempfile.TemporaryDirectory() as folder:
+            data=store.empty_ledger();data['recent_predictions']=[{'id':'a','nested':{'value':[1,2,3]}}]
+            before=copy.deepcopy(data)
+            ok,saved=store.save_ledger(data,Path(folder)/'ledger.json',sync_remote=False)
+            self.assertTrue(ok)
+            self.assertEqual(data,before)
+            self.assertEqual(saved['recent_predictions'],before['recent_predictions'])
+
 
 if __name__=='__main__':unittest.main()

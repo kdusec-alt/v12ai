@@ -815,6 +815,22 @@ def _merge_remote_candidate_blobs(
 def _reconcile_local_with_remote(path: str | Path, remote_blob: bytes) -> Tuple[bool, Dict[str, Any], Optional[str]]:
     """Merge remote and local without allowing either side to erase history."""
     p = Path(path)
+    if p.suffix == ".json" and len(remote_blob) >= 2 * 1024 * 1024:
+        # A cold runtime has no local additions to merge. Preserve the exact
+        # validated remote document instead of copying and reserializing it.
+        try:
+            local_empty = not p.exists() or p.stat().st_size == 0
+            if p.exists() and p.stat().st_size <= 3:
+                local_empty = _json_dict_from_bytes(p.read_bytes()) == {}
+            if local_empty:
+                valid = isinstance(json.loads(remote_blob), dict)
+                if not valid:
+                    return False, {}, "remote_json_not_object"
+                _atomic_write_bytes(p, remote_blob)
+                return True, {"changed": True, "remote_bytes": len(remote_blob),
+                              "local_bytes_after": len(remote_blob), "merge_backend": "cold_exact_copy"}, None
+        except Exception as exc:
+            return False, {}, f"reconcile_failed:{type(exc).__name__}:{exc}"
     if p.suffix == ".jsonl" and len(remote_blob) + (p.stat().st_size if p.exists() else 0) >= 2 * 1024 * 1024:
         from memory_streaming_v1118 import merge_streams, file_digest
         info = {"remote_bytes": len(remote_blob), "local_bytes_before": p.stat().st_size if p.exists() else 0}
@@ -939,11 +955,13 @@ def _write_local_backup(path: str | Path) -> None:
                 return
             if not isinstance(candidate_doc, dict):
                 return
+            candidate_items = len(candidate_doc)
+            del candidate_doc
             # Ticker profiles are cumulative knowledge.  A valid but smaller
             # map is still suspicious and must not replace a richer backup.
             if p.name == "ticker_profiles.json" and latest.exists():
                 previous_doc = _json_dict_from_bytes(latest.read_bytes())
-                if len(previous_doc) > len(candidate_doc):
+                if len(previous_doc) > candidate_items:
                     return
 
         _atomic_write_bytes(latest, payload)
@@ -1489,7 +1507,12 @@ def save_ledger(
         sync_remote = inline_remote_sync_enabled()
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    ledger = _merge_schema(copy.deepcopy(data))
+    # Only schema/control dictionaries are mutated here. Historical arrays
+    # remain read-only until the independent read-back object is returned.
+    ledger_input = dict(data)
+    ledger_input["watch_center"] = copy.deepcopy(data.get("watch_center", {}))
+    ledger_input["storage_guard"] = copy.deepcopy(data.get("storage_guard", {}))
+    ledger = _merge_schema(ledger_input)
     ts = now_tw_iso()
     ledger["last_saved_tw"] = ts
     ledger["storage_guard"].update({
@@ -1511,13 +1534,9 @@ def save_ledger(
             check = json.load(f)
         check = _merge_schema(check)
 
-        a = copy.deepcopy(ledger)
-        b = copy.deepcopy(check)
-        a_sg = a.get("storage_guard", {})
-        b_sg = b.get("storage_guard", {})
-        for k in ("last_write_ok", "last_verify_ok", "last_error", "last_write_at_tw", "last_verify_at_tw"):
-            a_sg.pop(k, None)
-            b_sg.pop(k, None)
+        ignored = {"last_write_ok", "last_verify_ok", "last_error", "last_write_at_tw", "last_verify_at_tw"}
+        a = {**ledger, "storage_guard": {k: v for k, v in ledger.get("storage_guard", {}).items() if k not in ignored}}
+        b = {**check, "storage_guard": {k: v for k, v in check.get("storage_guard", {}).items() if k not in ignored}}
 
         ok = a == b
         verify_ts = now_tw_iso()
@@ -1717,8 +1736,9 @@ def mirror_profiles_to_ledger(
 
 def _hydrate_ledger_from_jsonl(ledger: Dict[str, Any], limit: int = 500) -> Dict[str, Any]:
     """Backfill ledger recent_* arrays from existing JSONL logs."""
-    preds = list(reversed(_read_jsonl_file(Path(PREDICTION_LOG))[-limit:]))
-    audits = list(reversed(_read_jsonl_file(Path(AUDIT_LOG))[-limit:]))
+    from memory_store import read_jsonl
+    preds = list(reversed(read_jsonl(Path(PREDICTION_LOG), limit)))
+    audits = list(reversed(read_jsonl(Path(AUDIT_LOG), limit)))
     if preds:
         ledger["recent_predictions"] = _merge_recent_rows(list(ledger.get("recent_predictions", [])), preds, limit)
     if audits:
@@ -1810,6 +1830,7 @@ def ensure_memory_initialized(
     path: str | Path = DEFAULT_LEDGER_PATH,
     *,
     allow_remote: bool = True,
+    hydrate_ledger: bool = True,
 ) -> Dict[str, Any]:
     """Create memory files and migrate older local memory if found.
 
@@ -1935,6 +1956,14 @@ def ensure_memory_initialized(
                     report["imported_watch_symbols"] = len(imported_symbols[:60])
                     report["notes"].append(f"migrated watch_center_list symbols: {len(imported_symbols[:60])}")
 
+        if not hydrate_ledger:
+            # The raw logs and full recovery ledger have already been restored.
+            # Do not regenerate a 35 MB mirror during a read-only page startup.
+            report["ledger_saved"] = False
+            report["ledger_exists"] = p.exists()
+            report["ledger_hydration"] = "deferred_read_only"
+            report["remote_sync"] = {"status": "SKIPPED_READ_ONLY"}
+            return report
         ledger = _hydrate_ledger_from_jsonl(_merge_schema(ledger), limit=500)
         mig = ledger.setdefault("storage_guard", {}).setdefault("migration", {})
         mig.update({
@@ -2007,6 +2036,7 @@ def ensure_memory_initialized_bootsafe(
             migrate=migrate,
             path=path,
             allow_remote=False,
+            hydrate_ledger=not read_only,
         )
         report["remote_restore"] = remote_report
         seed_report: Dict[str, Any] = {"status": "SKIPPED", "synced_files": [], "errors": []}
