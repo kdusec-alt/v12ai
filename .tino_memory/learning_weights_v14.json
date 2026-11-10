@@ -2,7 +2,7 @@
   "decision_influence": true,
   "models": {
     "TW": {
-      "audit_fingerprint": "e1c1c145700a06a0",
+      "audit_fingerprint": "261f652ee4941af9",
       "bounds": [
         0.94,
         1.06
@@ -156,45 +156,45 @@
         }
       },
       "gate": "candidate_failed_holdout",
-      "generation": 4,
-      "last_audit_count": 168,
+      "generation": 5,
+      "last_audit_count": 171,
       "market": "TW",
       "max_step": 0.0125,
       "multipliers": {},
-      "sample_count": 168,
+      "sample_count": 171,
       "status": "SHADOW",
       "train_count": 136,
       "train_through": "2026-10-05",
-      "trained_through": "2026-11-06",
-      "unique_sessions": 26,
-      "unique_tickers": 52,
-      "updated_at_tw": "2026-11-06T23:15:34+08:00",
+      "trained_through": "2026-11-10",
+      "unique_sessions": 27,
+      "unique_tickers": 53,
+      "updated_at_tw": "2026-11-10T23:43:24+08:00",
       "validation": {
         "baseline": {
-          "count": 32,
-          "hit_rate": 0.5,
-          "log_loss": 1.004438,
-          "signed_margin": -0.053727
+          "count": 35,
+          "hit_rate": 0.457143,
+          "log_loss": 1.135442,
+          "signed_margin": -0.122674
         },
         "candidate": {
-          "count": 32,
-          "hit_rate": 0.5,
-          "log_loss": 0.998638,
-          "signed_margin": -0.05206
+          "count": 35,
+          "hit_rate": 0.457143,
+          "log_loss": 1.129338,
+          "signed_margin": -0.121016
         },
         "passed": false,
         "previous_active": {
-          "count": 32,
-          "hit_rate": 0.5,
-          "log_loss": 1.004438,
-          "signed_margin": -0.053727
+          "count": 35,
+          "hit_rate": 0.457143,
+          "log_loss": 1.135442,
+          "signed_margin": -0.122674
         },
         "previous_degraded": false
       },
-      "validation_count": 32,
+      "validation_count": 35,
       "validation_from": "2026-10-06",
       "validation_protocol": "session_holdout_v2",
-      "validation_sessions": 6
+      "validation_sessions": 7
     }
   },
   "safety": {
@@ -208,5 +208,5 @@
     "verified_t1_only": true
   },
   "schema": "TINO_V14_LEARNING_WEIGHTS_V1",
-  "updated_at_tw": "2026-11-06T23:15:34+08:00"
+  "updated_at_tw": "2026-11-10T23:43:24+08:00"
 }
