@@ -340,6 +340,8 @@ def render_autonomous_dashboard(st):
     st.markdown("每日市場掃描 → AI 比較論點與風險 → 正式模型否決／確認 → 模擬判斷 → 次日驗證。這裡只有研究紀錄，不連接券商下單。")
     if refresh_error:
         st.warning("遠端最新掃描紀錄暫時無法確認；以下為本機最後取得的資料。")
+    from paper_trials_v1118 import render_trials
+    render_trials(st)
     st.markdown("### 每日股票掃描清單｜包含未通過標的")
     daily_runs = sorted(runs, key=lambda row: (str(row.get("run_day") or ""), str(row.get("run_at") or "")), reverse=True)
     if daily_runs:

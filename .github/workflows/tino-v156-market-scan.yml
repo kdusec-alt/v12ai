@@ -81,6 +81,8 @@ jobs:
             .tino_memory/audit_log.jsonl.gz
             .tino_memory/paper_lab/experiments.jsonl
             .tino_memory/paper_lab/outcomes.jsonl
+            .tino_memory/paper_lab/trial_orders.jsonl
+            .tino_memory/paper_lab/trial_results.jsonl
             .tino_memory/paper_lab/scan_runs.jsonl
             .tino_memory/paper_lab/portfolio_events.jsonl
           include-hidden-files: true

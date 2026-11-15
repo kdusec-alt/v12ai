@@ -112,7 +112,7 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                     contexts[symbol] = evidence_from_forecast(forecast)
                     frame = getattr(forecast, "price_frame", None)
                     fundamental = dict((getattr(frame, "context", {}) or {}).get("fundamental") or {})
-                    compact = SimpleNamespace(stopped=False, price_frame=SimpleNamespace(context={"fundamental": fundamental}))
+                    compact = SimpleNamespace(stopped=False, price_frame=SimpleNamespace(context={"fundamental": fundamental}, market_status=getattr(frame, "market_status", None)))
                     prepared[symbol] = (compact, row, None)
                 del forecast
             except Exception as exc:
@@ -179,6 +179,14 @@ def run_cycle(snapshot_dir, *, analyze=None, log=None, capture=None, settle=None
                             capture_row["paper_trade_allowed"] = permitted
                             if not permitted:
                                 capture_row["paper_gate_reason"] = "掃描或AI未允許進場，保留價格預測作空手觀察"
+                            from paper_trials_v1118 import capture_trial
+                            try:
+                                trial_row = dict(row, trial_market_status=getattr(getattr(forecast, "price_frame", None), "market_status", None))
+                                trial = capture_trial(trial_row, candidate, permitted)
+                                if trial:
+                                    item["trial_orders"] = trial["orders"]
+                            except Exception as exc:
+                                item["trial_error"] = type(exc).__name__
                             outcome = capture(capture_row, forecast, origin="autonomous")
                             item["result"] = str(outcome.get("status") or "unknown")
                             item["experiment_status"] = outcome.get("experiment_status")
@@ -234,9 +242,11 @@ def main():
     restore_status = (bootstrap.get("remote_restore") or {}).get("status")
     if restore_status not in {"PASS", "EMPTY_REMOTE"}:
         raise SystemExit(f"V1118 remote memory restore incomplete: {restore_status}")
+    from paper_trials_v1118 import FILES as trial_files
     sync_paths = (PREDICTION_LOG, AUDIT_LOG, Path(MEMORY_DIR)/"paper_lab"/"experiments.jsonl",
                   Path(MEMORY_DIR)/"paper_lab"/"outcomes.jsonl", Path(MEMORY_DIR)/"paper_lab"/"scan_runs.jsonl",
-                  Path(MEMORY_DIR)/"paper_lab"/"portfolio_events.jsonl")
+                  Path(MEMORY_DIR)/"paper_lab"/"portfolio_events.jsonl",
+                  *(Path(MEMORY_DIR) / name for name in trial_files))
     before = {
         str(path): (path.stat().st_size, path.stat().st_mtime_ns)
         for path in sync_paths if path.exists()

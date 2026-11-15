@@ -72,6 +72,8 @@ LEGACY_FILE_NAMES = {
 # backups and shrink guard inside the current runtime.
 _MEMORY_FILES = [
     "paper_lab/experiments.jsonl",
+    "paper_lab/trial_orders.jsonl",
+    "paper_lab/trial_results.jsonl",
     "paper_lab/outcomes.jsonl",
     "paper_lab/scan_runs.jsonl",
     "paper_lab/audit_runs.jsonl",

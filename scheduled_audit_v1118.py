@@ -96,6 +96,11 @@ def run_close_audit(market, *, audit=None, reconcile=None, portfolio=None, now=N
         report["portfolio"] = portfolio()
     except Exception as exc:
         report["settlement"] = {"status": "deferred", "reason": type(exc).__name__}
+    from paper_trials_v1118 import reconcile_trials
+    try:
+        report["trial_results"] = reconcile_trials()
+    except Exception as exc:
+        report["trial_error"] = type(exc).__name__
     append_jsonl(Path(MEMORY_DIR) / "paper_lab" / "audit_runs.jsonl", report)
     return report
 
@@ -118,7 +123,8 @@ def main():
              Path(MEMORY_DIR) / "paper_lab" / "scan_runs.jsonl",
              Path(MEMORY_DIR) / "paper_lab" / "outcomes.jsonl",
              Path(MEMORY_DIR) / "paper_lab" / "portfolio_events.jsonl",
-             Path(MEMORY_DIR) / "paper_lab" / "audit_runs.jsonl")
+             Path(MEMORY_DIR) / "paper_lab" / "audit_runs.jsonl",
+             Path(MEMORY_DIR) / "paper_lab" / "trial_results.jsonl")
     sync_report = sync_memory_batch(paths, Path("audit_output") / "memory_sync_result.json")
     print({"memory_sync_status": sync_report["status"], "files": sync_report["files"]})
     if sync_report["status"] == "FAIL":

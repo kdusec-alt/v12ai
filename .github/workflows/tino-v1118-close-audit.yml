@@ -51,6 +51,8 @@ jobs:
             .tino_memory/learning_weights_v14.json
             .tino_memory/paper_lab/scan_runs.jsonl
             .tino_memory/paper_lab/outcomes.jsonl
+            .tino_memory/paper_lab/trial_orders.jsonl
+            .tino_memory/paper_lab/trial_results.jsonl
             .tino_memory/paper_lab/portfolio_events.jsonl
             .tino_memory/paper_lab/audit_runs.jsonl
           include-hidden-files: true
@@ -91,6 +93,8 @@ jobs:
             .tino_memory/learning_weights_v14.json
             .tino_memory/paper_lab/scan_runs.jsonl
             .tino_memory/paper_lab/outcomes.jsonl
+            .tino_memory/paper_lab/trial_orders.jsonl
+            .tino_memory/paper_lab/trial_results.jsonl
             .tino_memory/paper_lab/portfolio_events.jsonl
             .tino_memory/paper_lab/audit_runs.jsonl
           include-hidden-files: true
